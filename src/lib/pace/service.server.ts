@@ -6,6 +6,13 @@
  */
 import type { Sql } from "../db.ts";
 import {
+  dayAndTime,
+  DEFAULT_PREFS,
+  enqueue,
+  firstName,
+  type NotifyPrefs,
+} from "./notify.server.ts";
+import {
   abilityFits,
   abilityLabel,
   canBook,
@@ -85,6 +92,7 @@ type ProfileRow = {
   suspended_at: Date | null;
   suspended_reason: string | null;
   deleted_at: Date | null;
+  notify: unknown;
   created_at: Date;
 };
 
@@ -136,6 +144,8 @@ export type MeDTO = Person & {
   frozenUntil: string | null;
   /** Completed sessions left before membership would start. */
   freeSessionsLeft: number;
+  /** Which kinds of push I want. Safety and account notices always send. */
+  notify: NotifyPrefs;
   /** Set when the account is paused by SamePace. Only `/me` works until it lifts. */
   suspended: { reason: string } | null;
   /** The account was deleted; its token opens nothing. Never sent to a live client. */
@@ -266,6 +276,7 @@ async function toMe(sql: Sql, r: ProfileRow, now: number): Promise<MeDTO> {
     strikes: Number(strikes?.n ?? 0),
     frozenUntil: frozenUntil && frozenUntil > now ? at(frozenUntil) : null,
     freeSessionsLeft: Math.max(0, FREE_SESSIONS - r.completed_count),
+    notify: { ...DEFAULT_PREFS, ...(json<Partial<NotifyPrefs>>(r.notify) ?? {}) },
     suspended: r.suspended_at ? { reason: r.suspended_reason ?? "" } : null,
     deleted: Boolean(r.deleted_at),
   };
@@ -306,19 +317,31 @@ export async function ensureProfile(
 export async function updateProfile(
   sql: Sql,
   userId: string,
-  patch: { name?: string; neighborhood?: string; gender?: Gender; abilities?: MemberAbilities },
+  patch: {
+    name?: string;
+    neighborhood?: string;
+    gender?: Gender;
+    abilities?: MemberAbilities;
+    notify?: Partial<NotifyPrefs>;
+  },
 ): Promise<MeDTO> {
   const cur = await profileRow(sql, userId);
   const name = patch.name?.trim() || cur.name;
   // Abilities merge per activity, so setting a run pace never wipes a hike level.
   const abilities = { ...json<MemberAbilities>(cur.abilities), ...(patch.abilities ?? {}) };
+  const notify = {
+    ...DEFAULT_PREFS,
+    ...(json<Partial<NotifyPrefs>>(cur.notify) ?? {}),
+    ...(patch.notify ?? {}),
+  };
   await sql`
     update profiles set
       name = ${name},
       initials = ${initialsOf(name)},
       neighborhood = ${patch.neighborhood?.trim() || cur.neighborhood},
       gender = ${patch.gender === undefined ? cur.gender : patch.gender},
-      abilities = ${JSON.stringify(abilities)}::jsonb
+      abilities = ${JSON.stringify(abilities)}::jsonb,
+      notify = ${JSON.stringify(notify)}::jsonb
     where id = ${userId}`;
   return getMe(sql, userId);
 }
@@ -591,6 +614,20 @@ export async function cancelSession(
         and status in ('pending', 'confirmed') for update`;
     for (const b of seats) {
       await tx`update bookings set status = 'cancelled', settled_at = ${at(now)} where id = ${b.id}`;
+      await enqueue(
+        tx,
+        {
+          profileId: b.participant_id,
+          kind: "session_cancelled",
+          category: "sessions",
+          title: `Called off: ${s.title}`,
+          body: `${dayAndTime(s.start_at)} isn’t happening. Your seat is released and nothing is charged.`,
+          url: "/sessions",
+          sessionId,
+          bookingId: b.id,
+        },
+        now,
+      );
     }
     await tx`update sessions set status = 'cancelled' where id = ${sessionId}`;
     const stoodUp = seats.some((b) => b.status === "confirmed");
@@ -630,6 +667,18 @@ async function strike(tx: Sql, profileId: string, bookingId: string, now: number
     where profile_id = ${profileId} and created_at > ${at(now - STRIKE_WINDOW_MS)}`;
   if (Number(n) >= STRIKES_TO_FREEZE) {
     await tx`update profiles set frozen_until = ${at(now + FREEZE_MS)} where id = ${profileId}`;
+    await enqueue(
+      tx,
+      {
+        profileId,
+        kind: "frozen",
+        category: "account",
+        title: "Public sessions are paused for 14 days",
+        body: "That’s two no-shows in 60 days. Invites from people you know still work.",
+        url: "/you",
+      },
+      now,
+    );
   }
 }
 
@@ -711,6 +760,32 @@ export async function bookSeat(
       insert into bookings (id, session_id, participant_id, status, substitute_for)
       values (${id}, ${sessionId}, ${userId}, ${instant ? "confirmed" : "pending"}, ${substituteFor})`;
     if (instant) await coverLateCancel(tx, sessionId);
+    const joiner = await firstName(tx, userId);
+    await enqueue(
+      tx,
+      instant
+        ? {
+            profileId: s.host_id,
+            kind: "seat_taken",
+            category: "sessions",
+            title: `${joiner} is in`,
+            body: `${s.title} · ${dayAndTime(s.start_at)}. Say hi and sort out the details.`,
+            url: `/thread/${id}`,
+            sessionId,
+            bookingId: id,
+          }
+        : {
+            profileId: s.host_id,
+            kind: "seat_requested",
+            category: "sessions",
+            title: `${joiner} asked to join`,
+            body: `${s.title} · ${dayAndTime(s.start_at)}. Approve or decline — an unanswered request lapses at the start.`,
+            url: `/session/${sessionId}`,
+            sessionId,
+            bookingId: id,
+          },
+      now,
+    );
     await tx`
       insert into messages (id, booking_id, from_id, text)
       values (${newId("m")}, ${id}, ${s.host_id}, ${
@@ -828,6 +903,20 @@ export async function approveBooking(sql: Sql, userId: string, bookingId: string
     if (Number(n) >= s.capacity - 1) throw new PaceError(409, "It’s full.");
     await tx`update bookings set status = 'confirmed' where id = ${bookingId}`;
     await coverLateCancel(tx, s.id);
+    await enqueue(
+      tx,
+      {
+        profileId: b.participant_id,
+        kind: "seat_approved",
+        category: "sessions",
+        title: "You’re in",
+        body: `${s.title} · ${dayAndTime(s.start_at)}. The exact meeting spot is on the session now.`,
+        url: `/session/${s.id}`,
+        sessionId: s.id,
+        bookingId,
+      },
+      now,
+    );
   });
   return getBooking(sql, userId, bookingId, now);
 }
@@ -838,6 +927,20 @@ export async function declineBooking(sql: Sql, userId: string, bookingId: string
     if (s.host_id !== userId) throw new PaceError(403, "Only the poster can decline.");
     if (b.status !== "pending") throw new PaceError(409, "No request to decline.");
     await tx`update bookings set status = 'declined', settled_at = ${at(now)} where id = ${bookingId}`;
+    await enqueue(
+      tx,
+      {
+        profileId: b.participant_id,
+        kind: "seat_declined",
+        category: "sessions",
+        title: "Not this one",
+        body: `Your request for ${s.title} wasn’t taken up. Nothing is charged — there are other sessions at your level.`,
+        url: "/sessions",
+        sessionId: s.id,
+        bookingId,
+      },
+      now,
+    );
   });
   return getBooking(sql, userId, bookingId, now);
 }
@@ -867,8 +970,74 @@ export async function cancelBooking(
         chargeableAt: feeChargeableAt(startAt, s.duration_min),
       });
     }
+    if (b.status === "confirmed") {
+      await enqueue(
+        tx,
+        {
+          profileId: s.host_id,
+          kind: "seat_cancelled",
+          category: "sessions",
+          title: `${await firstName(tx, userId)} can’t make it`,
+          body: `${s.title} · ${dayAndTime(s.start_at)}. The seat is open again.`,
+          url: `/session/${s.id}`,
+          sessionId: s.id,
+          bookingId,
+        },
+        now,
+      );
+      await offerSubstituteSeat(tx, s, now);
+    }
   });
   return getBooking(sql, userId, bookingId, now);
+}
+
+/**
+ * A regular is out this week: offer the seat to the members most likely to turn
+ * up. Public standing slots only; never someone frozen, paused, blocked with
+ * anyone on the session, outside the level, or already part of it. Ten at most.
+ */
+async function offerSubstituteSeat(tx: Sql, s: SessionRow, now: number) {
+  if (!s.series_id || s.visibility !== "public" || s.status !== "open") return;
+  const onIt = await tx<{ participant_id: string }>`
+    select participant_id from bookings where session_id = ${s.id} and status in ('pending', 'confirmed')`;
+  const involved = [s.host_id, ...onIt.map((b) => b.participant_id)];
+  const candidates = await tx.query<{ id: string; abilities: unknown }>(
+    `select p.id, p.abilities from profiles p
+     where p.deleted_at is null and p.suspended_at is null
+       and (p.frozen_until is null or p.frozen_until < $1)
+       and p.completed_count > 0
+       and ($2::boolean is not true or p.gender = 'woman')
+       and p.id <> all($3)
+       and not exists (select 1 from series_members m
+         where m.series_id = $4 and m.profile_id = p.id and m.left_at is null)
+       and not exists (select 1 from blocks k
+         where (k.blocker_id = p.id and k.blocked_id = any($3))
+            or (k.blocked_id = p.id and k.blocker_id = any($3)))
+       and exists (select 1 from push_devices d where d.profile_id = p.id and d.disabled_at is null)
+     order by (p.on_time_yes + 1.0) / (p.on_time_total + 2.0) desc, p.completed_count desc
+     limit 40`,
+    [at(now), s.women_only, involved, s.series_id],
+  );
+  const ability = json<Ability>(s.ability);
+  const fits = candidates
+    .filter((c) => abilityFits(json<MemberAbilities>(c.abilities) ?? {}, ability, s.ability_flex) === true)
+    .slice(0, 10);
+  for (const c of fits) {
+    await enqueue(
+      tx,
+      {
+        profileId: c.id,
+        kind: "substitute_offer",
+        category: "substitutes",
+        title: "A seat opened at your level",
+        body: `${s.title} · ${dayAndTime(s.start_at)} · ${abilityLabel(ability)}. One week, filling in for a regular.`,
+        url: `/session/${s.id}`,
+        sessionId: s.id,
+        dedupeKey: `sub:${s.id}:${c.id}`,
+      },
+      now,
+    );
+  }
 }
 
 // ── Check-in + settlement ────────────────────────────────────────────────────
@@ -900,6 +1069,36 @@ async function applySettlement(tx: Sql, b: BookingRow, s: SessionRow, now: numbe
       chargeableAt: feeChargeableAt(ms(s.start_at)!, s.duration_min),
     });
     await strike(tx, absent, b.id, now);
+    await enqueue(
+      tx,
+      {
+        profileId: absent,
+        kind: "no_show",
+        category: "account",
+        title: "Missed session: $10 fee and a strike",
+        body: `You didn’t check in to ${s.title}. If that’s wrong, email support@samepace.app within 24 hours and a person will look.`,
+        url: "/you",
+        sessionId: s.id,
+        bookingId: b.id,
+        dedupeKey: `noshow:${b.id}:${absent}`,
+      },
+      now,
+    );
+    await enqueue(
+      tx,
+      {
+        profileId: present,
+        kind: "stood_up",
+        category: "sessions",
+        title: "You showed up. They didn’t.",
+        body: `Sorry about ${s.title}. $5 of membership credit is on your account.`,
+        url: "/you",
+        sessionId: s.id,
+        bookingId: b.id,
+        dedupeKey: `stoodup:${b.id}:${present}`,
+      },
+      now,
+    );
     await ledger(tx, present, "show_up_credit", outcome.creditCents, { bookingId: b.id });
     await tx`
       update profiles set credit_cents = credit_cents + ${outcome.creditCents} where id = ${present}`;
@@ -1087,6 +1286,22 @@ async function ensureNextOccurrence(tx: Sql, seriesId: string, now: number): Pro
       insert into messages (id, booking_id, from_id, text)
       values (${newId("m")}, ${bookingId}, ${host}, 'Same time next week. See you there.')`;
   }
+  for (const member of members) {
+    await enqueue(
+      tx,
+      {
+        profileId: member,
+        kind: "next_occurrence",
+        category: "sessions",
+        title: "Same time next week is on",
+        body: `${last.title} · ${dayAndTime(startAt)}. Can’t make it? Skip the week 12 hours ahead and it’s free.`,
+        url: `/session/${id}`,
+        sessionId: id,
+        dedupeKey: `next:${id}:${member}`,
+      },
+      now,
+    );
+  }
   return id;
 }
 
@@ -1219,10 +1434,27 @@ export async function withdrawEverything(sql: Sql, userId: string, now = Date.no
       select id from sessions where host_id = ${userId} and status = 'open'
         and start_at > ${at(now)} for update`;
     for (const { id } of hosted) {
-      await tx`
+      const seats = await tx<{ id: string; participant_id: string }>`
         update bookings set status = 'cancelled', settled_at = ${at(now)}
-        where session_id = ${id} and status in ('pending', 'confirmed')`;
+        where session_id = ${id} and status in ('pending', 'confirmed')
+        returning id, participant_id`;
       await tx`update sessions set status = 'cancelled' where id = ${id}`;
+      for (const seat of seats) {
+        await enqueue(
+          tx,
+          {
+            profileId: seat.participant_id,
+            kind: "session_cancelled",
+            category: "sessions",
+            title: "A session you joined was called off",
+            body: "Your seat is released and nothing is charged.",
+            url: "/sessions",
+            sessionId: id,
+            bookingId: seat.id,
+          },
+          now,
+        );
+      }
     }
     await tx`
       update bookings b set status = 'cancelled', settled_at = ${at(now)}
@@ -1304,6 +1536,19 @@ export async function sendMessage(
   await sql`
     insert into messages (id, booking_id, from_id, text)
     values (${newId("m")}, ${bookingId}, ${userId}, ${body})`;
+  await enqueue(
+    sql,
+    {
+      profileId: r.host_id === userId ? r.participant_id : r.host_id,
+      kind: "message",
+      category: "messages",
+      title: await firstName(sql, userId),
+      body: body.slice(0, 180),
+      url: `/thread/${bookingId}`,
+      bookingId,
+    },
+    now,
+  );
   return listMessages(sql, userId, bookingId);
 }
 

@@ -12,6 +12,7 @@ import {
   severTies,
   withdrawEverything,
 } from "./service.server.ts";
+import { enqueue } from "./notify.server.ts";
 import type { Person } from "./types.ts";
 
 export const REPORT_REASONS = [
@@ -129,6 +130,32 @@ export async function reportMember(
       insert into reports (id, reporter_id, reported_id, session_id, booking_id, reason, detail, created_at)
       values (${reportId}, ${userId}, ${input.reportedId}, ${sessionId}, ${input.bookingId ?? null},
         ${input.reason}, ${(input.detail ?? "").trim().slice(0, 2000)}, ${at(now)})`;
+    // Reports are read by a person within a day — tell the people who read them.
+    const admins = (process.env.ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    if (admins.length > 0) {
+      const rows = await tx.query<{ id: string }>(
+        `select p.id from profiles p join "user" u on u.id = p.id
+         where lower(u.email) = any($1) and u."emailVerified" and p.deleted_at is null`,
+        [admins],
+      );
+      for (const a of rows) {
+        await enqueue(
+          tx,
+          {
+            profileId: a.id,
+            kind: "admin_report",
+            category: "account",
+            title: "New report in the safety queue",
+            body: `Reason: ${input.reason.replace(/_/g, " ")}. Open the admin page to review it.`,
+            dedupeKey: `report:${reportId}:${a.id}`,
+          },
+          now,
+        );
+      }
+    }
     return reportId;
   });
   if (input.alsoBlock) await blockMember(sql, userId, input.reportedId, now);
@@ -165,6 +192,8 @@ export async function deleteAccount(sql: Sql, userId: string, now = Date.now()) 
       delete from messages where from_id = ${userId} and booking_id not in (
         select booking_id from reports where booking_id is not null)`;
     await tx`delete from blocks where blocker_id = ${userId}`;
+    await tx`delete from push_devices where profile_id = ${userId}`;
+    await tx`delete from notifications where profile_id = ${userId}`;
     await tx`
       update profiles set
         name = 'Deleted member', handle = ${`deleted${newId("x").slice(2, 14)}`}, initials = '–',
@@ -325,6 +354,18 @@ export async function adminSuspend(
       update profiles set suspended_at = ${at(now)}, suspended_reason = ${reason.trim().slice(0, 500)}
       where id = ${profileId}`;
     await withdrawEverything(tx, profileId, now);
+    await enqueue(
+      tx,
+      {
+        profileId,
+        kind: "suspended",
+        category: "account",
+        title: "Your account is paused",
+        body: "We paused it after reviewing a report. Open SamePace to see why and how to reach us.",
+        url: "/",
+      },
+      now,
+    );
     await audit(tx, adminEmail, "suspend", { profileId, note: reason });
   });
 }
@@ -347,14 +388,44 @@ export async function adminRemoveSession(
   now = Date.now(),
 ) {
   await sql.transaction(async (tx) => {
-    const [s] = await tx<{ id: string; status: string }>`
-      select id, status from sessions where id = ${sessionId} for update`;
+    const [s] = await tx<{ id: string; status: string; host_id: string; title: string }>`
+      select id, status, host_id, title from sessions where id = ${sessionId} for update`;
     if (!s) throw new PaceError(404, "Session not found.");
     if (s.status === "open") {
-      await tx`
+      const seats = await tx<{ id: string; participant_id: string }>`
         update bookings set status = 'cancelled', settled_at = ${at(now)}
-        where session_id = ${sessionId} and status in ('pending', 'confirmed')`;
+        where session_id = ${sessionId} and status in ('pending', 'confirmed')
+        returning id, participant_id`;
       await tx`update sessions set status = 'cancelled' where id = ${sessionId}`;
+      for (const seat of seats) {
+        await enqueue(
+          tx,
+          {
+            profileId: seat.participant_id,
+            kind: "session_cancelled",
+            category: "sessions",
+            title: `Called off: ${s.title}`,
+            body: "This session isn’t happening. Your seat is released and nothing is charged.",
+            url: "/sessions",
+            sessionId,
+            bookingId: seat.id,
+          },
+          now,
+        );
+      }
+      await enqueue(
+        tx,
+        {
+          profileId: s.host_id,
+          kind: "session_removed",
+          category: "account",
+          title: "Your session was taken down",
+          body: `${s.title} broke the rules for what can be posted. Email support@samepace.app if you think that’s wrong.`,
+          url: "/you",
+          sessionId,
+        },
+        now,
+      );
     }
     await audit(tx, adminEmail, "remove_session", { sessionId, note });
   });

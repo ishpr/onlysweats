@@ -47,6 +47,20 @@ export const clockTime = (when: number | Date | string) =>
     new Date(when),
   );
 
+/** "Sat 6:30 PM" in the cluster's timezone. */
+export const dayAndTime = (when: number | Date | string) =>
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: CLUSTER_TZ,
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(when));
+
+export async function firstName(sql: Sql, profileId: string): Promise<string> {
+  const [row] = await sql<{ name: string }>`select name from profiles where id = ${profileId}`;
+  return row?.name.trim().split(/\s+/)[0] || "Someone";
+}
+
 export async function enqueue(tx: Sql, n: NotificationInput, now = Date.now()) {
   await tx`
     insert into notifications (id, profile_id, kind, category, title, body, url, session_id,
