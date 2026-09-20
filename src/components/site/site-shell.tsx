@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { PaceMark } from "@/components/icons";
+import { PaceMark, PaceWordmark } from "@/components/icons";
 import { SITE } from "@/lib/site";
 
 const FOOTER = [
@@ -19,10 +19,11 @@ export function SiteShell({ children }: { children: ReactNode }) {
       <header className="flex items-center justify-between py-4">
         <Link
           to="/"
+          aria-label={`${SITE.name} home`}
           className="flex min-h-11 items-center gap-2 rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stand"
         >
           <PaceMark className="size-7" />
-          <span className="text-[17px] font-semibold tracking-tight">{SITE.name}</span>
+          <PaceWordmark className="text-[17px]" />
         </Link>
         <nav aria-label="Site">
           <Link to="/support" className={linkClass}>
