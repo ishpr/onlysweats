@@ -17,14 +17,17 @@ async function handle({ request }: { request: Request }) {
   const { getSql } = await import("@/lib/db");
   const { settleDue } = await import("@/lib/pace/service.server");
   const notify = await import("@/lib/pace/notify.server");
+  const { closeDueBlocks } = await import("@/lib/pace/training-blocks.server");
   const sql = await getSql();
   const settled = await settleDue(sql);
+  // After settlement, so a block's last session is counted before it closes.
+  const closed = await closeDueBlocks(sql);
   // Reminders an hour out and when check-in opens, then push whatever is owed and
   // retire device tokens Apple or Google reported dead.
   const reminders = await notify.enqueueReminders(sql);
   const pushed = await notify.deliverDue(sql);
   const retired = await notify.checkReceipts(sql);
-  return Response.json({ ok: true, settled, reminders, pushed, retired });
+  return Response.json({ ok: true, settled, closed, reminders, pushed, retired });
 }
 
 export const Route = createFileRoute("/api/cron/settle")({
