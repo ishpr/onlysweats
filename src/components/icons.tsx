@@ -1,49 +1,27 @@
 import { cn } from "@/lib/utils";
 
+/** The SamePace mark: two people leaning in step. Geometry from brand/build.py. */
 export function PaceMark({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 32 32"
-      className={cn("size-8", className)}
-      aria-hidden
-    >
-      <circle
-        cx="16"
-        cy="16"
-        r="13"
-        fill="none"
-        stroke="currentColor"
-        className="text-move"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeDasharray="62 20"
-        transform="rotate(-90 16 16)"
-      />
-      <circle
-        cx="16"
-        cy="16"
-        r="9.2"
-        fill="none"
-        stroke="currentColor"
-        className="text-exercise"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeDasharray="42 16"
-        transform="rotate(-90 16 16)"
-      />
-      <circle
-        cx="16"
-        cy="16"
-        r="5.4"
-        fill="none"
-        stroke="currentColor"
-        className="text-stand"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeDasharray="24 10"
-        transform="rotate(-90 16 16)"
-      />
+    <svg viewBox="12 12 76 76" className={cn("size-8", className)} aria-hidden>
+      <g transform="rotate(14 34.5 49.5)" className="fill-accent">
+        <circle cx="34.5" cy="27" r="9" />
+        <rect x="27" y="41" width="15" height="40" rx="7.5" />
+      </g>
+      <g transform="rotate(14 64.5 49.5)" className="fill-stand">
+        <circle cx="64.5" cy="27" r="9" />
+        <rect x="57" y="41" width="15" height="40" rx="7.5" />
+      </g>
     </svg>
+  );
+}
+
+/** Lowercase two-tone wordmark that sits beside the mark. */
+export function PaceWordmark({ className }: { className?: string }) {
+  return (
+    <span className={cn("font-semibold tracking-tight", className)}>
+      same<span className="text-accent">pace</span>
+    </span>
   );
 }
 
