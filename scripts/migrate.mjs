@@ -18,7 +18,13 @@ import { dirname, join } from "node:path";
 import pg from "pg";
 import { pendingMigrations } from "./migration-plan.mjs";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.DATABASE_URL?.trim();
+// A deploy build without a usable database would ship an app that can't persist
+// anything — fail the build instead of skipping migrations.
+if (process.env.VERCEL && !/^postgres(ql)?:\/\//.test(databaseUrl ?? "")) {
+  console.error("[migrate] DATABASE_URL is missing or is not a postgres:// URL — failing the build.");
+  process.exit(1);
+}
 if (!databaseUrl) {
   console.log(
     "[migrate] DATABASE_URL not set — skipping (the PGLite fallback migrates itself).",

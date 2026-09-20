@@ -7,8 +7,17 @@ export type DbSource = "neon" | "pglite";
 // "unset" — otherwise production would silently run on the PGLite fallback.
 const rawDatabaseUrl =
   typeof process !== "undefined" ? process.env.DATABASE_URL : undefined;
-const databaseUrl =
-  rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
+const databaseUrl = rawDatabaseUrl?.trim() || undefined;
+
+// The PGLite fallback is for local development. On a deployment it would mean an
+// in-memory database (with demo members) that forgets everything on each cold
+// start — so a missing or mangled DATABASE_URL there must fail loudly, not quietly.
+if (typeof process !== "undefined" && process.env.VERCEL && !/^postgres(ql)?:\/\//.test(databaseUrl ?? "")) {
+  throw new Error(
+    "[db] DATABASE_URL is missing or is not a postgres:// URL on this deployment — " +
+      "refusing to fall back to the in-memory database.",
+  );
+}
 
 /**
  * Active backend: real **Neon** when `DATABASE_URL` is set (deployed / configured
