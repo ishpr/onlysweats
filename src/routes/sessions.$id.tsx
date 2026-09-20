@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { ClusterMap } from "@/components/venue-map";
-import { cancelPolicyLine, formatUsd } from "@/lib/money";
+import { cancelPolicyLine, formatUsd, LATE_CANCEL_FEE_CENTS } from "@/lib/money";
 import { personById, venueById } from "@/lib/seed";
 import { seatsLeft, usePaceStore } from "@/lib/store";
 import {
@@ -96,8 +96,8 @@ function SessionDetail() {
     setConfirmCancel(false);
     toast.success(
       lateCancel
-        ? `Seat released. ${formatUsd(Math.round(mine.authorizedCents * 0.5))} captured.`
-        : "Seat released. Nothing captured.",
+        ? `Seat released. ${formatUsd(LATE_CANCEL_FEE_CENTS)} fee, waived if a substitute takes it.`
+        : "Seat released. No fee.",
     );
   }
 
@@ -109,7 +109,7 @@ function SessionDetail() {
     }
     setPay(false);
     toast.success(
-      listing.joinMode === "instant" ? "Seat held. Pin unlocked." : "Request sent. Pin after approve.",
+      listing.joinMode === "instant" ? "You’re in. Pin unlocked." : "Request sent. Pin unlocks when the poster approves.",
     );
     if (listing.joinMode === "instant") {
       void navigate({ to: "/inbox/$id", params: { id: res.bookingId } });
@@ -157,7 +157,7 @@ function SessionDetail() {
         />
         <Meta
           icon={Shield}
-          label={session.joinMode === "instant" ? "Instant join" : "Host approves"}
+          label={session.joinMode === "instant" ? "Instant join" : "Poster approves"}
           value={session.womenOnly ? "Women-only" : "Open listing"}
         />
       </div>
@@ -165,14 +165,7 @@ function SessionDetail() {
       <div className="mt-5 flex items-center gap-3 glass rounded-[24px] p-3">
         <Avatar initials={host.initials} accent={host.accent} />
         <div className="min-w-0 flex-1">
-          <p className="font-medium tracking-tight">
-            {host.name}
-            {host.isLead && (
-              <span className="ml-2 text-[11px] font-medium uppercase tracking-wider text-muted">
-                Lead
-              </span>
-            )}
-          </p>
+          <p className="font-medium tracking-tight">{host.name}</p>
           <p className="truncate text-sm text-muted">
             {host.completedCount} completed · {host.onTimePct}% on time · {host.neighborhood}
           </p>
@@ -188,19 +181,19 @@ function SessionDetail() {
         <p className="mt-2 text-sm text-muted">
           {seesPin
             ? venue?.hint
-            : "Approximate pin until the seat is held. Exact trailhead after booking."}
+            : "Approximate pin until you join. Exact meeting pin after that."}
         </p>
       </div>
 
-      {session.priceCents > 0 && venue?.type === "gym_lobby" && (
+      {venue?.type === "gym_lobby" && (
         <p className="mt-4 rounded-2xl bg-fg/6 px-4 py-3 text-sm text-muted">
-          Gym membership is not permission to sell seats. Host attests this lobby
-          allows a paid meetup.
+          Gym session. You both need your own access to this gym — guest passes
+          are between the two of you.
         </p>
       )}
 
       <p className="mt-5 text-sm leading-relaxed text-muted">
-        {cancelPolicyLine(session.priceCents)}
+        {cancelPolicyLine()}
       </p>
 
       {pendingForHost.map((b) => (
@@ -225,7 +218,7 @@ function SessionDetail() {
 
       {session.hostId === ME_ID && session.visibility === "unlisted" && session.inviteCode && (
         <div className="mt-4 flex items-center justify-between gap-3 glass rounded-2xl p-3">
-          <p className="text-sm text-muted">Unlisted. Only people with the link can book.</p>
+          <p className="text-sm text-muted">Unlisted. Only people with the link can join.</p>
           <Button variant="accent" onClick={() => void shareInvite()}>
             Share invite
           </Button>
@@ -241,8 +234,8 @@ function SessionDetail() {
         <div className="mt-4 glass rounded-2xl p-4">
           <p className="text-sm leading-relaxed text-muted">
             {lateCancel
-              ? `Inside 12 hours. ${formatUsd(Math.round((mine?.authorizedCents ?? 0) * 0.5))} is captured, the rest is released.`
-              : "Full release. Nothing is captured."}
+              ? `Inside 12 hours. That’s a ${formatUsd(LATE_CANCEL_FEE_CENTS)} fee, waived if someone takes your seat.`
+              : "No fee. Your seat reopens for someone else."}
           </p>
           <div className="mt-3 flex gap-2">
             <Button variant="ghost" className="flex-1" onClick={() => setConfirmCancel(false)}>
@@ -274,7 +267,7 @@ function SessionDetail() {
           </Link>
         ) : session.hostId === ME_ID ? (
           <Button className="w-full" variant="glass" disabled>
-            You’re hosting
+            You posted this
           </Button>
         ) : left <= 0 ? (
           <Button className="w-full" disabled>
@@ -282,9 +275,7 @@ function SessionDetail() {
           </Button>
         ) : (
           <Button className="w-full" onClick={() => setPay(true)}>
-            {session.priceCents === 0
-              ? "Hold the seat"
-              : `Hold ${formatUsd(session.priceCents)}`}
+            {session.joinMode === "instant" ? "Join" : "Ask to join"}
           </Button>
         )}
       </div>
@@ -292,22 +283,17 @@ function SessionDetail() {
       {pay && (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-bg/70 p-4 backdrop-blur-md">
           <div className="glass-strong w-full max-w-md rounded-[32px] p-5">
-            <h2 className="text-xl font-semibold tracking-tight">Hold the slot</h2>
-            <p className="mt-2 text-sm leading-relaxed text-muted">
-              {cancelPolicyLine(session.priceCents)} Price on the listing is the
-              price — no extra fee.
-            </p>
+            <h2 className="text-xl font-semibold tracking-tight">Join this session</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">{cancelPolicyLine()}</p>
             <div className="mt-5 flex items-center justify-between rounded-2xl bg-fg/6 px-4 py-3">
-              <span className="text-sm text-muted">Authorization</span>
-              <span className="text-lg font-semibold tabular-nums">
-                {formatUsd(session.priceCents)}
-              </span>
+              <span className="text-sm text-muted">Cost to join</span>
+              <span className="text-lg font-semibold tabular-nums">{formatUsd(0)}</span>
             </div>
             <Button className="mt-5 w-full" onClick={hold}>
-              {session.priceCents === 0 ? "Confirm seat" : "Pay with Apple Pay"}
+              {session.joinMode === "instant" ? "Join" : "Ask to join"}
             </Button>
             <Button variant="ghost" className="mt-2 w-full" onClick={() => setPay(false)}>
-              Cancel
+              Not now
             </Button>
           </div>
         </div>

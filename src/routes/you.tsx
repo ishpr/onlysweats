@@ -64,19 +64,20 @@ function You() {
           onChange={(on) => setPref({ shareHealth: on })}
         />
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Report and block live on every listing. 18+. Identity before the first
-          paid dollar moves. Ranking never uses body or photo quality.
+          Report and block live on every listing. 18+. Everyone verifies a phone
+          and a selfie before joining a public session. Ranking never uses body
+          or photo quality.
         </p>
       </section>
 
       <section className="glass rounded-[28px] p-4">
-        <h2 className="text-sm font-medium text-muted">Money</h2>
+        <h2 className="text-sm font-medium text-muted">Credit</h2>
         <p className="mt-2 text-2xl font-semibold tabular-nums tracking-tight">
           {formatUsd(credit)}
         </p>
         <p className="text-sm text-muted">
-          Pace credit from host no-shows. Take is 18%, 10% from the 4th paid
-          session with the same pair.
+          You get $5 of membership credit when you show up and the other person
+          doesn’t. Nobody pays anybody for a session.
         </p>
       </section>
     </div>

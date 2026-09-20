@@ -6,6 +6,7 @@ import {
   buildSeedSessions,
   people,
 } from "./seed";
+import { LATE_CANCEL_FEE_CENTS } from "./money";
 import { hasStarted, isInCheckinWindow, isLateCancel } from "./time";
 import type {
   Booking,
@@ -128,7 +129,7 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
         const { sessions, bookings } = get();
         const session = sessions.find((s) => s.id === sessionId);
         if (!session) return { ok: false, error: "Listing is gone." };
-        if (session.hostId === ME_ID) return { ok: false, error: "You’re hosting this one." };
+        if (session.hostId === ME_ID) return { ok: false, error: "You posted this one." };
         if (session.status === "cancelled" || session.status === "completed") {
           return { ok: false, error: "This listing is closed." };
         }
@@ -145,7 +146,7 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
           sessionId,
           participantId: ME_ID,
           status: instant ? "confirmed" : "pending",
-          authorizedCents: session.priceCents,
+          authorizedCents: 0,
           capturedCents: 0,
           createdAt: new Date().toISOString(),
           hostCheckedInAt: null,
@@ -160,7 +161,7 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
                 id: uid("m"),
                 bookingId: booking.id,
                 fromId: session.hostId,
-                text: "Seat is yours. Exact pin is on the listing. See you at the trailhead.",
+                text: "You’re in. Exact pin is on the listing. See you there.",
                 createdAt: new Date().toISOString(),
               },
             ]
@@ -186,12 +187,9 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
         if (booking.status !== "pending" && booking.status !== "confirmed") return;
         const session = sessions.find((s) => s.id === booking.sessionId);
         if (!session) return;
-        // A pending request was never accepted, so nothing is held against it.
-        const late =
-          booking.status === "confirmed" &&
-          isLateCancel(session.startAt) &&
-          booking.authorizedCents > 0;
-        const captured = late ? Math.round(booking.authorizedCents * 0.5) : 0;
+        // A pending request was never accepted, so there is no one to let down.
+        const late = booking.status === "confirmed" && isLateCancel(session.startAt);
+        const captured = late ? LATE_CANCEL_FEE_CENTS : 0;
         set({
           bookings: bookings.map((b) =>
             b.id === bookingId
@@ -208,7 +206,7 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
         }
         const session = sessions.find((s) => s.id === booking.sessionId);
         if (!session || session.hostId !== ME_ID) {
-          return { ok: false, error: "Only the host can approve." };
+          return { ok: false, error: "Only the poster can approve." };
         }
         const confirmed = bookings.filter(
           (b) =>
@@ -319,7 +317,7 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
         const session = sessions.find((s) => s.id === booking.sessionId);
         if (!session) return { ok: false, error: "No session." };
         if (!session.codeRevealedAt) {
-          return { ok: false, error: "Host hasn’t revealed the code." };
+          return { ok: false, error: "The poster hasn’t revealed the code." };
         }
         const age = Date.now() - new Date(session.codeRevealedAt).getTime();
         if (age > 10 * 60 * 1000) return { ok: false, error: "Code expired." };

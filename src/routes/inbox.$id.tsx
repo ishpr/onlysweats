@@ -13,8 +13,8 @@ export const Route = createFileRoute("/inbox/$id")({ component: Thread });
 
 const SMART = [
   "On my way — eight minutes out.",
-  "I’ll be at the trailhead pin.",
-  "Holding the slot. See you there.",
+  "I’ll be at the meeting pin.",
+  "Still on. See you there.",
 ];
 
 function Thread() {

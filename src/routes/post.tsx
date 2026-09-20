@@ -13,7 +13,6 @@ type Search = {
   unlisted?: string;
   activity?: string;
   venue?: string;
-  price?: string;
   capacity?: string;
   dow?: string;
   hour?: string;
@@ -33,7 +32,6 @@ function Post() {
   const initial = useMemo(() => initialSlot(search), []);
   const [days, setDays] = useState(initial.days);
   const [time, setTime] = useState(initial.time);
-  const [attested, setAttested] = useState(false);
   const start = useMemo(() => {
     const [h, m] = time.split(":").map(Number);
     return atDallas(new Date(), days, h || 0, m || 0);
@@ -56,24 +54,23 @@ function Post() {
   );
   const [venueId, setVenueId] = useState(search.venue ?? "katy");
   const [title, setTitle] = useState(
-    search.unlisted ? "Unlisted — invite from Messages" : "Easy miles I’m doing anyway",
+    search.unlisted ? "Unlisted — invite from Messages" : "Easy session I’m doing anyway",
   );
   const [detail, setDetail] = useState(
-    "I’m going either way. Hold a seat if you’ll be at the pin.",
+    "I’m going either way. Join if you’ll be at the pin.",
   );
   const [capacity, setCapacity] = useState(Number(search.capacity ?? 2));
-  const [price, setPrice] = useState(Number(search.price ?? 1500));
   const [visibility, setVisibility] = useState<Visibility>(
     search.unlisted ? "unlisted" : "public",
   );
   const [womenOnly, setWomenOnly] = useState(false);
   const [joinMode, setJoinMode] = useState<JoinMode>(
-    capacity >= 3 && price === 0 ? "instant" : "approve",
+    capacity >= 3 ? "instant" : "approve",
   );
   const [nl, setNl] = useState("");
 
   const venue = venues.find((v) => v.id === venueId)!;
-  const gymWarn = price > 0 && venue.type === "gym_lobby";
+  const isGym = venue.type === "gym_lobby";
 
   function publish() {
     if (!title.trim()) {
@@ -82,14 +79,6 @@ function Post() {
     }
     if (start.getTime() < Date.now() + 30 * 60_000) {
       toast.error("Pick a start at least 30 minutes out.");
-      return;
-    }
-    if (gymWarn && !attested) {
-      toast.error("Confirm the venue allows a paid meetup.");
-      return;
-    }
-    if (price > 0 && (price < 500 || price > 4000)) {
-      toast.error("Paid seats are $5–$40 in v1.");
       return;
     }
     const id = postSession({
@@ -101,11 +90,11 @@ function Post() {
       startAt: start.toISOString(),
       durationMin: activity === "hike" ? 120 : 40,
       capacity,
-      priceCents: price,
+      priceCents: 0,
       visibility,
       joinMode,
       womenOnly,
-      hostAttestsPaidOk: !gymWarn || attested,
+      hostAttestsPaidOk: true,
     });
     toast.success("Listing is up. You’re going anyway.");
     void navigate({ to: "/sessions/$id", params: { id } });
@@ -114,7 +103,7 @@ function Post() {
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-5">
       <header>
-        <p className="text-sm text-muted">Host</p>
+        <p className="text-sm text-muted">Post a session</p>
         <h1 className="text-[32px] font-semibold tracking-tight">
           You’re going anyway. Open two seats.
         </h1>
@@ -127,7 +116,6 @@ function Post() {
           applyNl(nl, {
             setActivity,
             setVenueId,
-            setPrice,
             setCapacity,
             setTitle,
           });
@@ -136,7 +124,7 @@ function Post() {
         <input
           value={nl}
           onChange={(e) => setNl(e.target.value)}
-          placeholder="Describe it — Tuesday 6am Katy Trail, $15"
+          placeholder="Describe it — Tuesday 6am Katy Trail, two seats"
           className="h-11 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
         />
         <button
@@ -238,8 +226,8 @@ function Post() {
             onChange={(e) => {
               const c = Number(e.target.value);
               setCapacity(c);
-              if (c >= 3 && venue.type !== "gym_lobby") setJoinMode("instant");
-              if (c === 2 && price > 0) setJoinMode("approve");
+              if (c >= 3 && !isGym) setJoinMode("instant");
+              if (c === 2) setJoinMode("approve");
             }}
             className="mt-1 h-12 w-full rounded-2xl bg-fg/6 px-3 text-[15px] outline-none"
           >
@@ -250,25 +238,12 @@ function Post() {
             ))}
           </select>
         </label>
-        <label>
-          <span className="text-xs text-muted">Price per seat</span>
-          <select
-            value={price}
-            onChange={(e) => {
-              const p = Number(e.target.value);
-              setPrice(p);
-              if (p > 0 && capacity === 2) setJoinMode("approve");
-            }}
-            className="mt-1 h-12 w-full rounded-2xl bg-fg/6 px-3 text-[15px] outline-none"
-          >
-            <option value={0}>$0</option>
-            {[5, 8, 12, 15, 18, 20, 25, 30, 40].map((n) => (
-              <option key={n} value={n * 100}>
-                ${n}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div>
+          <span className="text-xs text-muted">Cost to join</span>
+          <p className="mt-1 flex h-12 items-center rounded-2xl bg-fg/6 px-3 text-[15px] text-muted">
+            Free — nobody pays anybody
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -289,24 +264,15 @@ function Post() {
         </Chip>
       </div>
 
-      {gymWarn && (
-        <label className="flex min-h-11 items-start gap-3 rounded-2xl bg-fg/6 px-4 py-3 text-sm text-muted">
-          <input
-            type="checkbox"
-            checked={attested}
-            onChange={(e) => setAttested(e.target.checked)}
-            className="mt-0.5 size-5 shrink-0 accent-accent"
-          />
-          <span>
-            Gym membership is not the right to sell seats. I attest this venue
-            allows a paid meetup.
-          </span>
-        </label>
+      {isGym && (
+        <p className="rounded-2xl bg-fg/6 px-4 py-3 text-sm text-muted">
+          Gym session. Whoever joins needs their own access to this gym.
+        </p>
       )}
 
       <p className="text-sm text-muted">
         Starts {formatWhen(start.toISOString())}.
-        First paid post recommends a fee. Standing pairs may be $0.
+        Skipping costs the other person their morning: a no-show is $10 and a strike.
       </p>
 
       <Button className="w-full" onClick={publish}>
@@ -362,7 +328,6 @@ function applyNl(
   set: {
     setActivity: (a: Activity) => void;
     setVenueId: (id: string) => void;
-    setPrice: (n: number) => void;
     setCapacity: (n: number) => void;
     setTitle: (t: string) => void;
   },
@@ -370,14 +335,13 @@ function applyNl(
   const t = text.toLowerCase();
   if (/hike/.test(t)) set.setActivity("hike");
   else if (/walk/.test(t)) set.setActivity("walk");
+  else if (/ride|cycl|bike/.test(t)) set.setActivity("ride");
+  else if (/lift|strength|gym/.test(t)) set.setActivity("strength");
   else if (/run|5k/.test(t)) set.setActivity("run");
   if (/katy/.test(t)) set.setVenueId("katy");
   if (/white|lake/.test(t)) set.setVenueId("whiterock");
   if (/trinity/.test(t)) set.setVenueId("trinity");
   if (/turtle/.test(t)) set.setVenueId("turtle");
-  const m = t.match(/\$(\d+)/);
-  if (m) set.setPrice(Number(m[1]) * 100);
-  if (/free/.test(t)) set.setPrice(0);
   if (/two seats|2 seats/.test(t)) set.setCapacity(3);
   if (text.trim()) set.setTitle(text.trim());
 }

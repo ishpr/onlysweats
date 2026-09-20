@@ -35,7 +35,7 @@ export function SiriSheet({
   const [turns, setTurns] = useState<Turn[]>([
     {
       role: "siri",
-      text: "Personal context is on. Ask for a seat, post the run you’re doing anyway, or check recovery from Apple Fitness.",
+      text: "Personal context is on. Ask what you can join, post the workout you’re doing anyway, or check recovery from Apple Fitness.",
     },
   ]);
 
@@ -82,7 +82,7 @@ export function SiriSheet({
         }
       } catch {
         result = local ?? {
-          reply: "On-device only right now. Ask for a morning seat or to post a run.",
+          reply: "On-device only right now. Ask what you can join this morning, or to post a session.",
           chips: SIRI_CHIPS.slice(0, 3),
         };
       }
@@ -110,7 +110,7 @@ export function SiriSheet({
         <div className="glass-strong mb-4 max-h-[52dvh] overflow-y-auto rounded-[28px] p-5">
           <div className="mb-4 flex items-center gap-2 text-sm text-muted">
             <IntelligenceBloom className="size-5" />
-            Siri · Pace
+            Siri · SamePace
           </div>
           <div className="flex flex-col gap-3">
             {turns.map((turn, i) => (
