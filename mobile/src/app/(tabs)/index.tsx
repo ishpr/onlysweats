@@ -2,6 +2,7 @@ import { Link } from "expo-router";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { AppHeader, LiveBanner } from "@/components/brand";
+import { PushPrompt } from "@/components/push-cards";
 import { SessionCard } from "@/components/session-card";
 import { Button, Card, Row, Screen, StateView, T } from "@/components/ui";
 import { useNow } from "@/hooks/use-now";
@@ -50,6 +51,9 @@ export default function Today() {
         <T color="textSecondary">{greeting()}</T>
         <T variant="title">{me.data?.name.split(" ")[0] ?? " "}</T>
       </View>
+
+      {/* Ask once there's something worth hearing about. */}
+      {upcoming.length > 0 && <PushPrompt />}
 
       {me.data && me.data.creditCents > 0 && (
         <Card>

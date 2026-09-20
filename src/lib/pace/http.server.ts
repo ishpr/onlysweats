@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { getSql, type Sql } from "../db";
 import { ensureDemoCluster } from "./demo-seed.server";
+import * as notify from "./notify.server";
 import * as safety from "./safety.server";
 import * as svc from "./service.server";
 
@@ -78,6 +79,15 @@ const profileBody = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   neighborhood: z.string().trim().min(1).max(80).optional(),
   gender: z.enum(["woman", "man", "nonbinary"]).nullable().optional(),
+  notify: z
+    .object({
+      sessions: z.boolean(),
+      messages: z.boolean(),
+      reminders: z.boolean(),
+      substitutes: z.boolean(),
+    })
+    .partial()
+    .optional(),
   abilities: z
     .object({
       run: paceRange,
@@ -128,7 +138,14 @@ const admin =
   };
 
 /** What a suspended member can still reach: read why, and delete the account. */
-const OPEN_WHEN_SUSPENDED = new Set(["GET /me", "DELETE /me"]);
+const OPEN_WHEN_SUSPENDED = new Set([
+  "GET /me",
+  "DELETE /me",
+  "POST /devices",
+  "DELETE /devices/:token",
+  "GET /notifications",
+  "POST /notifications/read",
+]);
 
 const routes: [method: string, pattern: string, handler: Handler][] = [
   ["GET", "/me", async ({ sql, userId, user }) => ({
@@ -147,6 +164,27 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
     const { storeAppleAuthorization } = await import("../auth/apple-revoke.server");
     const { code } = z.object({ code: z.string().min(1).max(2000) }).parse(body);
     return { stored: await storeAppleAuthorization(sql, userId, code) };
+  }],
+
+  // Push: this device, and the activity list the same rows feed.
+  ["POST", "/devices", async ({ sql, userId, body }) => {
+    const input = z
+      .object({
+        token: z.string().max(200).refine(notify.isExpoToken, "not an Expo push token"),
+        platform: z.enum(["ios", "android"]),
+      })
+      .parse(body);
+    await notify.registerDevice(sql, userId, input);
+    return { ok: true };
+  }],
+  ["DELETE", "/devices/:token", async ({ sql, userId, params }) => {
+    await notify.removeDevice(sql, userId, params.token);
+    return { ok: true };
+  }],
+  ["GET", "/notifications", ({ sql, userId }) => notify.listNotifications(sql, userId)],
+  ["POST", "/notifications/read", async ({ sql, userId }) => {
+    await notify.markAllRead(sql, userId);
+    return { ok: true };
   }],
 
   ["GET", "/blocks", async ({ sql, userId }) => ({ people: await safety.listBlocks(sql, userId) })],
@@ -345,6 +383,10 @@ export async function handleApi(request: Request): Promise<Response> {
       query: url.searchParams,
       body,
     });
+    // Whatever that request caused is pushed now; the cron sweeps up anything missed.
+    if (request.method !== "GET") {
+      await notify.deliverDue(sql).catch((err) => console.error("[push]", err));
+    }
     return json(data);
   } catch (err) {
     if (err instanceof svc.PaceError) return json({ error: err.message }, err.status);

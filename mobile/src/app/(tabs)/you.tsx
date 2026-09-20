@@ -4,6 +4,7 @@ import { Linking, StyleSheet, View } from "react-native";
 
 import { LevelPicker } from "@/components/ability-picker";
 import { AppHeader } from "@/components/brand";
+import { NotificationSettings } from "@/components/push-cards";
 import {
   Avatar,
   Badge,
@@ -152,6 +153,8 @@ export default function You() {
       </Card>
 
       {update.error && <Notice tone="danger">{update.error.message}</Notice>}
+
+      <NotificationSettings me={p} />
 
       <Card>
         <T variant="label">Safety and account</T>

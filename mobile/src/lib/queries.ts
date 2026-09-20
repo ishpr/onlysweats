@@ -4,11 +4,13 @@ import { useCallback, useRef } from "react";
 
 import { api } from "./api";
 import type {
+  AppNotification,
   Booking,
   ChatMessage,
   Gender,
   MemberAbilities,
   Me,
+  NotifyPrefs,
   Person,
   PostSessionInput,
   RatingInput,
@@ -30,6 +32,7 @@ export const keys = {
   mine: ["mine"] as const,
   messages: (bookingId: string) => ["messages", bookingId] as const,
   blocks: ["blocks"] as const,
+  notifications: ["notifications"] as const,
 };
 
 export const useMe = () => useQuery({ queryKey: keys.me, queryFn: () => api<Me>("/me") });
@@ -120,12 +123,31 @@ export function useUpdateMe() {
       neighborhood?: string;
       gender?: Gender;
       abilities?: MemberAbilities;
+      notify?: Partial<NotifyPrefs>;
     }) => api<Me>("/me", { method: "PATCH", json: patch }),
     onSuccess: (me) => {
       qc.setQueryData(keys.me, me);
       // A new level changes which sessions fit.
       void qc.invalidateQueries({ queryKey: ["sessions"] });
     },
+  });
+}
+
+// ── Activity ─────────────────────────────────────────────────────────────────
+
+/** Everything SamePace told me — the same list whether or not push is on. */
+export const useNotifications = () =>
+  useQuery({
+    queryKey: keys.notifications,
+    queryFn: () => api<{ notifications: AppNotification[]; unread: number }>("/notifications"),
+    refetchInterval: 60_000,
+  });
+
+export function useMarkNotificationsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api("/notifications/read", { method: "POST", json: {} }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.notifications }),
   });
 }
 

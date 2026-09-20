@@ -57,9 +57,27 @@ export type Me = Person & {
   strikes: number;
   frozenUntil: string | null;
   freeSessionsLeft: number;
+  notify: NotifyPrefs;
   /** Set when SamePace has paused the account. Only the profile still loads. */
   suspended: { reason: string } | null;
   isAdmin: boolean;
+};
+
+export type NotifyPrefs = {
+  sessions: boolean;
+  messages: boolean;
+  reminders: boolean;
+  substitutes: boolean;
+};
+
+export type AppNotification = {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  url: string | null;
+  createdAt: string;
+  read: boolean;
 };
 
 export type ReportReason =
