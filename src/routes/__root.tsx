@@ -10,7 +10,7 @@ import { AppShell, HydrateGate } from "@/components/app-shell";
 import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "Pace";
+const APP_NAME = "SamePace";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -26,7 +26,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "Post the run you’re doing anyway. Book a seat. Show up.",
+          "Post the workout you’re doing anyway. Find a buddy at your level. Show up.",
       },
     ],
     links: [

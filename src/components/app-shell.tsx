@@ -8,7 +8,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { IntelligenceBloom, PaceMark } from "@/components/icons";
+import { IntelligenceBloom, PaceMark, PaceWordmark } from "@/components/icons";
 import { SiriSheet } from "@/components/siri-sheet";
 import { isInCheckinWindow } from "@/lib/time";
 import { ME_ID } from "@/lib/types";
@@ -58,7 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-fg/8 px-4 py-6 md:flex">
         <Link to="/" className="mb-8 flex items-center gap-2 px-2">
           <PaceMark />
-          <span className="text-lg font-semibold tracking-tight">Pace</span>
+          <PaceWordmark className="text-lg" />
         </Link>
         <nav className="flex flex-1 flex-col gap-1">
           {NAV.map((item) => {
@@ -100,7 +100,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-30 flex items-center justify-between gap-3 bg-bg/80 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur-xl md:px-8">
           <Link to="/" className="flex items-center gap-2 md:hidden">
             <PaceMark className="size-7" />
-            <span className="text-[17px] font-semibold tracking-tight">Pace</span>
+            <PaceWordmark className="text-[17px]" />
           </Link>
           <p className="hidden text-sm text-muted md:block">
             Dallas · Oak Lawn cluster

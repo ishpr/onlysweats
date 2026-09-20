@@ -1,33 +1,24 @@
 import { Link } from "expo-router";
 import { Pressable, StyleSheet, View } from "react-native";
-import Svg, { Circle } from "react-native-svg";
+import Svg, { Circle, G, Rect } from "react-native-svg";
 
 import { T } from "@/components/ui";
 import { Radius, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 
-/** The three-ring SamePace mark — same geometry as the web's `PaceMark`. */
+/** The SamePace mark: two people leaning in step. Geometry from brand/build.py. */
 export function PaceMark({ size = 28 }: { size?: number }) {
   const theme = useTheme();
-  const ring = (r: number, color: string, width: number, dash: string) => (
-    <Circle
-      cx={16}
-      cy={16}
-      r={r}
-      fill="none"
-      stroke={color}
-      strokeWidth={width}
-      strokeLinecap="round"
-      strokeDasharray={dash}
-      rotation={-90}
-      origin="16, 16"
-    />
+  const person = (cx: number, color: string) => (
+    <G rotation={14} origin={`${cx}, 49.5`} fill={color}>
+      <Circle cx={cx} cy={27} r={9} />
+      <Rect x={cx - 7.5} y={41} width={15} height={40} rx={7.5} />
+    </G>
   );
   return (
-    <Svg width={size} height={size} viewBox="0 0 32 32" accessible={false}>
-      {ring(13, theme.move, 2.6, "62 20")}
-      {ring(9.2, theme.exercise, 2.6, "42 16")}
-      {ring(5.4, theme.stand, 2.4, "24 10")}
+    <Svg width={size} height={size} viewBox="12 12 76 76" accessible={false}>
+      {person(34.5, theme.accent)}
+      {person(64.5, theme.stand)}
     </Svg>
   );
 }
@@ -36,7 +27,12 @@ export function AppHeader() {
   return (
     <View style={styles.header} accessibilityRole="header">
       <PaceMark />
-      <T style={styles.wordmark}>SamePace</T>
+      <T style={styles.wordmark} accessibilityLabel="SamePace">
+        same
+        <T style={styles.wordmark} color="accent">
+          pace
+        </T>
+      </T>
     </View>
   );
 }
