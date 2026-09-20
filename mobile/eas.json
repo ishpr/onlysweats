@@ -24,14 +24,14 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://samepace.vercel.app",
+        "EXPO_PUBLIC_API_URL": "https://samepace.app",
         "GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.281917036662-gkimr8co64pe6rqhhhjs1avdtcdp3efa"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://samepace.vercel.app",
+        "EXPO_PUBLIC_API_URL": "https://samepace.app",
         "GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.281917036662-gkimr8co64pe6rqhhhjs1avdtcdp3efa"
       }
     }
