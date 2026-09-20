@@ -136,7 +136,9 @@ describe("posting + discovery", () => {
     await rejects(svc.getSession(sql, "ann", s.id, { inviteCode: "wrong" }), 404);
     const viaLink = await svc.getSession(sql, "ann", s.id, { inviteCode: s.inviteCode });
     assert.equal(viaLink.session.pinHint, null, "the link shows the session, not the pin");
-    assert.equal((await svc.getInvite(sql, "ann", s.inviteCode!)).session.inviteCode, undefined);
+    const invited = await svc.getInvite(sql, "ann", s.inviteCode!);
+    assert.ok("session" in invited);
+    assert.equal(invited.session.inviteCode, undefined);
     const b = await svc.bookSeat(sql, "ann", s.id, { inviteCode: s.inviteCode });
     assert.equal(b.status, "confirmed");
     assert.ok((await svc.getSession(sql, "ann", s.id)).session.pinHint);

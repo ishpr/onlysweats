@@ -4,14 +4,17 @@ import {
   abilityFits,
   abilityLabel,
   blockFinished,
+  blockJoinable,
   blockWeek,
   blockWeeks,
   canBook,
+  canJoinBlock,
   canGeoCheckIn,
   canPost,
   canUseCode,
   cancelOutcome,
   chatOpen,
+  cleanText,
   clusterDate,
   distanceM,
   feeChargeableAt,
@@ -21,6 +24,7 @@ import {
   settle,
   validAbility,
   validBlock,
+  type BlockFacts,
   type BlockInput,
   type Occurrence,
   type PostInput,
@@ -304,5 +308,86 @@ describe("training blocks", () => {
     assert.equal(blockFinished({ planned: 4, kept: 3 }), true);
     assert.equal(blockFinished({ planned: 36, kept: 27 }), true);
     assert.equal(blockFinished({ planned: 36, kept: 26 }), false);
+  });
+});
+
+describe("words", () => {
+  it("keeps member text about the workout, matching whole words only", () => {
+    for (const fine of [
+      "Easy miles — update me if you’re late",
+      "Singletrack loop, candidate for Saturdays",
+      "Single-leg RDLs and single arm rows",
+      "Sparkling water after",
+      "",
+    ]) {
+      assert.deepEqual(cleanText(fine), { ok: true }, fine);
+    }
+    for (const [text, word] of [
+      ["Looking for a date", "date"],
+      ["SWIPE right on this run", "swipe"],
+      ["any gym  crush welcome", "gym crush"],
+      ["Good VIBE only", "vibe"],
+      ["single and running", "single"],
+    ] as const) {
+      const verdict = cleanText("Fine title", null, text);
+      assert.equal(verdict.ok, false, text);
+      assert.match((verdict as { error: string }).error, new RegExp(`“${word.replace("  ", " ")}”|“gym\\s+crush”`));
+    }
+  });
+
+  it("applies to a listing’s title and detail", () => {
+    const base: PostInput = {
+      title: "Easy miles",
+      activity: "run",
+      ability: { kind: "run", paceMinSec: 570, paceMaxSec: 600, miles: 5 },
+      startAt: NOW + DAY,
+      capacity: 2,
+      womenOnly: false,
+      visibility: "public",
+    };
+    const poster = { gender: null, frozenUntil: null };
+    assert.equal(canPost(base, poster, NOW).ok, true);
+    assert.equal(canPost({ ...base, title: "Cute 5k" }, poster, NOW).ok, false);
+    assert.equal(canPost({ ...base, detail: "No chemistry required" }, poster, NOW).ok, false);
+  });
+});
+
+describe("joining a training block", () => {
+  const today = clusterDate(NOW);
+  const plus = (days: number) => clusterDate(NOW + days * DAY);
+  const block = (patch: Partial<BlockFacts> = {}): BlockFacts => ({
+    status: "active",
+    visibility: "public",
+    womenOnly: false,
+    capacity: 3,
+    goalDate: plus(60),
+    ...patch,
+  });
+  const me = { gender: null, frozenUntil: null };
+
+  it("takes a running block with a seat and four weeks to go", () => {
+    assert.equal(canJoinBlock(block(), me, { members: 2, isMember: false }, NOW).ok, true);
+    assert.equal(canJoinBlock(block({ status: "forming" }), me, { members: 1, isMember: false }, NOW).ok, true);
+    assert.equal(canJoinBlock(block(), me, { members: 2, isMember: true }, NOW).ok, false);
+    assert.equal(canJoinBlock(block(), me, { members: 3, isMember: false }, NOW).ok, false);
+    assert.equal(canJoinBlock(block({ status: "closing" }), me, { members: 2, isMember: false }, NOW).ok, false);
+    assert.equal(canJoinBlock(block({ goalDate: plus(28) }), me, { members: 2, isMember: false }, NOW).ok, true);
+    assert.equal(canJoinBlock(block({ goalDate: plus(27) }), me, { members: 2, isMember: false }, NOW).ok, false);
+  });
+
+  it("keeps women-only and the two-strike freeze", () => {
+    const facts = { members: 1, isMember: false };
+    assert.equal(canJoinBlock(block({ womenOnly: true }), me, facts, NOW).ok, false);
+    assert.equal(canJoinBlock(block({ womenOnly: true }), { ...me, gender: "woman" }, facts, NOW).ok, true);
+    const frozen = { gender: null, frozenUntil: NOW + DAY };
+    assert.equal(canJoinBlock(block(), frozen, facts, NOW).ok, false);
+    assert.equal(canJoinBlock(block({ visibility: "unlisted" }), frozen, facts, NOW).ok, true, "people you know");
+  });
+
+  it("says when a free seat on a session is a regular’s", () => {
+    assert.equal(blockJoinable(block(), 2, today), true);
+    assert.equal(blockJoinable(block(), 3, today), false, "full");
+    assert.equal(blockJoinable(block({ goalDate: plus(20) }), 2, today), false, "too far along");
+    assert.equal(blockJoinable(block({ status: "ended" }), 2, today), false);
   });
 });

@@ -15,6 +15,9 @@ import {
 import {
   abilityFits,
   abilityLabel,
+  blockJoinable,
+  blockWeek,
+  blockWeeks,
   canBook,
   canGeoCheckIn,
   canPost,
@@ -26,6 +29,7 @@ import {
   feeChargeableAt,
   FREE_SESSIONS,
   FREEZE_MS,
+  goalLabel,
   inCheckinWindow,
   LATE_CANCEL_FEE_CENTS,
   MIN_LEAD_TIME_MS,
@@ -45,7 +49,9 @@ import type {
   Gender,
   JoinMode,
   MemberAbilities,
+  GoalKind,
   Person,
+  TrainingBlockStatus,
   Venue,
   Visibility,
 } from "./types.ts";
@@ -185,6 +191,19 @@ export type SessionDTO = {
   seriesId: string | null;
   /** An open seat on someone else's standing slot: join for this occurrence only. */
   substituteSeat: boolean;
+  /**
+   * Set when this is one week of a training block. While `joinable`, a free seat
+   * that isn't a `substituteSeat` is a regular's: join the block, not the session.
+   */
+  block: {
+    id: string;
+    goalLabel: string;
+    goalDate: string;
+    weeks: number;
+    weekNumber: number;
+    regularSeatsLeft: number;
+    joinable: boolean;
+  } | null;
 };
 
 export type BookingDTO = {
@@ -398,7 +417,16 @@ const SESSION_SELECT = `
       where b.session_id = s.id and b.participant_id = $1
         and b.status in ('confirmed', 'completed')) as viewer_confirmed,
     (s.series_id is not null and exists (select 1 from series_members m
-      where m.series_id = s.series_id and m.profile_id = $1 and m.left_at is null)) as viewer_in_series
+      where m.series_id = s.series_id and m.profile_id = $1 and m.left_at is null)) as viewer_in_series,
+    (select row_to_json(x) from (
+      select tb.id, tb.goal_kind, tb.event_name, tb.status, tb.visibility, tb.women_only,
+        tb.capacity, tb.starts_on::text as starts_on, tb.goal_date::text as goal_date,
+        (select count(*) from training_block_members m
+          where m.block_id = tb.id and m.left_at is null) as members,
+        (select count(*) from series s2
+          where s2.training_block_id = tb.id and s2.status = 'active') as slots
+      from series se join training_blocks tb on tb.id = se.training_block_id
+      where se.id = s.series_id) x) as block
   from sessions s join venues v on v.id = s.venue_id`;
 
 type SessionViewRow = SessionRow & {
@@ -407,12 +435,55 @@ type SessionViewRow = SessionRow & {
   viewer_confirmed: boolean;
   viewer_in_series: boolean;
   viewer_blocked: boolean;
+  block: unknown;
 };
+
+type SessionBlockRow = {
+  id: string;
+  goal_kind: GoalKind;
+  event_name: string | null;
+  status: TrainingBlockStatus;
+  visibility: Visibility;
+  women_only: boolean;
+  capacity: number;
+  starts_on: string;
+  goal_date: string;
+  members: number;
+  slots: number;
+};
+
+/** The training block a session belongs to, as its listing shows it. */
+function blockOf(r: SessionViewRow, now: number): SessionDTO["block"] {
+  const b = json<SessionBlockRow | null>(r.block);
+  if (!b) return null;
+  const weeks = blockWeeks(b.starts_on, b.goal_date);
+  const members = Number(b.members);
+  const facts = {
+    status: b.status,
+    visibility: b.visibility,
+    womenOnly: b.women_only,
+    capacity: b.capacity,
+    goalDate: b.goal_date,
+  };
+  return {
+    id: b.id,
+    goalLabel: goalLabel(b.goal_kind, b.event_name, Math.max(Number(b.slots), 1), weeks),
+    goalDate: b.goal_date,
+    weeks,
+    weekNumber: blockWeek(b.starts_on, b.goal_date, clusterDate(now)),
+    regularSeatsLeft: Math.max(0, b.capacity - members),
+    joinable: blockJoinable(facts, members, clusterDate(now)),
+  };
+}
 
 function viewOf(r: SessionViewRow, viewer: string, mine: MemberAbilities): SessionDTO {
   const isHost = r.host_id === viewer;
   const ability = json<Ability>(r.ability);
   const seatsLeft = Math.max(0, r.capacity - 1 - Number(r.seats_taken ?? 0));
+  const block = blockOf(r, Date.now());
+  // On a block that still takes regulars, a free seat is a regular's unless there
+  // are more of them than the block has open: then a regular is out this week.
+  const oneOff = block?.joinable ? seatsLeft > block.regularSeatsLeft : seatsLeft > 0;
   return {
     id: r.id,
     hostId: r.host_id,
@@ -438,7 +509,8 @@ function viewOf(r: SessionViewRow, viewer: string, mine: MemberAbilities): Sessi
     seatsLeft,
     pinHint: isHost || r.viewer_confirmed ? r.venue_hint : null,
     seriesId: r.series_id,
-    substituteSeat: Boolean(r.series_id) && !isHost && !r.viewer_in_series && seatsLeft > 0,
+    substituteSeat: Boolean(r.series_id) && !isHost && !r.viewer_in_series && oneOff,
+    block,
   };
 }
 
@@ -525,11 +597,19 @@ export async function getInvite(
   sql: Sql,
   viewer: string,
   inviteCode: string,
-): Promise<{ session: SessionDTO; people: Person[] }> {
+): Promise<{ session: SessionDTO; people: Person[] } | { trainingBlockId: string }> {
   const [row] = await sql.query<SessionViewRow>(
     `${SESSION_SELECT} where s.invite_code = $2 and s.visibility = 'unlisted' and s.status = 'open'`,
     [viewer, inviteCode],
   );
+  if (!row) {
+    // The same link shape invites someone to an unlisted training block. Whether
+    // this viewer may open it is the block page's call.
+    const [block] = await sql<{ id: string }>`
+      select id from training_blocks
+      where invite_code = ${inviteCode} and status in ('forming', 'active')`;
+    if (block) return { trainingBlockId: block.id };
+  }
   if (!row || (row.viewer_blocked && row.host_id !== viewer)) {
     throw new PaceError(404, "Invite expired.");
   }
@@ -569,6 +649,7 @@ export async function postSession(
   const verdict = canPost(
     {
       title: input.title,
+      detail: input.detail,
       activity: input.activity,
       ability: input.ability,
       startAt,
@@ -700,6 +781,36 @@ async function coverLateCancel(tx: Sql, sessionId: string) {
     where booking_id = ${gap.id} and kind = 'late_cancel_fee' and status = 'assessed'`;
 }
 
+/** The training block this slot belongs to, if it still takes new regulars. */
+async function joinableBlockOf(tx: Sql, seriesId: string, now: number): Promise<string | null> {
+  const [b] = await tx<BlockFactsRow>`
+    select tb.id, tb.status, tb.visibility, tb.women_only, tb.capacity,
+      tb.goal_date::text as goal_date,
+      (select count(*) from training_block_members m
+        where m.block_id = tb.id and m.left_at is null) as members
+    from series se join training_blocks tb on tb.id = se.training_block_id
+    where se.id = ${seriesId}`;
+  if (!b) return null;
+  const facts = {
+    status: b.status,
+    visibility: b.visibility,
+    womenOnly: b.women_only,
+    capacity: b.capacity,
+    goalDate: b.goal_date,
+  };
+  return blockJoinable(facts, Number(b.members), clusterDate(now)) ? b.id : null;
+}
+
+type BlockFactsRow = {
+  id: string;
+  status: TrainingBlockStatus;
+  visibility: Visibility;
+  women_only: boolean;
+  capacity: number;
+  goal_date: string;
+  members: number;
+};
+
 export async function bookSeat(
   sql: Sql,
   userId: string,
@@ -756,6 +867,11 @@ export async function bookSeat(
           and status in ('pending', 'confirmed')`;
       const here = new Set([s.host_id, ...seated.map((b) => b.participant_id)]);
       substituteFor = regulars.find((m) => !here.has(m.profile_id))?.profile_id ?? null;
+      // No regular is out, so the free seat is a regular's — and on a training block
+      // that means every week until the goal date. Never by tapping one session.
+      if (!substituteFor && (await joinableBlockOf(tx, s.series_id, now))) {
+        throw new PaceError(409, "This one is part of a training block. Join the block to take a seat.");
+      }
     }
 
     const id = newId("bk");
@@ -1276,7 +1392,13 @@ async function ensureNextOccurrence(tx: Sql, seriesId: string, now: number): Pro
       select profile_id from series_members where series_id = ${seriesId} and left_at is null
       order by joined_at, profile_id`
   ).map((m) => m.profile_id);
-  if (members.length < 2) {
+  const [block] = series.training_block_id
+    ? await tx<{ status: string; goal_date: string }>`
+        select status, goal_date::text as goal_date from training_blocks
+        where id = ${series.training_block_id}`
+    : [];
+  // One person is not a slot — unless it's a posted block still waiting for its second.
+  if (members.length < 2 && !(members.length === 1 && block?.status === "forming")) {
     await tx`update series set status = 'ended' where id = ${seriesId}`;
     return null;
   }
@@ -1287,9 +1409,6 @@ async function ensureNextOccurrence(tx: Sql, seriesId: string, now: number): Pro
   while (startAt < now + MIN_LEAD_TIME_MS) startAt = nextOccurrence(startAt);
   if (series.training_block_id) {
     // A training block's slots stop at its goal date.
-    const [block] = await tx<{ status: string; goal_date: string }>`
-      select status, goal_date::text as goal_date from training_blocks
-      where id = ${series.training_block_id}`;
     const running = block && (block.status === "forming" || block.status === "active");
     if (!running || clusterDate(startAt) > block.goal_date) return null;
   }
