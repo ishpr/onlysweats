@@ -22,6 +22,7 @@ import {
   cancelOutcome,
   chatOpen,
   checkinWindow,
+  clusterDate,
   feeChargeableAt,
   FREE_SESSIONS,
   FREEZE_MS,
@@ -62,13 +63,13 @@ export function newId(prefix: string) {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
 }
 
-const iso = (v: unknown) => (v == null ? null : new Date(v as string | Date).toISOString());
-const ms = (v: unknown) => (v == null ? null : new Date(v as string | Date).getTime());
-const at = (n: number) => new Date(n).toISOString();
+export const iso = (v: unknown) => (v == null ? null : new Date(v as string | Date).toISOString());
+export const ms = (v: unknown) => (v == null ? null : new Date(v as string | Date).getTime());
+export const at = (n: number) => new Date(n).toISOString();
 /** jsonb comes back parsed from pg and PGLite; tolerate a string just in case. */
-const json = <T>(v: unknown): T => (typeof v === "string" ? JSON.parse(v) : v) as T;
-const fourDigits = () => String(1000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9000));
-const inviteToken = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+export const json = <T>(v: unknown): T => (typeof v === "string" ? JSON.parse(v) : v) as T;
+export const fourDigits = () => String(1000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9000));
+export const inviteToken = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 
 // ── Rows ─────────────────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ type ProfileRow = {
   created_at: Date;
 };
 
-type SessionRow = {
+export type SessionRow = {
   id: string;
   host_id: string;
   venue_id: string;
@@ -214,6 +215,8 @@ export type SeriesDTO = {
   venueId: string;
   nextSessionId: string | null;
   nextStartAt: string | null;
+  /** Set when this slot is part of a training block. */
+  trainingBlockId: string | null;
 };
 
 function toPerson(r: ProfileRow): Person {
@@ -254,7 +257,7 @@ function initialsOf(name: string) {
   return (letters || "S").toUpperCase();
 }
 
-async function profileRow(sql: Sql, id: string): Promise<ProfileRow> {
+export async function profileRow(sql: Sql, id: string): Promise<ProfileRow> {
   const [row] = await sql<ProfileRow>`select * from profiles where id = ${id}`;
   if (!row) throw new PaceError(404, "No profile.");
   return row;
@@ -629,7 +632,8 @@ export async function cancelSession(
         now,
       );
     }
-    await tx`update sessions set status = 'cancelled' where id = ${sessionId}`;
+    await tx`
+      update sessions set status = 'cancelled', cancelled_by = ${userId} where id = ${sessionId}`;
     const stoodUp = seats.some((b) => b.status === "confirmed");
     if (stoodUp && cancelOutcome("confirmed", startAt, now).late) {
       await ledger(tx, userId, "late_cancel_fee", LATE_CANCEL_FEE_CENTS, {
@@ -1142,6 +1146,24 @@ export async function settleDue(sql: Sql, now = Date.now()): Promise<number> {
   await sql`
     update bookings b set status = 'declined', settled_at = ${cutoff}
     from sessions s where s.id = b.session_id and b.status = 'pending' and s.start_at < ${cutoff}`;
+
+  // A week every regular skipped has no seat left to settle, so nothing above
+  // closes it — and a standing slot only rolls forward from a closed occurrence.
+  const empty = await sql<{ id: string; series_id: string }>`
+    select s.id, s.series_id from sessions s
+    where s.series_id is not null and s.status = 'open'
+      and s.start_at + interval '25 minutes' < ${cutoff}
+      and not exists (
+        select 1 from bookings b where b.session_id = s.id and b.status in ('pending', 'confirmed'))`;
+  for (const { id, series_id } of empty) {
+    await sql.transaction(async (tx) => {
+      const [closed] = await tx<{ id: string }>`
+        update sessions set status = 'completed' where id = ${id} and status = 'open' returning id`;
+      if (!closed) return;
+      await tx`update series set streak = 0 where id = ${series_id}`;
+      await ensureNextOccurrence(tx, series_id, now);
+    });
+  }
   return due.length;
 }
 
@@ -1241,8 +1263,8 @@ export async function checkInCode(
  * no-show rules included.
  */
 async function ensureNextOccurrence(tx: Sql, seriesId: string, now: number): Promise<string | null> {
-  const [series] = await tx<{ status: string }>`
-    select status from series where id = ${seriesId} for update`;
+  const [series] = await tx<{ status: string; training_block_id: string | null }>`
+    select status, training_block_id from series where id = ${seriesId} for update`;
   if (!series || series.status !== "active") return null;
   const [upcoming] = await tx<{ id: string }>`
     select id from sessions where series_id = ${seriesId} and status = 'open'
@@ -1263,6 +1285,14 @@ async function ensureNextOccurrence(tx: Sql, seriesId: string, now: number): Pro
   if (!last) return null;
   let startAt = nextOccurrence(ms(last.start_at)!);
   while (startAt < now + MIN_LEAD_TIME_MS) startAt = nextOccurrence(startAt);
+  if (series.training_block_id) {
+    // A training block's slots stop at its goal date.
+    const [block] = await tx<{ status: string; goal_date: string }>`
+      select status, goal_date::text as goal_date from training_blocks
+      where id = ${series.training_block_id}`;
+    const running = block && (block.status === "forming" || block.status === "active");
+    if (!running || clusterDate(startAt) > block.goal_date) return null;
+  }
 
   const host = members.includes(last.host_id) ? last.host_id : members[0];
   const id = newId("ses");
@@ -1347,8 +1377,8 @@ export async function repeatWeekly(
 }
 
 export async function listMySeries(sql: Sql, userId: string, now = Date.now()): Promise<SeriesDTO[]> {
-  const rows = await sql<{ id: string; streak: number }>`
-    select se.id, se.streak from series se
+  const rows = await sql<{ id: string; streak: number; training_block_id: string | null }>`
+    select se.id, se.streak, se.training_block_id from series se
     join series_members m on m.series_id = se.id and m.profile_id = ${userId} and m.left_at is null
     where se.status = 'active' order by se.created_at`;
   const out: SeriesDTO[] = [];
@@ -1373,50 +1403,79 @@ export async function listMySeries(sql: Sql, userId: string, now = Date.now()): 
       venueId: last.venue_id,
       nextSessionId: next?.id ?? null,
       nextStartAt: next ? iso(next.start_at) : null,
+      trainingBlockId: r.training_block_id,
     });
   }
   return out;
 }
 
-/** Leave a standing slot. Fewer than two regulars left ends it. */
+/** One slot, inside the caller's transaction. Fewer than two regulars left ends it. */
+async function leaveOneSeries(tx: Sql, userId: string, seriesId: string, now: number) {
+  await tx`
+    update series_members set left_at = ${at(now)}
+    where series_id = ${seriesId} and profile_id = ${userId}`;
+  const remaining = (
+    await tx<{ profile_id: string }>`
+      select profile_id from series_members where series_id = ${seriesId} and left_at is null
+      order by joined_at, profile_id`
+  ).map((x) => x.profile_id);
+  const future = await tx<SessionRow>`
+    select * from sessions where series_id = ${seriesId} and status = 'open'
+      and start_at > ${at(now)} for update`;
+  for (const s of future) {
+    if (remaining.length < 2) {
+      await tx`
+        update bookings set status = 'cancelled', settled_at = ${at(now)}
+        where session_id = ${s.id} and status in ('pending', 'confirmed')`;
+      await tx`update sessions set status = 'cancelled' where id = ${s.id}`;
+    } else if (s.host_id === userId) {
+      // Hand the occurrence to the longest-standing regular; their seat becomes the post.
+      await tx`
+        update bookings set status = 'cancelled', settled_at = ${at(now)}
+        where session_id = ${s.id} and participant_id = ${remaining[0]}
+          and status in ('pending', 'confirmed')`;
+      await tx`update sessions set host_id = ${remaining[0]} where id = ${s.id}`;
+    } else {
+      await tx`
+        update bookings set status = 'cancelled', settled_at = ${at(now)}
+        where session_id = ${s.id} and participant_id = ${userId}
+          and status in ('pending', 'confirmed')`;
+    }
+  }
+  if (remaining.length < 2) await tx`update series set status = 'ended' where id = ${seriesId}`;
+}
+
+/**
+ * Leave a standing slot. A training block is all of its slots, so leaving one of
+ * them leaves the block — and a block with fewer than two members is over.
+ */
 export async function leaveSeries(sql: Sql, userId: string, seriesId: string, now = Date.now()) {
   await sql.transaction(async (tx) => {
-    const [m] = await tx`
-      select 1 from series_members where series_id = ${seriesId} and profile_id = ${userId}
-        and left_at is null for update`;
+    const [m] = await tx<{ training_block_id: string | null }>`
+      select se.training_block_id from series_members sm join series se on se.id = sm.series_id
+      where sm.series_id = ${seriesId} and sm.profile_id = ${userId} and sm.left_at is null
+      for update of sm`;
     if (!m) throw new PaceError(404, "Not your standing slot.");
+    const blockId = m.training_block_id;
+    if (!blockId) return leaveOneSeries(tx, userId, seriesId, now);
+
+    const slots = await tx<{ id: string }>`
+      select se.id from series se
+      join series_members sm on sm.series_id = se.id and sm.profile_id = ${userId}
+        and sm.left_at is null
+      where se.training_block_id = ${blockId} order by se.created_at, se.id`;
+    for (const slot of slots) await leaveOneSeries(tx, userId, slot.id, now);
     await tx`
-      update series_members set left_at = ${at(now)}
-      where series_id = ${seriesId} and profile_id = ${userId}`;
-    const remaining = (
-      await tx<{ profile_id: string }>`
-        select profile_id from series_members where series_id = ${seriesId} and left_at is null
-        order by joined_at, profile_id`
-    ).map((x) => x.profile_id);
-    const future = await tx<SessionRow>`
-      select * from sessions where series_id = ${seriesId} and status = 'open'
-        and start_at > ${at(now)} for update`;
-    for (const s of future) {
-      if (remaining.length < 2) {
-        await tx`
-          update bookings set status = 'cancelled', settled_at = ${at(now)}
-          where session_id = ${s.id} and status in ('pending', 'confirmed')`;
-        await tx`update sessions set status = 'cancelled' where id = ${s.id}`;
-      } else if (s.host_id === userId) {
-        // Hand the occurrence to the longest-standing regular; their seat becomes the post.
-        await tx`
-          update bookings set status = 'cancelled', settled_at = ${at(now)}
-          where session_id = ${s.id} and participant_id = ${remaining[0]}
-            and status in ('pending', 'confirmed')`;
-        await tx`update sessions set host_id = ${remaining[0]} where id = ${s.id}`;
-      } else {
-        await tx`
-          update bookings set status = 'cancelled', settled_at = ${at(now)}
-          where session_id = ${s.id} and participant_id = ${userId}
-            and status in ('pending', 'confirmed')`;
-      }
+      update training_block_members set left_at = ${at(now)}
+      where block_id = ${blockId} and profile_id = ${userId} and left_at is null`;
+    const [{ n }] = await tx<{ n: number }>`
+      select count(*) as n from training_block_members
+      where block_id = ${blockId} and left_at is null`;
+    if (Number(n) < 2) {
+      await tx`
+        update training_blocks set status = 'ended', ended_reason = 'too_few'
+        where id = ${blockId} and status in ('forming', 'active')`;
     }
-    if (remaining.length < 2) await tx`update series set status = 'ended' where id = ${seriesId}`;
   });
 }
 
@@ -1427,9 +1486,14 @@ export async function leaveSeries(sql: Sql, userId: string, seriesId: string, no
  */
 export async function withdrawEverything(sql: Sql, userId: string, now = Date.now()) {
   await sql.transaction(async (tx) => {
-    const slots = await tx<{ series_id: string }>`
-      select series_id from series_members where profile_id = ${userId} and left_at is null`;
-    for (const { series_id } of slots) await leaveSeries(tx, userId, series_id, now);
+    // One at a time: leaving a training block's slot takes its other slots with it.
+    for (;;) {
+      const [slot] = await tx<{ series_id: string }>`
+        select series_id from series_members where profile_id = ${userId} and left_at is null
+        limit 1`;
+      if (!slot) break;
+      await leaveSeries(tx, userId, slot.series_id, now);
+    }
     const hosted = await tx<{ id: string }>`
       select id from sessions where host_id = ${userId} and status = 'open'
         and start_at > ${at(now)} for update`;
@@ -1470,12 +1534,16 @@ export async function withdrawEverything(sql: Sql, userId: string, now = Date.no
  */
 export async function severTies(sql: Sql, blocker: string, blocked: string, now = Date.now()) {
   await sql.transaction(async (tx) => {
-    const shared = await tx<{ series_id: string }>`
-      select a.series_id from series_members a
-      join series_members b on b.series_id = a.series_id
-      where a.profile_id = ${blocker} and a.left_at is null
-        and b.profile_id = ${blocked} and b.left_at is null`;
-    for (const { series_id } of shared) await leaveSeries(tx, blocker, series_id, now);
+    for (;;) {
+      const [shared] = await tx<{ series_id: string }>`
+        select a.series_id from series_members a
+        join series_members b on b.series_id = a.series_id
+        where a.profile_id = ${blocker} and a.left_at is null
+          and b.profile_id = ${blocked} and b.left_at is null
+        limit 1`;
+      if (!shared) break;
+      await leaveSeries(tx, blocker, shared.series_id, now);
+    }
     await tx`
       update bookings b set status = 'cancelled', settled_at = ${at(now)}
       from sessions s

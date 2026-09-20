@@ -3,17 +3,26 @@ import assert from "node:assert/strict";
 import {
   abilityFits,
   abilityLabel,
+  blockFinished,
+  blockWeek,
+  blockWeeks,
   canBook,
   canGeoCheckIn,
   canPost,
   canUseCode,
   cancelOutcome,
   chatOpen,
+  clusterDate,
   distanceM,
   feeChargeableAt,
+  goalLabel,
   nextOccurrence,
+  plannedAndKept,
   settle,
   validAbility,
+  validBlock,
+  type BlockInput,
+  type Occurrence,
   type PostInput,
   type SessionFacts,
 } from "./rules.ts";
@@ -208,5 +217,92 @@ describe("chatOpen", () => {
     assert.equal(chatOpen({ status: "completed" }, s, NOW), false);
     assert.equal(chatOpen({ status: "completed" }, { ...s, startAt: NOW - 2 * HOUR }, NOW), true);
     assert.equal(chatOpen({ status: "declined" }, { ...s, startAt: NOW + HOUR }, NOW), false);
+  });
+});
+
+describe("training blocks", () => {
+  const block = (patch: Partial<BlockInput> = {}): BlockInput => ({
+    activity: "run",
+    goalKind: "race_marathon",
+    eventName: "Dallas Marathon",
+    startsOn: "2026-09-22",
+    goalDate: "2026-12-13",
+    ...patch,
+  });
+
+  it("runs 4 to 20 weeks, toward a goal that fits the activity", () => {
+    assert.deepEqual(validBlock(block()), { ok: true });
+    assert.equal(validBlock(block({ goalDate: "2026-10-19" })).ok, false, "27 days");
+    assert.equal(validBlock(block({ goalDate: "2026-10-20" })).ok, true, "28 days");
+    assert.equal(validBlock(block({ goalDate: "2027-02-09" })).ok, true, "140 days");
+    assert.equal(validBlock(block({ goalDate: "2027-02-10" })).ok, false, "141 days");
+    assert.equal(validBlock(block({ goalDate: "soon" })).ok, false);
+    assert.equal(validBlock(block({ goalDate: "2026-13-45" })).ok, false);
+    assert.equal(validBlock(block({ activity: "ride" })).ok, false, "a marathon isn’t a ride");
+    assert.equal(validBlock(block({ activity: "ride", goalKind: "ride_century" })).ok, true);
+    assert.equal(validBlock(block({ activity: "strength", goalKind: "consistency", eventName: null })).ok, true);
+    assert.equal(validBlock(block({ goalKind: "consistency" })).ok, false, "no event to name");
+    assert.equal(validBlock(block({ goalKind: "event_other", eventName: " " })).ok, false);
+    assert.equal(validBlock(block({ eventName: "x".repeat(61) })).ok, false);
+  });
+
+  it("names the week and the goal", () => {
+    assert.equal(blockWeeks("2026-09-22", "2026-12-13"), 12);
+    assert.equal(blockWeek("2026-09-22", "2026-12-13", "2026-09-22"), 1);
+    assert.equal(blockWeek("2026-09-22", "2026-12-13", "2026-09-28"), 1);
+    assert.equal(blockWeek("2026-09-22", "2026-12-13", "2026-09-29"), 2);
+    assert.equal(blockWeek("2026-09-22", "2026-12-13", "2027-01-20"), 12, "stays on the last week");
+    assert.equal(goalLabel("race_marathon", "Dallas Marathon", 1, 12), "Dallas Marathon");
+    assert.equal(goalLabel("race_marathon", null, 1, 12), "Marathon");
+    assert.equal(goalLabel("consistency", null, 3, 12), "3× a week for 12 weeks");
+  });
+
+  it("reads the date in the cluster, not in UTC", () => {
+    // 03:30 UTC is still the evening before in Dallas.
+    assert.equal(clusterDate(Date.UTC(2026, 8, 23, 3, 30)), "2026-09-22");
+    assert.equal(clusterDate(Date.UTC(2026, 8, 23, 5, 30)), "2026-09-23");
+  });
+
+  const past = (patch: Partial<Occurrence> = {}): Occurrence => ({
+    startAt: NOW - DAY,
+    checkedIn: false,
+    calledOff: false,
+    calledOffByMe: false,
+    stoodAlone: false,
+    miles: 5,
+    ...patch,
+  });
+
+  it("counts a check-in as kept, and a skip or my own call-off as planned", () => {
+    assert.deepEqual(plannedAndKept([], NOW), { planned: 0, kept: 0, keptMiles: 0 });
+    const weeks = [
+      past({ checkedIn: true }),
+      past({ checkedIn: true, miles: 6.2 }),
+      past(), // skipped with notice, or didn’t show
+      past({ calledOff: true, calledOffByMe: true }),
+    ];
+    assert.deepEqual(plannedAndKept(weeks, NOW), { planned: 4, kept: 2, keptMiles: 11.2 });
+  });
+
+  it("doesn’t hold a week against someone who had no way to keep it", () => {
+    const weeks = [
+      past({ calledOff: true }), // someone else called it off
+      past({ stoodAlone: true }), // I posted; everyone else skipped
+      past({ startAt: NOW - 10 * MIN }), // check-in is still open
+      past({ startAt: NOW + DAY }),
+    ];
+    assert.deepEqual(plannedAndKept(weeks, NOW), { planned: 0, kept: 0, keptMiles: 0 });
+    // …but showing up counts even when the buddy didn’t.
+    assert.equal(plannedAndKept([past({ checkedIn: true, stoodAlone: true })], NOW).kept, 1);
+    // A week I called off counts at once, not after it would have started.
+    const mineOff = past({ startAt: NOW + DAY, calledOff: true, calledOffByMe: true });
+    assert.equal(plannedAndKept([mineOff], NOW).planned, 1);
+  });
+
+  it("finishing takes 75% kept", () => {
+    assert.equal(blockFinished({ planned: 0, kept: 0 }), false);
+    assert.equal(blockFinished({ planned: 4, kept: 3 }), true);
+    assert.equal(blockFinished({ planned: 36, kept: 27 }), true);
+    assert.equal(blockFinished({ planned: 36, kept: 26 }), false);
   });
 });

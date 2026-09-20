@@ -16,6 +16,7 @@ import {
   type Activity,
   type Difficulty,
   type Gender,
+  type GoalKind,
   type MemberAbilities,
   type Visibility,
 } from "./types.ts";
@@ -324,3 +325,141 @@ export function nextOccurrence(startAt: number): number {
   }
   return week;
 }
+
+// ── Training blocks ──────────────────────────────────────────────────────────
+
+export const BLOCK_MIN_WEEKS = 4;
+export const BLOCK_MAX_WEEKS = 20;
+export const BLOCK_MAX_SLOTS = 4;
+/** Kept out of planned, to have finished a block. A guess under test. */
+export const BLOCK_FINISH_PCT = 75;
+/** A slot added to a block commits its other members, so they get time to skip it free. */
+export const NEW_SLOT_LEAD_MS = 48 * 60 * 60_000;
+
+const day = new Intl.DateTimeFormat("en-CA", {
+  timeZone: CLUSTER_TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/** The calendar date in the cluster, as `YYYY-MM-DD`. */
+export const clusterDate = (at: number): string => day.format(new Date(at));
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 24 * 60 * 60_000;
+const dayNumber = (date: string) => Math.round(Date.parse(`${date}T00:00:00Z`) / DAY_MS);
+
+/** Whole days from one calendar date to another. */
+export const daysBetween = (from: string, to: string) => dayNumber(to) - dayNumber(from);
+
+/** Which activities a goal makes sense for. Absent = any. */
+const GOAL_ACTIVITIES: Partial<Record<GoalKind, Activity[]>> = {
+  race_5k: ["run", "walk"],
+  race_10k: ["run", "walk"],
+  race_half: ["run", "walk"],
+  race_marathon: ["run", "walk"],
+  ride_century: ["ride"],
+  hike_trip: ["hike"],
+};
+
+const GOAL_NAMES: Record<GoalKind, string> = {
+  race_5k: "5k",
+  race_10k: "10k",
+  race_half: "Half marathon",
+  race_marathon: "Marathon",
+  ride_century: "Century ride",
+  hike_trip: "Hiking trip",
+  event_other: "Event",
+  consistency: "Consistency",
+};
+
+export type BlockInput = {
+  activity: Activity;
+  goalKind: GoalKind;
+  eventName: string | null | undefined;
+  startsOn: string;
+  goalDate: string;
+};
+
+export function validBlock(input: BlockInput): RuleResult {
+  if (!DATE.test(input.goalDate) || Number.isNaN(dayNumber(input.goalDate))) {
+    return no("Pick the goal date.");
+  }
+  const fits = GOAL_ACTIVITIES[input.goalKind];
+  if (fits && !fits.includes(input.activity)) return no("That goal doesn’t go with this activity.");
+  const name = input.eventName?.trim() ?? "";
+  if (input.goalKind === "consistency" && name) return no("A consistency goal doesn’t take an event name.");
+  if (input.goalKind === "event_other" && !name) return no("Name the event.");
+  if (name.length > 60) return no("Keep the event name short.");
+  const days = daysBetween(input.startsOn, input.goalDate);
+  if (days < BLOCK_MIN_WEEKS * 7) return no("A training block runs at least 4 weeks.");
+  if (days > BLOCK_MAX_WEEKS * 7) return no("A training block runs at most 20 weeks.");
+  return ok;
+}
+
+export const blockWeeks = (startsOn: string, goalDate: string) =>
+  Math.ceil(daysBetween(startsOn, goalDate) / 7);
+
+/** "Week 6 of 16": 1-based, and it stays on the last week once the date has passed. */
+export function blockWeek(startsOn: string, goalDate: string, today: string): number {
+  const week = Math.floor(daysBetween(startsOn, today) / 7) + 1;
+  return Math.min(Math.max(week, 1), blockWeeks(startsOn, goalDate));
+}
+
+/** "Dallas Marathon", "Marathon", or "3× a week for 12 weeks". */
+export function goalLabel(
+  goalKind: GoalKind,
+  eventName: string | null,
+  slotsPerWeek: number,
+  weeks: number,
+): string {
+  if (goalKind === "consistency") return `${slotsPerWeek}× a week for ${weeks} weeks`;
+  return eventName?.trim() || GOAL_NAMES[goalKind];
+}
+
+/** One occurrence of a block's slots, from one member's side. */
+export type Occurrence = {
+  startAt: number;
+  /** I checked in, by fence or code. */
+  checkedIn: boolean;
+  /** Someone called the session off… */
+  calledOff: boolean;
+  /** …and it was me. */
+  calledOffByMe: boolean;
+  /** I posted it and nobody else held a seat: there was no one to show up for. */
+  stoodAlone: boolean;
+  /** The session's stated distance, 0 when the activity has none. */
+  miles: number;
+};
+
+/**
+ * Sessions kept out of sessions planned — all of it from check-ins the server
+ * already verifies. A week someone else called off isn't held against me; one I
+ * called off, or skipped with notice, is planned and not kept. `keptMiles` is the
+ * stated distance of the sessions I checked in to — planned, never measured.
+ */
+export function plannedAndKept(
+  occurrences: Occurrence[],
+  now: number,
+): { planned: number; kept: number; keptMiles: number } {
+  let planned = 0;
+  let kept = 0;
+  let keptMiles = 0;
+  for (const o of occurrences) {
+    if (o.checkedIn) {
+      planned += 1;
+      kept += 1;
+      keptMiles += o.miles;
+      continue;
+    }
+    if (o.calledOff ? !o.calledOffByMe : o.stoodAlone) continue;
+    // Still open for check-in: not a miss yet.
+    if (!o.calledOff && now <= checkinWindow(o.startAt).to) continue;
+    planned += 1;
+  }
+  return { planned, kept, keptMiles: Math.round(keptMiles * 10) / 10 };
+}
+
+export const blockFinished = (p: { planned: number; kept: number }) =>
+  p.planned > 0 && p.kept * 100 >= p.planned * BLOCK_FINISH_PCT;
