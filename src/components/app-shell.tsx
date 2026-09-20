@@ -16,21 +16,27 @@ import { cn } from "@/lib/utils";
 import { usePaceStore } from "@/lib/store";
 
 const NAV: {
-  to: "/" | "/sessions" | "/inbox" | "/you";
+  to: "/prototype" | "/sessions" | "/inbox" | "/you";
   label: string;
   icon: LucideIcon;
   match?: string;
 }[] = [
-  { to: "/", label: "Today", icon: CalendarDays },
+  { to: "/prototype", label: "Today", icon: CalendarDays },
   { to: "/sessions", label: "Sessions", icon: MapPinned, match: "/sessions" },
   { to: "/inbox", label: "Inbox", icon: MessageCircle, match: "/inbox" },
   { to: "/you", label: "You", icon: UserRound, match: "/you" },
 ];
 
+const PUBLIC_PATHS = ["/", "/privacy", "/terms", "/support"];
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // The public site (landing, policies, invite links) is not the prototype —
+  // it brings its own chrome. The prototype's home lives at /prototype.
   const hideChrome =
-    pathname.startsWith("/live") || pathname.startsWith("/invite");
+    pathname.startsWith("/live") ||
+    pathname.startsWith("/invite") ||
+    PUBLIC_PATHS.includes(pathname.replace(/\/+$/, "") || "/");
   const [siri, setSiri] = useState(false);
   const bookings = usePaceStore((s) => s.bookings);
   const sessions = usePaceStore((s) => s.sessions);
@@ -56,15 +62,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-6xl">
       <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-fg/8 px-4 py-6 md:flex">
-        <Link to="/" className="mb-8 flex items-center gap-2 px-2">
+        <Link to="/prototype" className="mb-8 flex items-center gap-2 px-2">
           <PaceMark />
           <span className="text-lg font-semibold tracking-tight">Pace</span>
         </Link>
         <nav className="flex flex-1 flex-col gap-1">
           {NAV.map((item) => {
             const active =
-              item.to === "/"
-                ? pathname === "/"
+              item.to === "/prototype"
+                ? pathname === "/prototype"
                 : pathname.startsWith(item.match ?? item.to);
             return (
               <Link
@@ -98,7 +104,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="relative flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex items-center justify-between gap-3 bg-bg/80 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur-xl md:px-8">
-          <Link to="/" className="flex items-center gap-2 md:hidden">
+          <Link to="/prototype" className="flex items-center gap-2 md:hidden">
             <PaceMark className="size-7" />
             <span className="text-[17px] font-semibold tracking-tight">Pace</span>
           </Link>
@@ -131,8 +137,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="tab-bar fixed inset-x-0 bottom-0 z-30 flex justify-around px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-2 md:hidden">
           {NAV.map((item) => {
             const active =
-              item.to === "/"
-                ? pathname === "/"
+              item.to === "/prototype"
+                ? pathname === "/prototype"
                 : pathname.startsWith(item.match ?? item.to);
             return (
               <Link

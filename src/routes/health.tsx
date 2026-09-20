@@ -107,7 +107,7 @@ function Health() {
 
           <p className="text-sm text-muted">
             Completing a dual check-in writes a workout back to Fitness.{" "}
-            <Link to="/" className="text-fg">
+            <Link to="/prototype" className="text-fg">
               Today
             </Link>
           </p>
