@@ -12,6 +12,7 @@ import type {
   Person,
   PostSessionInput,
   RatingInput,
+  ReportInput,
   Series,
   Session,
   Venue,
@@ -28,6 +29,7 @@ export const keys = {
   invite: (code: string) => ["invite", code] as const,
   mine: ["mine"] as const,
   messages: (bookingId: string) => ["messages", bookingId] as const,
+  blocks: ["blocks"] as const,
 };
 
 export const useMe = () => useQuery({ queryKey: keys.me, queryFn: () => api<Me>("/me") });
@@ -126,6 +128,50 @@ export function useUpdateMe() {
     },
   });
 }
+
+// ── Safety + account ─────────────────────────────────────────────────────────
+
+export const useBlocks = () =>
+  useQuery({
+    queryKey: keys.blocks,
+    queryFn: async () => (await api<{ people: Person[] }>("/blocks")).people,
+  });
+
+/** Blocking releases any seat the two of you share, so everything refreshes. */
+export function useBlock() {
+  const qc = useQueryClient();
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: (memberId: string) => api("/blocks", { method: "POST", json: { memberId } }),
+    onSuccess: () => Promise.all([refresh(), qc.invalidateQueries({ queryKey: keys.blocks })]),
+  });
+}
+
+export function useUnblock() {
+  const qc = useQueryClient();
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: (memberId: string) =>
+      api(`/blocks/${encodeURIComponent(memberId)}`, { method: "DELETE" }),
+    onSuccess: () => Promise.all([refresh(), qc.invalidateQueries({ queryKey: keys.blocks })]),
+  });
+}
+
+export function useReport() {
+  const qc = useQueryClient();
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: (input: ReportInput) =>
+      api<{ id: string; blocked: boolean }>("/reports", { method: "POST", json: input }),
+    onSuccess: (res) =>
+      res.blocked
+        ? Promise.all([refresh(), qc.invalidateQueries({ queryKey: keys.blocks })])
+        : undefined,
+  });
+}
+
+export const useDeleteAccount = () =>
+  useMutation({ mutationFn: () => api("/me", { method: "DELETE" }) });
 
 /** "Same time next week": a completed session becomes a standing slot. */
 export function useRepeatWeekly() {
