@@ -28,8 +28,8 @@ function Health() {
         <div className="glass rounded-[28px] p-6">
           <h2 className="text-xl font-semibold">Connect Apple Health</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            Rings, sleep, and HRV help Intelligence pick a seat that fits today.
-            Pace never ranks bodies or photos.
+            Rings, sleep, and HRV help Intelligence pick a session that fits today.
+            SamePace never ranks bodies or photos.
           </p>
           <Button className="mt-5" onClick={() => connect(true)}>
             Turn on Health
@@ -96,7 +96,7 @@ function Health() {
                     <p className="font-medium tracking-tight">{w.title}</p>
                     <p className="text-xs text-muted">
                       {ACTIVITIES[w.activity].label} · <When iso={w.at} /> · {w.minutes} min
-                      {w.source === "pace" ? " · Pace" : " · Fitness"}
+                      {w.source === "pace" ? " · SamePace" : " · Fitness"}
                     </p>
                   </div>
                   <p className="text-sm tabular-nums text-muted">{w.kcal} kcal</p>

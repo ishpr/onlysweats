@@ -15,7 +15,7 @@ const FILTERS = [
   { id: "all", label: "All" },
   { id: "run", label: "Run" },
   { id: "hike", label: "Hike" },
-  { id: "free", label: "$0" },
+  { id: "instant", label: "Instant join" },
   { id: "women", label: "Women-only" },
   { id: "morning", label: "Morning" },
 ] as const;
@@ -35,7 +35,7 @@ function Sessions() {
       .filter((s) => (prefs.womenOnlySearch ? s.womenOnly : true))
       .filter((s) => {
         if (filter === "run" || filter === "hike") return s.activity === (filter as Activity);
-        if (filter === "free") return s.priceCents === 0;
+        if (filter === "instant") return s.joinMode === "instant";
         if (filter === "women") return s.womenOnly;
         if (filter === "morning") {
           const h = dallasHour(s.startAt);
@@ -85,7 +85,7 @@ function Sessions() {
         ))}
         {list.length === 0 && (
           <p className="glass rounded-[24px] p-6 text-sm text-muted">
-            Nothing in that window. Post the run you’re doing anyway.
+            Nothing in that window. Post the workout you’re doing anyway.
           </p>
         )}
       </div>

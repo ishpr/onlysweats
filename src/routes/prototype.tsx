@@ -54,7 +54,7 @@ function Today() {
             workout plan.
           </p>
           <span className="mt-3 inline-flex items-center gap-1 text-sm text-muted">
-            Hold the slot <ChevronRight className="size-4" />
+            See the session <ChevronRight className="size-4" />
           </span>
         </Link>
       )}
