@@ -11,7 +11,14 @@ import {
 } from "react";
 import { Platform } from "react-native";
 
-import { authRequest, setApiToken, setUnauthorizedHandler, signOutRequest } from "./api";
+import {
+  authRequest,
+  setApiToken,
+  setUnauthorizedHandler,
+  signOutRequest,
+  socialSignInRequest,
+} from "./api";
+import type { SocialResult } from "./social";
 
 const TOKEN_KEY = "pace.session-token";
 
@@ -29,6 +36,8 @@ type AuthState = {
   signedIn: boolean | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
+  /** Finish an Apple/Google sign-in. A `null` result (they backed out) is a no-op. */
+  signInWithToken: (result: SocialResult) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -78,6 +87,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       signUp: async (name, email, password) => {
         const { token } = await authRequest("/sign-up/email", { name, email, password });
+        await accept(token);
+      },
+      signInWithToken: async (result) => {
+        if (!result) return;
+        const { token } = await socialSignInRequest(result.provider, result.idToken);
         await accept(token);
       },
       signOut: async () => {

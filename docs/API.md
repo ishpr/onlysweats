@@ -16,16 +16,31 @@ The client never decides seats, check-in or fees.
 
 ## Auth
 
-Better Auth at `/api/auth/*`, email + password for now.
+Better Auth at `/api/auth/*`. Members sign in with **Apple or Google** — the app
+gets an identity token from the OS / Google's SDK and the server verifies its
+signature, issuer, audience and nonce:
 
 ```
-POST /api/auth/sign-up/email   { name, email, password }
-POST /api/auth/sign-in/email   { email, password }
+GET  /api/v1/auth-config        → { apple, google: { webClientId, iosClientId } | null, password }
+POST /api/auth/sign-in/social   { provider: "apple" | "google",
+                                  idToken: { token, nonce?, user?: { name: { firstName, lastName } } } }
 POST /api/auth/sign-out
 ```
 
-Both sign-up and sign-in answer with a `set-auth-token` response header. Store it
-in the device keychain and send it on every call:
+`auth-config` is the one endpoint that needs no session. Apple only shares a name
+on first authorization, so the app forwards it in `idToken.user`; `PATCH /me`
+covers the rest. The same verified email through either provider is one member.
+
+A provider is on when its public identifier is set on the server —
+`APPLE_BUNDLE_ID`, `GOOGLE_WEB_CLIENT_ID`, `GOOGLE_IOS_CLIENT_ID`. No client
+secret is involved in the identity-token flow.
+
+Email + password (`/api/auth/sign-up/email`, `/sign-in/email`) is a development
+convenience: available outside production, and in production only until a
+provider is configured. `AUTH_EMAIL_PASSWORD=on|off` overrides.
+
+Every sign-in answers with a `set-auth-token` response header. Store it in the
+device keychain and send it on every call:
 
 ```
 Authorization: Bearer <token>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { LevelPicker } from "@/components/ability-picker";
@@ -8,6 +9,7 @@ import {
   Button,
   Card,
   Chip,
+  Field,
   Notice,
   Row,
   Screen,
@@ -37,6 +39,7 @@ export default function You() {
   const { signOut } = useAuth();
   const me = useMe();
   const update = useUpdateMe();
+  const [name, setName] = useState<string | null>(null);
 
   if (!me.data) {
     return (
@@ -59,6 +62,29 @@ export default function You() {
           </T>
         </View>
       </Row>
+
+      {/* Apple only shares a name the first time, and "Hide My Email" gives us nothing to go on. */}
+      {(p.name === "Member" || name !== null) && (
+        <Card>
+          <T variant="label">What should your buddy call you?</T>
+          <Field
+            label="First name"
+            value={name ?? ""}
+            onChangeText={setName}
+            autoComplete="given-name"
+            maxLength={80}
+          />
+          <Button
+            variant="soft"
+            label="Save"
+            disabled={!name?.trim()}
+            loading={update.isPending}
+            onPress={() =>
+              update.mutate({ name: name!.trim() }, { onSuccess: () => setName(null) })
+            }
+          />
+        </Card>
+      )}
 
       <Row style={styles.stats}>
         <Stat value={String(p.completedCount)} label="Completed" />

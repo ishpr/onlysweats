@@ -261,7 +261,10 @@ export async function ensureProfile(
 ): Promise<MeDTO> {
   const [existing] = await sql<ProfileRow>`select * from profiles where id = ${user.id}`;
   if (existing) return toMe(sql, existing, now);
-  const name = (user.name?.trim() || user.email?.split("@")[0] || "Member").slice(0, 80);
+  // Apple's "Hide My Email" addresses are random — never use one as a name.
+  const relay = user.email?.endsWith("@privaterelay.appleid.com");
+  const fromEmail = relay ? undefined : user.email?.split("@")[0];
+  const name = (user.name?.trim() || fromEmail || "Member").slice(0, 80);
   const base =
     name
       .toLowerCase()

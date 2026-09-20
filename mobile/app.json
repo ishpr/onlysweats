@@ -12,7 +12,8 @@
       "bundleIdentifier": "app.samepace",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "SamePace checks that you are within 150 m of the meeting pin, only while the Live Session screen is open."
-      }
+      },
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -44,7 +45,8 @@
         {
           "locationWhenInUsePermission": "SamePace checks that you are within 150 m of the meeting pin, only while the Live Session screen is open."
         }
-      ]
+      ],
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true,

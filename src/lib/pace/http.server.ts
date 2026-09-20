@@ -207,6 +207,11 @@ export async function handleApi(request: Request): Promise<Response> {
       break;
     }
   }
+  // The one public endpoint: which sign-in methods to draw. Public values only.
+  if (path === "/auth-config" && request.method === "GET") {
+    const { authConfig } = await import("../auth/social.server");
+    return json(authConfig());
+  }
   if (!found) return json({ error: pathKnown ? "Method not allowed" : "Not found" }, pathKnown ? 405 : 404);
 
   try {
