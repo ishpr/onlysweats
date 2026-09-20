@@ -73,10 +73,24 @@ the API restarts — mint a new one.
 
 The server decides seats, money and check-in. The app only displays and asks.
 
+## Push notifications
+
+`expo-notifications`, delivered through Expo's push service — the server queues
+and sends (see *Notifications* in `docs/API.md`); `src/lib/push.ts` registers the
+device and opens the screen a tapped notification points at. The app asks in its
+own words first (Today, once there's a session coming up), then the system prompt.
+Settings live under You → Notifications; Inbox → Activity lists everything sent,
+push or not.
+
+Push needs a build that contains the native module, and a real phone — simulators
+and Expo Go can't get a token, and there the app simply reports "not available".
+iOS needs an APNs key (EAS creates it during the first device build); Android needs
+a Firebase project's `google-services.json` and its FCM v1 service-account key
+uploaded to EAS.
+
 ## Not done
 
-Membership billing and fee collection (the server only keeps a ledger), push
-notifications and substitute offers, training blocks, gym matching, a map, Sign in
-with Apple / phone verification, report/block. Invite links are app deep links
-until there is a domain for universal links. The bundle id `app.samepace` assumes
-the samepace.app domain — confirm it before the first store build.
+Membership billing and fee collection (the server only keeps a ledger), training
+blocks, gym matching, a map, phone verification, fee disputes. Invite links open
+`https://samepace.app/invite/<code>`, which hands off to the app; universal links
+(no hand-off page) still need the associated-domains files.
