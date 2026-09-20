@@ -1,10 +1,10 @@
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { Avatar, Card, Row, Screen, StateView, T } from "@/components/ui";
+import { Avatar, Button, Card, Row, Screen, StateView, T } from "@/components/ui";
 import { formatWhen } from "@/lib/format";
 import { byId } from "@/lib/lookup";
-import { useMe, useMine, useRefreshOnFocus } from "@/lib/queries";
+import { useMe, useMine, useNotifications, useRefreshOnFocus } from "@/lib/queries";
 import type { BookingStatus } from "@/lib/types";
 import { AppHeader } from "@/components/brand";
 
@@ -25,6 +25,8 @@ export default function Inbox() {
   useRefreshOnFocus();
   const me = useMe().data;
   const mine = useMine();
+  const router = useRouter();
+  const unread = useNotifications().data?.unread ?? 0;
   const sessions = byId(mine.data?.sessions);
   const people = byId(mine.data?.people);
   const threads = [...(mine.data?.bookings ?? [])].sort(
@@ -43,6 +45,11 @@ export default function Inbox() {
           Threads live on a booking and expire a day after the session.
         </T>
       </View>
+      <Button
+        variant="soft"
+        label={unread > 0 ? `Activity · ${unread} new` : "Activity"}
+        onPress={() => router.push("/activity")}
+      />
       {mine.isPending || mine.error ? (
         <StateView
           loading={mine.isPending}

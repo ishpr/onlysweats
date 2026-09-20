@@ -19,6 +19,7 @@ import {
   signOutRequest,
   socialSignInRequest,
 } from "./api";
+import { unregisterPush } from "./push";
 import { signOutOfGoogle, type SocialResult } from "./social";
 
 const TOKEN_KEY = "pace.session-token";
@@ -104,6 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
       signOut: async (opts) => {
+        // While the token still works: this phone stops getting my notifications.
+        await unregisterPush();
         await signOutRequest();
         await signOutOfGoogle({ revoke: opts?.accountDeleted });
         await drop();

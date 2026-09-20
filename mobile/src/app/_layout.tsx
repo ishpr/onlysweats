@@ -6,7 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/outfit";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter } from "expo-router";
+import { DarkTheme, DefaultTheme, type Href, Stack, ThemeProvider, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
@@ -16,6 +16,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { ApiError } from "@/lib/api";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { onNotificationOpened, syncPush } from "@/lib/push";
 
 SplashScreen.preventAutoHideAsync();
 // Native chrome (keyboard, alerts, share sheet) follows the pinned dark scheme too.
@@ -80,6 +81,15 @@ function Routes() {
     if (ready) void SplashScreen.hideAsync();
   }, [ready]);
 
+  // Signed in: keep this device's push token fresh (never prompts), and open the
+  // screen a tapped notification points at — including the tap that launched us.
+  const router = useRouter();
+  useEffect(() => {
+    if (!ready || !signedIn) return;
+    void syncPush();
+    return onNotificationOpened((route) => router.push(route as Href));
+  }, [ready, signedIn, router]);
+
   // Keychain read / fonts in flight — the splash screen is still up.
   if (!ready || signedIn === null) return null;
 
@@ -128,6 +138,7 @@ function Routes() {
             options={{ title: "Report or block", presentation: "modal" }}
           />
           <Stack.Screen name="blocked" options={{ title: "Blocked members" }} />
+          <Stack.Screen name="activity" options={{ title: "Activity" }} />
           <Stack.Screen name="delete-account" options={{ title: "Delete account" }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>

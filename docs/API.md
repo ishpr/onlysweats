@@ -76,12 +76,47 @@ The first authenticated API call creates the caller's profile.
 | POST | `/bookings/:id/rating` | Five booleans, once per side, after completion. `matchedListing` includes "level was as stated". |
 | DELETE | `/me` | Delete my account, now. See *Safety and account*. |
 | POST | `/me/apple-authorization` | `{ code }` — Apple's one-time authorization code, sent once after Sign in with Apple. The server trades it for a refresh token (stored encrypted) so `DELETE /me` can revoke the app's access, as the App Store requires. A no-op until `APPLE_TEAM_ID`, `APPLE_KEY_ID` and `APPLE_PRIVATE_KEY` are set. |
+| POST | `/devices` | `{ token, platform: "ios" \| "android" }` — this phone's Expo push token. A token belongs to one member at a time. |
+| DELETE | `/devices/:token` | Called before sign-out. |
+| GET | `/notifications` | `{ notifications, unread }` — the last 30 days, newest first. The same rows whether or not push is on. |
+| POST | `/notifications/read` | Marks everything read. |
 | GET | `/blocks` | Members I blocked: `{ people }`. Being blocked is never visible. |
 | POST | `/blocks` | `{ memberId }`. Idempotent. |
 | DELETE | `/blocks/:id` | Unblock. |
 | POST | `/reports` | `{ reportedId, reason, detail?, sessionId? \| bookingId?, alsoBlock? }` → `{ id, blocked }`. |
 
 `GET /me` also carries `suspended: { reason } \| null` and `isAdmin`.
+
+## Notifications
+
+Every notification is a row written **inside the transaction that caused it**
+(`notify.enqueue`), so it exists exactly when the thing it describes does. After
+any non-GET request the API pushes what is owed through Expo's push service
+(`notify.deliverDue`); the 10-minute cron sweeps up anything missed, sends
+reminders, and reads Expo's receipts to retire dead device tokens. Rows are
+claimed with `for update skip locked`, so nothing is sent twice; a failed send is
+retried up to three times within the hour.
+
+| Kind | To | Category |
+| --- | --- | --- |
+| `seat_taken` · `seat_requested` · `seat_cancelled` | poster | sessions |
+| `seat_approved` · `seat_declined` · `session_cancelled` | joiner | sessions |
+| `next_occurrence` | every regular | sessions |
+| `stood_up` ($5 credit) | whoever showed | sessions |
+| `message` | the other person | messages |
+| `starts_soon` (≤ 60 min) · `checkin_open` (20 min before) | both, once each | reminders |
+| `substitute_offer` | up to 10 members at that level, best on-time record first | substitutes |
+| `no_show` · `frozen` · `suspended` · `session_removed` · `admin_report` | the member / admins | account |
+
+`PATCH /me { notify: { sessions?, messages?, reminders?, substitutes? } }` mutes a
+category for push only — the activity list still gets the row. `account` notices
+always send. The `url` on a notification is an in-app route (`/thread/:id`,
+`/session/:id`, `/live/:id`, …) the app opens on tap.
+
+Substitute offers only go to members who have completed a session, aren't frozen,
+paused or blocked with anyone on the session, aren't already regulars, and whose
+level fits. `EXPO_ACCESS_TOKEN` is only needed if the Expo project turns on
+enhanced push security.
 
 ## Safety and account
 
@@ -178,8 +213,6 @@ occurrence only.
 - **Charging.** Membership ($12/mo after two completed sessions, once a cluster
   passes its density gate), card on file, and actually collecting fees. The
   ledger records what is owed; nothing is charged.
-- **Substitute offers by push**, ranked by reliability — today a substitute finds
-  the seat in discovery. Push notifications in general.
 - **Training blocks**, gym sessions matched on `gym_id`, `route_url` in the app.
 - **Verification** (phone, selfie liveness, ID for women-only) and fee disputes.
 
