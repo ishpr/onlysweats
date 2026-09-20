@@ -26,7 +26,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "Post the workout you’re doing anyway. Find a buddy at your level. Show up.",
+          "Post the workout you’re doing anyway. Someone at your level joins. SamePace makes sure you both show up.",
       },
     ],
     links: [

@@ -16,3 +16,8 @@ function resolveApiUrl(): string {
 }
 
 export const API_URL = resolveApiUrl();
+
+/** The public site. Invite links point here; its page hands the code to the app. */
+export const SITE_URL = (
+  process.env.EXPO_PUBLIC_SITE_URL?.trim() || "https://samepace.vercel.app"
+).replace(/\/+$/, "");

@@ -1,6 +1,5 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Linking from "expo-linking";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { Clock, MapPin, Shield, Users } from "lucide-react-native";
 import { useState } from "react";
@@ -11,6 +10,7 @@ import { Avatar, Badge, Button, Card, Notice, Row, Screen, StateView, T } from "
 import { Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
+import { SITE_URL } from "@/lib/config";
 import {
   formatDayLong,
   formatDuration,
@@ -271,8 +271,7 @@ export default function SessionDetail() {
               label="Share invite link"
               onPress={() =>
                 void Share.share({
-                  // App deep link for now; becomes a universal https link once a domain exists.
-                  message: `${session.title} — join me on SamePace: ${Linking.createURL(`/invite/${session.inviteCode}`)}`,
+                  message: `${session.title} — join me on SamePace: ${SITE_URL}/invite/${session.inviteCode}`,
                 })
               }
             />

@@ -37,7 +37,7 @@ function Live() {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-3 px-6 text-center">
         <p className="text-lg font-semibold">No live seat</p>
-        <Link to="/" className="text-sm text-muted">
+        <Link to="/prototype" className="text-sm text-muted">
           Back to Today
         </Link>
       </div>
@@ -66,7 +66,7 @@ function Live() {
       <div className="flex items-center justify-between">
         <button
           type="button"
-          onClick={() => void navigate({ to: "/" })}
+          onClick={() => void navigate({ to: "/prototype" })}
           className="text-sm text-muted"
         >
           Close
