@@ -1,6 +1,6 @@
-# OnlySweats
+# Pace
 
-In-app name: **Pace**. A paid invitation marketplace for runs you’re already doing.
+Working name: **Pace**. A workout-buddy app for the session you’re already doing — a run, a ride, a gym session, a hike, a marathon training block.
 
 A host posts a session — time, trail or park, seats, price. Others book a seat. Money + geofence make flaking expensive. Discovery is upcoming sessions, not faces.
 
