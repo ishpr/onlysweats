@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { ReportLink } from "@/components/report-link";
 import { Button, Chip, Notice, StateView, T } from "@/components/ui";
 import { HitTarget, Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
@@ -66,6 +67,14 @@ export default function Thread() {
           <T variant="caption" color="textFaint">
             Off-platform payment is a ban. Threads close a day after the session.
           </T>
+          {other && (
+            <ReportLink
+              memberId={other.id}
+              name={other.name}
+              sessionId={session.id}
+              bookingId={booking.id}
+            />
+          )}
           {live ? (
             <Link href={{ pathname: "/live/[id]", params: { id: booking.id } }} asChild>
               <Button variant="accent" label="Check-in is open" />

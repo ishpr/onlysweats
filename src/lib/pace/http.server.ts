@@ -8,11 +8,14 @@
 import { z } from "zod";
 import { getSql, type Sql } from "../db";
 import { ensureDemoCluster } from "./demo-seed.server";
+import * as safety from "./safety.server";
 import * as svc from "./service.server";
 
 type Ctx = {
   sql: Sql;
   userId: string;
+  /** The verified sign-in identity — what the admin gate checks. */
+  user: { email: string | null; emailVerified: boolean };
   params: Record<string, string>;
   query: URLSearchParams;
   body: unknown;
@@ -101,8 +104,84 @@ const ratingBody = z.object({
   wouldJoinAgain: z.boolean(),
 });
 
+const reportBody = z.object({
+  reportedId: z.string().min(1),
+  reason: z.enum(safety.REPORT_REASONS),
+  detail: z.string().max(2000).optional(),
+  sessionId: z.string().min(1).optional(),
+  bookingId: z.string().min(1).optional(),
+  alsoBlock: z.boolean().optional(),
+});
+
+const resolveBody = z.object({
+  action: z.enum(["dismiss", "suspend", "remove_session", "suspend_and_remove"]),
+  note: z.string().max(1000).optional(),
+});
+const noteBody = z.object({ note: z.string().trim().min(1).max(1000) });
+
+/** Admin routes answer 404 to everyone else — the queue isn't advertised. */
+const admin =
+  (fn: (ctx: Ctx & { adminEmail: string }) => Promise<unknown>): Handler =>
+  (ctx) => {
+    if (!safety.isAdmin(ctx.user)) throw new svc.PaceError(404, "Not found");
+    return fn({ ...ctx, adminEmail: ctx.user.email! });
+  };
+
+/** What a suspended member can still reach: read why, and delete the account. */
+const OPEN_WHEN_SUSPENDED = new Set(["GET /me", "DELETE /me"]);
+
 const routes: [method: string, pattern: string, handler: Handler][] = [
-  ["GET", "/me", ({ sql, userId }) => svc.getMe(sql, userId)],
+  ["GET", "/me", async ({ sql, userId, user }) => ({
+    ...(await svc.getMe(sql, userId)),
+    isAdmin: safety.isAdmin(user),
+  })],
+  ["DELETE", "/me", async ({ sql, userId }) => {
+    await safety.deleteAccount(sql, userId);
+    return { ok: true };
+  }],
+
+  ["GET", "/blocks", async ({ sql, userId }) => ({ people: await safety.listBlocks(sql, userId) })],
+  ["POST", "/blocks", async ({ sql, userId, body }) => {
+    await safety.blockMember(sql, userId, z.object({ memberId: z.string().min(1) }).parse(body).memberId);
+    return { ok: true };
+  }],
+  ["DELETE", "/blocks/:id", async ({ sql, userId, params }) => {
+    await safety.unblockMember(sql, userId, params.id);
+    return { ok: true };
+  }],
+  ["POST", "/reports", ({ sql, userId, body }) =>
+    safety.reportMember(sql, userId, reportBody.parse(body))],
+
+  ["GET", "/admin/overview", admin(({ sql }) => safety.adminOverview(sql))],
+  ["GET", "/admin/reports", admin(({ sql, query }) =>
+    safety.adminListReports(
+      sql,
+      z.enum(["open", "actioned", "dismissed"]).catch("open").parse(query.get("status")),
+    ))],
+  ["POST", "/admin/reports/:id/resolve", admin(async ({ sql, adminEmail, params, body }) => {
+    await safety.adminResolveReport(sql, adminEmail, params.id, resolveBody.parse(body));
+    return { ok: true };
+  })],
+  ["GET", "/admin/members", admin(async ({ sql, query }) => ({
+    members: await safety.adminSearchMembers(sql, query.get("q") ?? ""),
+  }))],
+  ["GET", "/admin/members/:id", admin(async ({ sql, params }) => ({
+    member: await safety.adminGetMember(sql, params.id),
+  }))],
+  ["POST", "/admin/members/:id/suspend", admin(async ({ sql, adminEmail, params, body }) => {
+    await safety.adminSuspend(sql, adminEmail, params.id, noteBody.parse(body).note);
+    return { member: await safety.adminGetMember(sql, params.id) };
+  })],
+  ["POST", "/admin/members/:id/unsuspend", admin(async ({ sql, adminEmail, params }) => {
+    await safety.adminUnsuspend(sql, adminEmail, params.id);
+    return { member: await safety.adminGetMember(sql, params.id) };
+  })],
+  ["POST", "/admin/sessions/:id/remove", admin(async ({ sql, adminEmail, params, body }) => {
+    await safety.adminRemoveSession(sql, adminEmail, params.id, noteBody.parse(body).note);
+    return { ok: true };
+  })],
+  ["GET", "/admin/actions", admin(async ({ sql }) => ({ actions: await safety.adminListActions(sql) }))],
+
   ["PATCH", "/me", ({ sql, userId, body }) => svc.updateProfile(sql, userId, profileBody.parse(body))],
   ["GET", "/venues", async ({ sql }) => ({ venues: await svc.listVenues(sql) })],
 
@@ -196,14 +275,14 @@ function match(pattern: string, path: string): Record<string, string> | null {
 export async function handleApi(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/v1/, "").replace(/\/+$/, "") || "/";
-  let found: { handler: Handler; params: Record<string, string> } | null = null;
+  let found: { handler: Handler; params: Record<string, string>; key: string } | null = null;
   let pathKnown = false;
   for (const [method, pattern, handler] of routes) {
     const params = match(pattern, path);
     if (!params) continue;
     pathKnown = true;
     if (method === request.method) {
-      found = { handler, params };
+      found = { handler, params, key: `${method} ${pattern}` };
       break;
     }
   }
@@ -219,11 +298,16 @@ export async function handleApi(request: Request): Promise<Response> {
     const sql = await getSql();
     await ensureDemoCluster(sql);
     // First contact creates the profile from the auth identity.
-    await svc.ensureProfile(sql, {
+    const me = await svc.ensureProfile(sql, {
       id: session.user.id,
       name: session.user.name ?? null,
       email: session.user.email ?? null,
     });
+    // A deleted account's token can outlive it by a cached session; it opens nothing.
+    if (me.deleted) return json({ error: "Unauthorized" }, 401);
+    if (me.suspended && !OPEN_WHEN_SUSPENDED.has(found.key)) {
+      return json({ error: "Your account is paused. Email support@samepace.app." }, 403);
+    }
 
     let body: unknown = undefined;
     if (request.method !== "GET" && request.headers.get("content-length") !== "0") {
@@ -239,6 +323,10 @@ export async function handleApi(request: Request): Promise<Response> {
     const data = await found.handler({
       sql,
       userId: session.user.id,
+      user: {
+        email: session.user.email ?? null,
+        emailVerified: session.user.emailVerified === true,
+      },
       params: found.params,
       query: url.searchParams,
       body,

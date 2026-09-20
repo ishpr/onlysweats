@@ -123,6 +123,12 @@ function Routes() {
           />
           <Stack.Screen name="post" options={{ title: "Post a session", presentation: "modal" }} />
           <Stack.Screen name="invite/[code]" options={{ title: "Invite" }} />
+          <Stack.Screen
+            name="report"
+            options={{ title: "Report or block", presentation: "modal" }}
+          />
+          <Stack.Screen name="blocked" options={{ title: "Blocked members" }} />
+          <Stack.Screen name="delete-account" options={{ title: "Delete account" }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />

@@ -28,7 +28,7 @@ function Privacy() {
             <li><strong>Your account.</strong> You sign in with Apple or Google, which gives us your name and email address. With Apple’s Hide My Email we only receive the relay address.</li>
             <li><strong>Your profile.</strong> A first name, your neighbourhood, and the level you set for each activity (a pace, a speed, an experience level). You may tell us your gender; it is used only to open women-only sessions to women, is never shown to anyone and is never used for ranking.</li>
             <li><strong>Sessions.</strong> What you post and join, when you cancelled, whether you checked in and by which method, and the five yes/no answers people give each other afterwards.</li>
-            <li><strong>Messages.</strong> Chat is tied to a single booking and closes a day after the session. We keep the messages so a report can be reviewed.</li>
+            <li><strong>Messages.</strong> Chat is tied to a single booking and closes a day after the session. We keep the messages so a report can be reviewed; a person at {SITE.name} reads a thread only when a report points at it.</li>
             <li><strong>Reliability.</strong> Strikes, fees and credits recorded on your account under the rules in our Terms.</li>
             <li><strong>Location, once.</strong> When you tap Check in, your phone sends its position so our server can measure the distance to the meeting pin. We record that you checked in and when — not where you were. The app never reads location in the background.</li>
           </ul>
@@ -45,7 +45,9 @@ function Privacy() {
         </Section>
 
         <Section title="Keeping and deleting">
-          <p>We keep your account data while your account is open. You can ask us to delete your account and everything tied to it at any time by emailing <SupportEmail />. We may keep a minimal record where we must — for example of a safety report — and we’ll tell you if so.</p>
+          <p>We keep your account data while your account is open. You can delete your account yourself, at any time, in the app: <strong>You → Delete account</strong>. It takes effect immediately. If you can’t get into the app, email <SupportEmail /> from the address on your account and we’ll do it for you.</p>
+          <p>Deleting removes your sign-in, your name, neighborhood, level and the rest of your profile, your messages, your block list, and any sessions or seats you had coming up. What stays is what belongs to other people’s history too: that a session happened and who showed up, any fee tied to it, ratings you gave, and any safety report — along with the thread it points at. Those are shown against “Deleted member”, never your name. If an account was removed for breaking the rules, we keep a scrambled fingerprint of its email address, and nothing else, so it can’t simply be opened again.</p>
+          <p><strong>Reports and blocks.</strong> When you report someone we store the report, who it is about, and the session it concerns. The person you report or block isn’t told.</p>
         </Section>
 
         <Section title="Your choices">

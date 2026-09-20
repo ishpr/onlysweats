@@ -57,6 +57,21 @@ export type Me = Person & {
   strikes: number;
   frozenUntil: string | null;
   freeSessionsLeft: number;
+  /** Set when SamePace has paused the account. Only the profile still loads. */
+  suspended: { reason: string } | null;
+  isAdmin: boolean;
+};
+
+export type ReportReason =
+  "date_framing" | "harassment" | "unsafe" | "misrepresented" | "fake_or_spam" | "other";
+
+export type ReportInput = {
+  reportedId: string;
+  reason: ReportReason;
+  detail?: string;
+  sessionId?: string;
+  bookingId?: string;
+  alsoBlock?: boolean;
 };
 
 export type Venue = {

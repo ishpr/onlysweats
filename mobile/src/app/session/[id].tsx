@@ -10,6 +10,7 @@ import { Avatar, Badge, Button, Card, Notice, Row, Screen, StateView, T } from "
 import { Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
+import { ReportLink } from "@/components/report-link";
 import { SITE_URL } from "@/lib/config";
 import {
   formatDayLong,
@@ -222,6 +223,14 @@ export default function SessionDetail() {
               </T>
             </View>
           </Row>
+          {!isHost && (
+            <ReportLink
+              memberId={host.id}
+              name={host.name}
+              sessionId={session.id}
+              bookingId={mySeat?.id}
+            />
+          )}
         </Card>
       )}
 
