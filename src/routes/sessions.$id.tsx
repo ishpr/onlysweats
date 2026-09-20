@@ -17,7 +17,9 @@ import {
   formatDayLong,
   formatDuration,
   formatTime,
+  hasStarted,
   isInCheckinWindow,
+  isLateCancel,
 } from "@/lib/time";
 import { ACTIVITIES, ME_ID } from "@/lib/types";
 
@@ -32,7 +34,10 @@ function SessionDetail() {
   const bookings = usePaceStore((s) => s.bookings);
   const bookSeat = usePaceStore((s) => s.bookSeat);
   const approveBooking = usePaceStore((s) => s.approveBooking);
+  const declineBooking = usePaceStore((s) => s.declineBooking);
+  const cancelBooking = usePaceStore((s) => s.cancelBooking);
   const [pay, setPay] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   if (!session) {
     return (
@@ -61,6 +66,40 @@ function SessionDetail() {
   const booked = Boolean(mine && (mine.status === "confirmed" || mine.status === "completed"));
   const live = isInCheckinWindow(session.startAt) && (booked || session.hostId === ME_ID);
   const listing = session;
+  const seesPin = booked || session.hostId === ME_ID;
+
+  const canCancel =
+    Boolean(mine && (mine.status === "pending" || mine.status === "confirmed")) &&
+    !hasStarted(session.startAt);
+  const lateCancel =
+    mine?.status === "confirmed" && mine.authorizedCents > 0 && isLateCancel(session.startAt);
+
+  async function shareInvite() {
+    if (!listing.inviteCode) return;
+    const url = `${window.location.origin}/invite/${listing.inviteCode}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: listing.title, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      toast.success("Invite link copied.");
+    } catch (err) {
+      // Dismissing the share sheet rejects with AbortError — not a failure.
+      if ((err as Error)?.name !== "AbortError") toast.error("Couldn’t share the link.");
+    }
+  }
+
+  function cancelSeat() {
+    if (!mine) return;
+    cancelBooking(mine.id);
+    setConfirmCancel(false);
+    toast.success(
+      lateCancel
+        ? `Seat released. ${formatUsd(Math.round(mine.authorizedCents * 0.5))} captured.`
+        : "Seat released. Nothing captured.",
+    );
+  }
 
   function hold() {
     const res = bookSeat(listing.id);
@@ -144,10 +183,10 @@ function SessionDetail() {
         <ClusterMap
           sessions={[session]}
           activeId={session.id}
-          approximate={!booked}
+          approximate={!seesPin}
         />
         <p className="mt-2 text-sm text-muted">
-          {booked
+          {seesPin
             ? venue?.hint
             : "Approximate pin until the seat is held. Exact trailhead after booking."}
         </p>
@@ -167,11 +206,54 @@ function SessionDetail() {
       {pendingForHost.map((b) => (
         <div key={b.id} className="mt-4 flex items-center justify-between glass rounded-2xl p-3">
           <p className="text-sm">Seat request waiting</p>
-          <Button variant="accent" onClick={() => approveBooking(b.id)}>
-            Approve
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => declineBooking(b.id)}>
+              Decline
+            </Button>
+            <Button
+              variant="accent"
+              onClick={() => {
+                const res = approveBooking(b.id);
+                if (!res.ok) toast.error(res.error ?? "Couldn’t approve.");
+              }}
+            >
+              Approve
+            </Button>
+          </div>
         </div>
       ))}
+
+      {session.hostId === ME_ID && session.visibility === "unlisted" && session.inviteCode && (
+        <div className="mt-4 flex items-center justify-between gap-3 glass rounded-2xl p-3">
+          <p className="text-sm text-muted">Unlisted. Only people with the link can book.</p>
+          <Button variant="accent" onClick={() => void shareInvite()}>
+            Share invite
+          </Button>
+        </div>
+      )}
+
+      {canCancel && !confirmCancel && (
+        <Button variant="ghost" className="mt-4 w-full" onClick={() => setConfirmCancel(true)}>
+          Cancel my seat
+        </Button>
+      )}
+      {canCancel && confirmCancel && (
+        <div className="mt-4 glass rounded-2xl p-4">
+          <p className="text-sm leading-relaxed text-muted">
+            {lateCancel
+              ? `Inside 12 hours. ${formatUsd(Math.round((mine?.authorizedCents ?? 0) * 0.5))} is captured, the rest is released.`
+              : "Full release. Nothing is captured."}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Button variant="ghost" className="flex-1" onClick={() => setConfirmCancel(false)}>
+              Keep seat
+            </Button>
+            <Button variant="glass" className="flex-1" onClick={cancelSeat}>
+              Release seat
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="sticky bottom-24 mt-6 md:bottom-6">
         {live ? (

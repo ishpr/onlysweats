@@ -63,6 +63,8 @@ export type Session = {
   status: SessionStatus;
   code: string;
   codeRevealedAt: string | null;
+  /** Share token for unlisted sessions. Never the check-in code. */
+  inviteCode?: string;
   seedSlot?: string;
 };
 

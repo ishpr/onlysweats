@@ -13,3 +13,8 @@ dist/
 .DS_Store
 .node_modules.lock
 .preview.pid
+
+# Other Claude Code sessions check out worktrees here.
+.claude/worktrees/
+.vercel
+.env*

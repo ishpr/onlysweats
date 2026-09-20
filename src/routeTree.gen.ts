@@ -21,6 +21,9 @@ import { Route as InviteCodeRouteImport } from './routes/invite.$code'
 import { Route as LiveIdRouteImport } from './routes/live.$id'
 import { Route as SessionsIndexRouteImport } from './routes/sessions.index'
 import { Route as SessionsIdRouteImport } from './routes/sessions.$id'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiCronSettleRouteImport } from './routes/api/cron/settle'
+import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -82,6 +85,21 @@ const SessionsIdRoute = SessionsIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => SessionsRoute,
 } as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCronSettleRoute = ApiCronSettleRouteImport.update({
+  id: '/api/cron/settle',
+  path: '/api/cron/settle',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
+  id: '/api/v1/$',
+  path: '/api/v1/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -96,6 +114,9 @@ export interface FileRoutesByFullPath {
   '/sessions/$id': typeof SessionsIdRoute
   '/inbox/': typeof InboxIndexRoute
   '/sessions/': typeof SessionsIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/settle': typeof ApiCronSettleRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -108,6 +129,9 @@ export interface FileRoutesByTo {
   '/sessions/$id': typeof SessionsIdRoute
   '/inbox': typeof InboxIndexRoute
   '/sessions': typeof SessionsIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/settle': typeof ApiCronSettleRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -123,6 +147,9 @@ export interface FileRoutesById {
   '/sessions/$id': typeof SessionsIdRoute
   '/inbox/': typeof InboxIndexRoute
   '/sessions/': typeof SessionsIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/settle': typeof ApiCronSettleRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -139,6 +166,9 @@ export interface FileRouteTypes {
     | '/sessions/$id'
     | '/inbox/'
     | '/sessions/'
+    | '/api/auth/$'
+    | '/api/cron/settle'
+    | '/api/v1/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -151,6 +181,9 @@ export interface FileRouteTypes {
     | '/sessions/$id'
     | '/inbox'
     | '/sessions'
+    | '/api/auth/$'
+    | '/api/cron/settle'
+    | '/api/v1/$'
   id:
     | '__root__'
     | '/'
@@ -165,6 +198,9 @@ export interface FileRouteTypes {
     | '/sessions/$id'
     | '/inbox/'
     | '/sessions/'
+    | '/api/auth/$'
+    | '/api/cron/settle'
+    | '/api/v1/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -176,6 +212,9 @@ export interface RootRouteChildren {
   YouRoute: typeof YouRoute
   InviteCodeRoute: typeof InviteCodeRoute
   LiveIdRoute: typeof LiveIdRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiCronSettleRoute: typeof ApiCronSettleRoute
+  ApiV1SplatRoute: typeof ApiV1SplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -264,6 +303,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsIdRouteImport
       parentRoute: typeof SessionsRoute
     }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cron/settle': {
+      id: '/api/cron/settle'
+      path: '/api/cron/settle'
+      fullPath: '/api/cron/settle'
+      preLoaderRoute: typeof ApiCronSettleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/$': {
+      id: '/api/v1/$'
+      path: '/api/v1/$'
+      fullPath: '/api/v1/$'
+      preLoaderRoute: typeof ApiV1SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -302,6 +362,9 @@ const rootRouteChildren: RootRouteChildren = {
   YouRoute: YouRoute,
   InviteCodeRoute: InviteCodeRoute,
   LiveIdRoute: LiveIdRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiCronSettleRoute: ApiCronSettleRoute,
+  ApiV1SplatRoute: ApiV1SplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

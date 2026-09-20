@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { SessionCard } from "@/components/session-card";
 import { ClusterMap } from "@/components/venue-map";
 import { usePaceStore } from "@/lib/store";
+import { dallasHour } from "@/lib/time";
 import type { Activity } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +38,7 @@ function Sessions() {
         if (filter === "free") return s.priceCents === 0;
         if (filter === "women") return s.womenOnly;
         if (filter === "morning") {
-          const h = new Date(s.startAt).getHours();
+          const h = dallasHour(s.startAt);
           return h >= 5 && h < 10;
         }
         return true;

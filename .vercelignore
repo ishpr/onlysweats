@@ -1,0 +1,4 @@
+# The Expo app ships through EAS, not Vercel.
+mobile
+docs
+.claude

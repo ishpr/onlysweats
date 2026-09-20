@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "onlysweats-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/with-app-env.mjs",
+        "node_modules/.bin/vite",
+        "dev",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8088"
+      ],
+      "port": 8088
+    }
+  ]
+}
