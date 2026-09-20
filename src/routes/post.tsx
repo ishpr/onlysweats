@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { venues } from "@/lib/seed";
 import { usePaceStore } from "@/lib/store";
-import { atDallas, nextWeekday } from "@/lib/time";
+import { addDallasDays, atDallas, formatDay, formatWhen, nextWeekday, zonedParts } from "@/lib/time";
 import type { Activity, JoinMode, Visibility } from "@/lib/types";
 import { ACTIVITIES, ME_ID } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -28,7 +28,28 @@ function Post() {
   const search = useSearch({ strict: false }) as Search;
   const navigate = useNavigate();
   const postSession = usePaceStore((s) => s.postSession);
-  const start = useMemo(() => initialStart(search), [search]);
+  // Computed once: the picker owns the start time after first render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const initial = useMemo(() => initialSlot(search), []);
+  const [days, setDays] = useState(initial.days);
+  const [time, setTime] = useState(initial.time);
+  const [attested, setAttested] = useState(false);
+  const start = useMemo(() => {
+    const [h, m] = time.split(":").map(Number);
+    return atDallas(new Date(), days, h || 0, m || 0);
+  }, [days, time]);
+  const dayOptions = useMemo(() => {
+    const now = new Date();
+    return Array.from({ length: 8 }, (_, i) => ({
+      value: i,
+      label:
+        i === 0
+          ? "Today"
+          : i === 1
+            ? "Tomorrow"
+            : formatDay(atDallas(now, i, 12, 0).toISOString()),
+    }));
+  }, []);
 
   const [activity, setActivity] = useState<Activity>(
     isActivity(search.activity) ? search.activity : "run",
@@ -55,6 +76,18 @@ function Post() {
   const gymWarn = price > 0 && venue.type === "gym_lobby";
 
   function publish() {
+    if (!title.trim()) {
+      toast.error("Give it a title.");
+      return;
+    }
+    if (start.getTime() < Date.now() + 30 * 60_000) {
+      toast.error("Pick a start at least 30 minutes out.");
+      return;
+    }
+    if (gymWarn && !attested) {
+      toast.error("Confirm the venue allows a paid meetup.");
+      return;
+    }
     if (price > 0 && (price < 500 || price > 4000)) {
       toast.error("Paid seats are $5–$40 in v1.");
       return;
@@ -63,8 +96,8 @@ function Post() {
       hostId: ME_ID,
       venueId,
       activity,
-      title,
-      detail,
+      title: title.trim(),
+      detail: detail.trim(),
       startAt: start.toISOString(),
       durationMin: activity === "hike" ? 120 : 40,
       capacity,
@@ -72,7 +105,7 @@ function Post() {
       visibility,
       joinMode,
       womenOnly,
-      hostAttestsPaidOk: true,
+      hostAttestsPaidOk: !gymWarn || attested,
     });
     toast.success("Listing is up. You’re going anyway.");
     void navigate({ to: "/sessions/$id", params: { id } });
@@ -172,6 +205,33 @@ function Post() {
 
       <div className="grid grid-cols-2 gap-3">
         <label>
+          <span className="text-xs text-muted">Day</span>
+          <select
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="mt-1 h-12 w-full rounded-2xl bg-fg/6 px-3 text-[15px] outline-none focus:ring-2 focus:ring-stand/40"
+          >
+            {dayOptions.map((d) => (
+              <option key={d.value} value={d.value}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="text-xs text-muted">Start (Dallas time)</span>
+          <input
+            type="time"
+            step={300}
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            className="mt-1 h-12 w-full rounded-2xl bg-fg/6 px-3 text-[15px] outline-none focus:ring-2 focus:ring-stand/40"
+          />
+        </label>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <label>
           <span className="text-xs text-muted">Seats including you</span>
           <select
             value={capacity}
@@ -230,14 +290,22 @@ function Post() {
       </div>
 
       {gymWarn && (
-        <p className="rounded-2xl bg-fg/6 px-4 py-3 text-sm text-muted">
-          Gym membership is not the right to sell seats. Posting attests the
-          venue allows this.
-        </p>
+        <label className="flex min-h-11 items-start gap-3 rounded-2xl bg-fg/6 px-4 py-3 text-sm text-muted">
+          <input
+            type="checkbox"
+            checked={attested}
+            onChange={(e) => setAttested(e.target.checked)}
+            className="mt-0.5 size-5 shrink-0 accent-accent"
+          />
+          <span>
+            Gym membership is not the right to sell seats. I attest this venue
+            allows a paid meetup.
+          </span>
+        </label>
       )}
 
       <p className="text-sm text-muted">
-        Starts {start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}.
+        Starts {formatWhen(start.toISOString())}.
         First paid post recommends a fee. Standing pairs may be $0.
       </p>
 
@@ -275,12 +343,18 @@ function isActivity(v?: string): v is Activity {
   return !!v && v in ACTIVITIES;
 }
 
-function initialStart(search: Search) {
+function initialSlot(search: Search) {
   const now = new Date();
   const hour = search.hour ? Number(search.hour) : 6;
   const minute = search.minute ? Number(search.minute) : 0;
-  if (search.dow) return nextWeekday(now, Number(search.dow), hour, minute);
-  return atDallas(now, 1, hour, minute);
+  const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  if (!search.dow) return { days: 1, time };
+  const target = zonedParts(nextWeekday(now, Number(search.dow), hour, minute));
+  for (let i = 0; i < 8; i++) {
+    const d = addDallasDays(now, i);
+    if (d.month === target.month && d.day === target.day) return { days: i, time };
+  }
+  return { days: 1, time };
 }
 
 function applyNl(

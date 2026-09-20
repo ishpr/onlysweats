@@ -1,4 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { personById, venueById } from "@/lib/seed";
 import { usePaceStore } from "@/lib/store";
@@ -10,9 +11,10 @@ function Invite() {
   const { code } = Route.useParams();
   const sessions = usePaceStore((s) => s.sessions);
   const bookSeat = usePaceStore((s) => s.bookSeat);
-  const session =
-    sessions.find((s) => s.code === code && s.visibility === "unlisted") ??
-    sessions.find((s) => s.id === "seed-invite");
+  const navigate = useNavigate();
+  const session = sessions.find(
+    (s) => s.visibility === "unlisted" && s.inviteCode === code && s.status !== "cancelled",
+  );
 
   if (!session) {
     return (
@@ -42,7 +44,13 @@ function Invite() {
       <Button
         className="mt-8 w-full"
         onClick={() => {
-          bookSeat(session.id);
+          const res = bookSeat(session.id);
+          if (!res.ok) {
+            toast.error(res.error);
+            return;
+          }
+          toast.success("Seat held. Pin unlocked.");
+          void navigate({ to: "/inbox/$id", params: { id: res.bookingId } });
         }}
       >
         Book the seat

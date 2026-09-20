@@ -6,7 +6,7 @@ import {
   buildSeedSessions,
   people,
 } from "./seed";
-import { isInCheckinWindow, isLateCancel } from "./time";
+import { hasStarted, isInCheckinWindow, isLateCancel } from "./time";
 import type {
   Booking,
   ChatMessage,
@@ -34,7 +34,8 @@ export type PaceState = {
   alignToNow: () => void;
   bookSeat: (sessionId: string) => { ok: true; bookingId: string } | { ok: false; error: string };
   cancelBooking: (bookingId: string) => void;
-  approveBooking: (bookingId: string) => void;
+  approveBooking: (bookingId: string) => { ok: boolean; error?: string };
+  declineBooking: (bookingId: string) => void;
   postSession: (input: Omit<Session, "id" | "status" | "code" | "codeRevealedAt">) => string;
   revealCode: (sessionId: string) => string;
   checkIn: (bookingId: string, method: CheckinMethod) => void;
@@ -75,7 +76,7 @@ function paidTogether(hostId: string, participantId: string, bookings: Booking[]
   }).length;
 }
 
-function completeIfDual(booking: Booking, sessions: Session[]): Booking {
+function completeIfDual(booking: Booking): Booking {
   if (booking.hostCheckedInAt && booking.participantCheckedInAt && booking.status === "confirmed") {
     return {
       ...booking,
@@ -128,6 +129,12 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
         const session = sessions.find((s) => s.id === sessionId);
         if (!session) return { ok: false, error: "Listing is gone." };
         if (session.hostId === ME_ID) return { ok: false, error: "You’re hosting this one." };
+        if (session.status === "cancelled" || session.status === "completed") {
+          return { ok: false, error: "This listing is closed." };
+        }
+        if (hasStarted(session.startAt)) {
+          return { ok: false, error: "This one already started." };
+        }
         if (bookings.some((b) => b.sessionId === sessionId && b.participantId === ME_ID && b.status !== "cancelled" && b.status !== "declined")) {
           return { ok: false, error: "You already have a seat." };
         }
@@ -173,12 +180,17 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
         return { ok: true, bookingId: booking.id };
       },
       cancelBooking: (bookingId) => {
-        const { bookings, sessions, creditCents } = get();
+        const { bookings, sessions } = get();
         const booking = bookings.find((b) => b.id === bookingId);
         if (!booking) return;
+        if (booking.status !== "pending" && booking.status !== "confirmed") return;
         const session = sessions.find((s) => s.id === booking.sessionId);
         if (!session) return;
-        const late = isLateCancel(session.startAt) && booking.authorizedCents > 0;
+        // A pending request was never accepted, so nothing is held against it.
+        const late =
+          booking.status === "confirmed" &&
+          isLateCancel(session.startAt) &&
+          booking.authorizedCents > 0;
         const captured = late ? Math.round(booking.authorizedCents * 0.5) : 0;
         set({
           bookings: bookings.map((b) =>
@@ -186,13 +198,42 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
               ? { ...b, status: "cancelled", capturedCents: captured }
               : b,
           ),
-          creditCents: creditCents,
         });
       },
       approveBooking: (bookingId) => {
+        const { bookings, sessions } = get();
+        const booking = bookings.find((b) => b.id === bookingId);
+        if (!booking || booking.status !== "pending") {
+          return { ok: false, error: "No request to approve." };
+        }
+        const session = sessions.find((s) => s.id === booking.sessionId);
+        if (!session || session.hostId !== ME_ID) {
+          return { ok: false, error: "Only the host can approve." };
+        }
+        const confirmed = bookings.filter(
+          (b) =>
+            b.sessionId === session.id &&
+            (b.status === "confirmed" || b.status === "completed"),
+        ).length;
+        if (confirmed >= session.capacity - 1) {
+          return { ok: false, error: "No seats left." };
+        }
         set({
-          bookings: get().bookings.map((b) =>
+          bookings: bookings.map((b) =>
             b.id === bookingId ? { ...b, status: "confirmed" } : b,
+          ),
+        });
+        return { ok: true };
+      },
+      declineBooking: (bookingId) => {
+        const { bookings, sessions } = get();
+        const booking = bookings.find((b) => b.id === bookingId);
+        if (!booking || booking.status !== "pending") return;
+        const session = sessions.find((s) => s.id === booking.sessionId);
+        if (!session || session.hostId !== ME_ID) return;
+        set({
+          bookings: bookings.map((b) =>
+            b.id === bookingId ? { ...b, status: "declined" } : b,
           ),
         });
       },
@@ -205,6 +246,7 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
           status: "open",
           code,
           codeRevealedAt: null,
+          inviteCode: input.visibility === "unlisted" ? uid("inv").replace(/^inv[-_]?/, "") : undefined,
         };
         set({ sessions: [session, ...get().sessions] });
         return id;
@@ -242,7 +284,7 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
                 hostCheckedInAt: new Date().toISOString(),
                 checkinMethod: method,
               };
-        let next = completeIfDual(mine, sessions);
+        const next = completeIfDual(mine);
         set({
           bookings: bookings.map((b) => (b.id === bookingId ? next : b)),
           hostArriving: { ...get().hostArriving, [bookingId]: true },
@@ -251,10 +293,10 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
           window.setTimeout(() => {
             const current = get().bookings.find((b) => b.id === bookingId);
             if (!current || current.hostCheckedInAt) return;
-            const withHost = completeIfDual(
-              { ...current, hostCheckedInAt: new Date().toISOString() },
-              get().sessions,
-            );
+            const withHost = completeIfDual({
+              ...current,
+              hostCheckedInAt: new Date().toISOString(),
+            });
             set({
               bookings: get().bookings.map((b) =>
                 b.id === bookingId ? withHost : b,

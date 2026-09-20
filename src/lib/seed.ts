@@ -378,6 +378,7 @@ export function buildSeedSessions(now: Date): Session[] {
       status: "open",
       code: "1157",
       codeRevealedAt: null,
+      inviteCode: "dev-turtle-sat",
     },
   ];
 }

@@ -86,7 +86,7 @@ export function nextWeekday(
   minute: number,
 ): Date {
   const current = dallasDow(from);
-  let add = (targetDow - current + 7) % 7;
+  const add = (targetDow - current + 7) % 7;
   let candidate = atDallas(from, add, hour, minute);
   if (candidate.getTime() <= from.getTime() + 10 * 60_000) {
     candidate = atDallas(from, add + 7, hour, minute);
@@ -156,6 +156,14 @@ export function checkinBounds(startAt: string) {
 export function isInCheckinWindow(startAt: string, now = Date.now()) {
   const { from, to } = checkinBounds(startAt);
   return now >= from && now <= to;
+}
+
+export function dallasHour(iso: string) {
+  return zonedParts(new Date(iso)).hour;
+}
+
+export function hasStarted(startAt: string, now = Date.now()) {
+  return now >= new Date(startAt).getTime();
 }
 
 export function minutesUntil(iso: string, now = Date.now()) {

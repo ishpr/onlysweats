@@ -47,6 +47,7 @@ function Live() {
   const host = personById(session.hostId)!;
   const venue = venueById(session.venueId);
   const otherId = booking.participantId === ME_ID ? session.hostId : booking.participantId;
+  const otherName = personById(otherId)?.name.split(" ")[0] ?? "Them";
   const inWindow = isInCheckinWindow(session.startAt);
   const inside = distanceM <= GEOFENCE_M;
   const meIn =
@@ -81,8 +82,8 @@ function Live() {
         {venue?.name} · {host.name.split(" ")[0]}
       </p>
       <p className="mt-1 text-xs text-faint">
-        Window {new Date(from).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} –{" "}
-        {new Date(to).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+        Window {formatTime(new Date(from).toISOString())} –{" "}
+        {formatTime(new Date(to).toISOString())}
       </p>
 
       <div className="mt-5">
@@ -91,7 +92,7 @@ function Live() {
 
       <div className="mt-4 grid grid-cols-2 gap-2">
         <Status on={meIn} label="You" />
-        <Status on={themIn} label={host.name.split(" ")[0]} />
+        <Status on={themIn} label={otherName} />
       </div>
 
       {!done && (
