@@ -195,6 +195,13 @@ export async function deliverDue(
   );
   const prefs = new Map(prefRows.map((p) => [p.id, p]));
 
+  const unreadRows = await sql.query<{ profile_id: string; n: number }>(
+    `select profile_id, count(*) as n from notifications
+     where profile_id = any($1) and read_at is null group by profile_id`,
+    [owners],
+  );
+  const unread = new Map(unreadRows.map((r) => [r.profile_id, Number(r.n)]));
+
   const messages: { to: string; notificationId: string; payload: Record<string, unknown> }[] = [];
   for (const n of claimed) {
     const owner = prefs.get(n.profile_id);
@@ -210,7 +217,9 @@ export async function deliverDue(
           title: n.title,
           body: n.body,
           sound: "default",
-          channelId: "default",
+          // Android: one channel per kind (the app creates them). iOS: the icon badge.
+          channelId: n.category,
+          badge: unread.get(n.profile_id) ?? 1,
           priority: "high",
           data: { url: n.url, notificationId: n.id },
         },

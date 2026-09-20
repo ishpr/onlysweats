@@ -54,10 +54,18 @@ export async function pushStatus(): Promise<PushStatus> {
 
 async function register(n: Notifications): Promise<boolean> {
   if (Platform.OS === "android") {
-    await n.setNotificationChannelAsync("default", {
-      name: "Sessions and messages",
-      importance: n.AndroidImportance.HIGH,
-    });
+    // One channel per kind, so Android's own settings can mute them separately.
+    const channels = [
+      ["sessions", "Sessions", n.AndroidImportance.HIGH],
+      ["messages", "Messages", n.AndroidImportance.HIGH],
+      ["reminders", "Reminders", n.AndroidImportance.DEFAULT],
+      ["substitutes", "Open seats at your level", n.AndroidImportance.DEFAULT],
+      ["account", "Fees, strikes and your account", n.AndroidImportance.HIGH],
+      ["default", "Other", n.AndroidImportance.DEFAULT],
+    ] as const;
+    for (const [id, name, importance] of channels) {
+      await n.setNotificationChannelAsync(id, { name, importance });
+    }
   }
   const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)
     ?.eas?.projectId;
@@ -125,4 +133,10 @@ export function onNotificationOpened(open: (route: string) => void): () => void 
     .catch(() => undefined);
   const sub = n.addNotificationResponseReceivedListener(handle);
   return () => sub.remove();
+}
+
+/** The app icon's badge follows the unread count in Activity. */
+export function setBadge(count: number) {
+  const n = load();
+  if (n) void n.setBadgeCountAsync(Math.max(0, count)).catch(() => undefined);
 }

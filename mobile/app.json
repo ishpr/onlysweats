@@ -55,6 +55,28 @@
           "color": "#30D158",
           "defaultChannel": "default"
         }
+      ],
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "app.samepace.widgets",
+          "groupIdentifier": "group.app.samepace",
+          "widgets": [
+            {
+              "name": "NextSession",
+              "displayName": "Next session",
+              "description": "Your next SamePace session: what, when and where.",
+              "ios": {
+                "supportedFamilies": [
+                  "systemSmall",
+                  "systemMedium",
+                  "accessoryRectangular",
+                  "accessoryInline"
+                ]
+              }
+            }
+          ]
+        }
       ]
     ],
     "experiments": {

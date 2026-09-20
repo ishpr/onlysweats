@@ -1,11 +1,14 @@
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import { Check } from "lucide-react-native";
 import { Linking, StyleSheet, View } from "react-native";
 
 import { Button, Card, Chip, Field, Notice, Row, Screen, StateView, T } from "@/components/ui";
+import { SuccessMark } from "@/components/motion";
 import { ReportLink } from "@/components/report-link";
 import { useNow } from "@/hooks/use-now";
+import { useTheme } from "@/hooks/use-theme";
 import { Spacing } from "@/constants/theme";
 import { checkinWindow, distanceM, formatTime, inCheckinWindow } from "@/lib/format";
 import { byId } from "@/lib/lookup";
@@ -64,6 +67,7 @@ const PROMPTS: { key: keyof RatingInput; label: string }[] = [
 ];
 
 export default function Live() {
+  const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const me = useMe().data;
@@ -121,6 +125,13 @@ export default function Live() {
 
   return (
     <Screen edges={["bottom"]}>
+      {done && (
+        <View style={styles.success}>
+          <SuccessMark>
+            <Check size={32} color={theme.accent} strokeWidth={2.5} />
+          </SuccessMark>
+        </View>
+      )}
       <View>
         <T variant="title">{done ? "Both checked in" : "Live session"}</T>
         <T color="textSecondary">
@@ -325,5 +336,6 @@ const styles = StyleSheet.create({
   status: { flex: 1, gap: 0 },
   code: { textAlign: "center" },
   prompts: { gap: Spacing.one },
+  success: { alignItems: "center", paddingTop: Spacing.two },
   between: { justifyContent: "space-between" },
 });

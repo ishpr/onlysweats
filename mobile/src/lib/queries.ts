@@ -164,6 +164,7 @@ export function useBlock() {
   const qc = useQueryClient();
   const refresh = useRefreshAll();
   return useMutation({
+    meta: { haptic: "warning" },
     mutationFn: (memberId: string) => api("/blocks", { method: "POST", json: { memberId } }),
     onSuccess: () => Promise.all([refresh(), qc.invalidateQueries({ queryKey: keys.blocks })]),
   });
@@ -183,6 +184,7 @@ export function useReport() {
   const qc = useQueryClient();
   const refresh = useRefreshAll();
   return useMutation({
+    meta: { haptic: "success" },
     mutationFn: (input: ReportInput) =>
       api<{ id: string; blocked: boolean }>("/reports", { method: "POST", json: input }),
     onSuccess: (res) =>
@@ -193,12 +195,13 @@ export function useReport() {
 }
 
 export const useDeleteAccount = () =>
-  useMutation({ mutationFn: () => api("/me", { method: "DELETE" }) });
+  useMutation({ meta: { haptic: "warning" }, mutationFn: () => api("/me", { method: "DELETE" }) });
 
 /** "Same time next week": a completed session becomes a standing slot. */
 export function useRepeatWeekly() {
   const refresh = useRefreshAll();
   return useMutation({
+    meta: { haptic: "success" },
     mutationFn: async (bookingId: string) =>
       (await api<{ series: Series }>(`/bookings/${bookingId}/repeat`, { method: "POST" })).series,
     onSuccess: refresh,
@@ -208,6 +211,7 @@ export function useRepeatWeekly() {
 export function useLeaveSeries() {
   const refresh = useRefreshAll();
   return useMutation({
+    meta: { haptic: "warning" },
     mutationFn: (seriesId: string) => api(`/series/${seriesId}/leave`, { method: "POST" }),
     onSuccess: refresh,
   });
@@ -216,6 +220,7 @@ export function useLeaveSeries() {
 export function usePostSession() {
   const refresh = useRefreshAll();
   return useMutation({
+    meta: { haptic: "success" },
     mutationFn: async (input: PostSessionInput) =>
       (await api<{ session: Session }>("/sessions", { method: "POST", json: input })).session,
     onSuccess: refresh,
@@ -225,6 +230,7 @@ export function usePostSession() {
 export function useBookSeat() {
   const refresh = useRefreshAll();
   return useMutation({
+    meta: { haptic: "success" },
     mutationFn: async (v: { sessionId: string; inviteCode?: string }) =>
       (
         await api<{ booking: Booking }>(`/sessions/${v.sessionId}/bookings`, {
@@ -251,6 +257,7 @@ export function useBookingAction() {
 export function useCancelSession() {
   const refresh = useRefreshAll();
   return useMutation({
+    meta: { haptic: "warning" },
     mutationFn: (sessionId: string) => api(`/sessions/${sessionId}/cancel`, { method: "POST" }),
     onSuccess: refresh,
   });
@@ -259,6 +266,7 @@ export function useCancelSession() {
 export function useGeoCheckIn() {
   const refresh = useRefreshAll();
   return useMutation({
+    meta: { haptic: "success" },
     mutationFn: async (v: { bookingId: string; lat: number; lng: number; accuracyM?: number }) =>
       (
         await api<{ booking: Booking }>(`/bookings/${v.bookingId}/checkin`, {
@@ -273,6 +281,7 @@ export function useGeoCheckIn() {
 export function useCodeCheckIn() {
   const refresh = useRefreshAll();
   return useMutation({
+    meta: { haptic: "success" },
     mutationFn: async (v: { bookingId: string; code: string }) =>
       (
         await api<{ booking: Booking }>(`/bookings/${v.bookingId}/checkin-code`, {
@@ -310,6 +319,7 @@ export function useSendMessage(bookingId: string) {
 export function useSubmitRating() {
   const refresh = useRefreshAll();
   return useMutation({
+    meta: { haptic: "success" },
     mutationFn: async (v: { bookingId: string; rating: RatingInput }) =>
       (
         await api<{ booking: Booking }>(`/bookings/${v.bookingId}/rating`, {
@@ -319,4 +329,11 @@ export function useSubmitRating() {
       ).booking,
     onSuccess: refresh,
   });
+}
+
+declare module "@tanstack/react-query" {
+  interface Register {
+    /** `haptic` names how a successful mutation should feel; refusals always buzz. */
+    mutationMeta: { haptic?: "success" | "warning" };
+  }
 }

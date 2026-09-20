@@ -1,13 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Linking, StyleSheet, View } from "react-native";
+import Svg, { Path } from "react-native-svg";
 
 import { Lockup } from "@/components/brand";
-import { Button, Field, Notice, Screen, StateView, T } from "@/components/ui";
+import { Appear, PressScale } from "@/components/motion";
+import { Notice, Screen, StateView, T, TYPE } from "@/components/ui";
 import { HitTarget, Radius, Spacing } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
 import { fetchAuthConfig } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { SITE_URL } from "@/lib/config";
 import {
   appleAvailable,
   googleAvailable,
@@ -18,10 +22,10 @@ import {
 
 /**
  * Sign in with Apple or Google — no passwords to make, lose or reuse. The server
- * says which methods exist; the email form only appears while it still allows
- * passwords (development, or a deployment with no provider configured yet).
+ * says which of the two it accepts; the device says which it can do.
  */
 export default function SignIn() {
+  const theme = useTheme();
   const { signInWithToken } = useAuth();
   const config = useQuery({ queryKey: ["auth-config"], queryFn: fetchAuthConfig });
   const [appleOk, setAppleOk] = useState(false);
@@ -39,12 +43,13 @@ export default function SignIn() {
           loading={config.isPending}
           error={config.error}
           onRetry={() => void config.refetch()}
+          rows={1}
         />
       </Screen>
     );
   }
 
-  const { apple, google, password } = config.data;
+  const { apple, google } = config.data;
   const showApple = apple && appleOk;
   const showGoogle = Boolean(google) && googleAvailable();
 
@@ -61,18 +66,20 @@ export default function SignIn() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.fill}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <Screen edges={["top", "bottom"]} contentStyle={styles.content}>
-        <View style={styles.hero}>
-          <Lockup />
-          <T variant="title">Post the workout you’re doing anyway.</T>
-          <T color="textSecondary">
-            Someone at your level joins. SamePace makes sure you both show up.
-          </T>
-        </View>
+    <Screen edges={["top", "bottom"]} scroll={false} contentStyle={styles.content}>
+      <Appear style={styles.hero}>
+        <Lockup />
+        <T variant="title" style={styles.headline}>
+          A workout buddy at your level who shows up.
+        </T>
+        <T color="textSecondary">
+          Join a session near you, or post the one you’re already doing. You both check in when you
+          get there — so people turn up.
+        </T>
+      </Appear>
+
+      <View style={styles.actions}>
+        {error ? <Notice tone="danger">{error}</Notice> : null}
 
         {showApple && (
           <AppleAuthentication.AppleAuthenticationButton
@@ -80,115 +87,102 @@ export default function SignIn() {
             // The white button is the one Apple specifies for dark backgrounds.
             buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
             cornerRadius={Radius.pill}
-            style={styles.apple}
+            style={styles.provider}
             onPress={() => void run("apple", signInWithApple)}
           />
         )}
         {showGoogle && (
-          <Button
-            variant="soft"
-            label="Continue with Google"
-            loading={busy === "google"}
+          <PressScale
+            accessibilityRole="button"
+            accessibilityLabel="Continue with Google"
+            accessibilityState={{ disabled: busy !== null, busy: busy === "google" }}
             disabled={busy !== null}
             onPress={() => void run("google", () => signInWithGoogle(google!))}
-          />
+            style={[
+              styles.provider,
+              styles.google,
+              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+            ]}
+          >
+            {busy === "google" ? (
+              <ActivityIndicator color={theme.text} />
+            ) : (
+              <>
+                <GoogleG />
+                <T style={[TYPE.label, styles.googleLabel]}>Continue with Google</T>
+              </>
+            )}
+          </PressScale>
         )}
 
-        {error ? <Notice tone="danger">{error}</Notice> : null}
-
-        {!showApple && !showGoogle && !password && (
+        {!showApple && !showGoogle && (
           <Notice>Sign-in isn’t available in this build. Update the app and try again.</Notice>
         )}
 
-        {password && <PasswordForm divider={showApple || showGoogle} />}
-
         <T variant="caption" color="textFaint" style={styles.center}>
-          We only get your name and email. We never post anywhere, and nobody can look you up —
-          people only see you on a session you posted or joined.
+          We only get your name and email, and never post anywhere. By continuing you agree to the{" "}
+          <T
+            variant="caption"
+            color="textSecondary"
+            accessibilityRole="link"
+            onPress={() => void Linking.openURL(`${SITE_URL}/terms`)}
+          >
+            Terms
+          </T>{" "}
+          and{" "}
+          <T
+            variant="caption"
+            color="textSecondary"
+            accessibilityRole="link"
+            onPress={() => void Linking.openURL(`${SITE_URL}/privacy`)}
+          >
+            Privacy Policy
+          </T>
+          .
         </T>
-      </Screen>
-    </KeyboardAvoidingView>
+      </View>
+    </Screen>
   );
 }
 
-/** Development sign-in. The server turns this off in production once a provider exists. */
-function PasswordForm({ divider }: { divider: boolean }) {
-  const { signIn, signUp } = useAuth();
-  const [mode, setMode] = useState<"in" | "up">("in");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    setError("");
-    if (mode === "up" && !name.trim())
-      return setError("Add your first name — it’s what your buddy sees.");
-    if (!email.trim() || password.length < 8)
-      return setError("Email and a password of 8+ characters.");
-    setBusy(true);
-    try {
-      if (mode === "in") await signIn(email.trim(), password);
-      else await signUp(name.trim(), email.trim(), password);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+/** Google's "G", in Google's colours, as their sign-in branding asks. */
+function GoogleG() {
   return (
-    <View style={styles.form}>
-      {divider && (
-        <T variant="eyebrow" color="textFaint" style={styles.center}>
-          Development sign-in
-        </T>
-      )}
-      {mode === "up" && (
-        <Field label="First name" value={name} onChangeText={setName} autoComplete="given-name" />
-      )}
-      <Field
-        label="Email"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        autoComplete="email"
-        keyboardType="email-address"
-        textContentType="emailAddress"
+    <Svg width={18} height={18} viewBox="0 0 48 48" accessible={false}>
+      <Path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
       />
-      <Field
-        label="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        autoComplete={mode === "in" ? "current-password" : "new-password"}
-        textContentType={mode === "in" ? "password" : "newPassword"}
-        onSubmitEditing={submit}
+      <Path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
       />
-      {error ? <Notice tone="danger">{error}</Notice> : null}
-      <Button
-        label={mode === "in" ? "Sign in" : "Create account"}
-        loading={busy}
-        onPress={submit}
+      <Path
+        fill="#FBBC05"
+        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
       />
-      <Button
-        variant="ghost"
-        label={mode === "in" ? "New here? Create an account" : "Have an account? Sign in"}
-        onPress={() => {
-          setError("");
-          setMode(mode === "in" ? "up" : "in");
-        }}
+      <Path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
       />
-    </View>
+    </Svg>
   );
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  content: { flexGrow: 1, justifyContent: "center" },
-  hero: { gap: Spacing.one, marginBottom: Spacing.three },
-  apple: { height: HitTarget + 8, width: "100%" },
-  form: { gap: Spacing.three },
-  center: { textAlign: "center" },
+  content: { flex: 1, justifyContent: "space-between", paddingBottom: Spacing.four },
+  hero: { flex: 1, justifyContent: "center", gap: Spacing.two },
+  headline: { marginTop: Spacing.three },
+  actions: { gap: Spacing.two },
+  provider: { height: HitTarget + 8, width: "100%" },
+  google: {
+    borderRadius: Radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.two,
+  },
+  googleLabel: { fontSize: 17 },
+  center: { textAlign: "center", marginTop: Spacing.one },
 });

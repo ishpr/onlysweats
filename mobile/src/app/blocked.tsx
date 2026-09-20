@@ -1,6 +1,17 @@
+import { ShieldCheck } from "lucide-react-native";
 import { View, StyleSheet } from "react-native";
 
-import { Avatar, Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
+import {
+  Avatar,
+  Button,
+  Card,
+  EmptyState,
+  Notice,
+  Row,
+  Screen,
+  StateView,
+  T,
+} from "@/components/ui";
 import { useBlocks, useUnblock } from "@/lib/queries";
 
 export default function Blocked() {
@@ -25,7 +36,13 @@ export default function Blocked() {
         You and a blocked member don’t see each other’s sessions and can’t message. They aren’t
         told.
       </T>
-      {blocks.data.length === 0 && <StateView empty="You haven’t blocked anyone." />}
+      {blocks.data.length === 0 && (
+        <EmptyState
+          icon={ShieldCheck}
+          title="Nobody blocked"
+          body="If someone makes a session feel like anything other than a workout, block them from the session or your thread."
+        />
+      )}
       {blocks.data.map((p) => (
         <Card key={p.id}>
           <Row>

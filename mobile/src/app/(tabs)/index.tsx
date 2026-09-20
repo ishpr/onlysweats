@@ -1,10 +1,12 @@
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
+import { CalendarDays } from "lucide-react-native";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { AppHeader, LiveBanner } from "@/components/brand";
 import { PushPrompt } from "@/components/push-cards";
 import { SessionCard } from "@/components/session-card";
-import { Button, Card, Row, Screen, StateView, T } from "@/components/ui";
+import { Enter } from "@/components/motion";
+import { Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
 import { useNow } from "@/hooks/use-now";
 import { Spacing } from "@/constants/theme";
 import { formatWhen, greeting, inCheckinWindow } from "@/lib/format";
@@ -15,6 +17,7 @@ const SOON_MS = 48 * 3600_000;
 
 export default function Today() {
   useRefreshOnFocus();
+  const router = useRouter();
   const now = useNow(15_000);
   const me = useMe();
   const mine = useMine();
@@ -163,17 +166,22 @@ export default function Today() {
             onRetry={() => void open.refetch()}
           />
         ) : soon.length === 0 ? (
-          <Card>
-            <T variant="label">Nothing in the next two days.</T>
-            <T variant="caption" color="textSecondary">
-              Invite someone you already know — an invite-only session and a link is all it takes.
-            </T>
-            <Link href={{ pathname: "/post", params: { unlisted: "1" } }} asChild>
-              <Button variant="soft" label="Invite someone" />
-            </Link>
-          </Card>
+          <EmptyState
+            icon={CalendarDays}
+            title="Nothing in the next two days"
+            body="Post the workout you’re doing anyway — or invite someone you already know with a link."
+            action={{ label: "Post a session", onPress: () => router.push("/post") }}
+            secondary={{
+              label: "Invite someone you know",
+              onPress: () => router.push({ pathname: "/post", params: { unlisted: "1" } }),
+            }}
+          />
         ) : (
-          soon.map((s) => <SessionCard key={s.id} session={s} venue={venues.get(s.venueId)} />)
+          soon.map((s, i) => (
+            <Enter key={s.id} index={i}>
+              <SessionCard session={s} venue={venues.get(s.venueId)} />
+            </Enter>
+          ))
         )}
       </View>
     </Screen>

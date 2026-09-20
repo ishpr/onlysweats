@@ -2,8 +2,9 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link } from "expo-router";
 import { Clock, MapPin, Users } from "lucide-react-native";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
+import { PressScale } from "@/components/motion";
 import { T, withAlpha } from "@/components/ui";
 import { Fonts, Radius, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
@@ -29,64 +30,59 @@ export function SessionCard({ session, venue }: { session: Session; venue?: Venu
   const summary = `${session.title}. ${session.abilityLabel}. ${formatWhen(session.startAt)} at ${venue?.name ?? "the pin"}. ${seats}.`;
   return (
     <Link href={{ pathname: "/session/[id]", params: { id: session.id } }} asChild>
-      {/* `Link asChild` merges styles and drops a function style, so the look lives on the inner View. */}
-      <Pressable accessibilityRole="button" accessibilityLabel={summary}>
-        {({ pressed }) => (
-          <View
-            style={[
-              styles.card,
-              live && styles.featured,
-              {
-                backgroundColor: theme.backgroundElement,
-                transform: [{ scale: pressed ? 0.98 : 1 }],
-              },
+      {/* The press animation lives in PressScale's animated style, which survives `Link asChild`. */}
+      <PressScale accessibilityRole="button" accessibilityLabel={summary} scaleTo={0.98}>
+        <View
+          style={[
+            styles.card,
+            live && styles.featured,
+            { backgroundColor: theme.backgroundElement },
+          ]}
+        >
+          <Image
+            source={venueImage(venue)}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            transition={200}
+          />
+          <LinearGradient
+            colors={[
+              withAlpha(theme.background, 0.1),
+              withAlpha(theme.background, 0.55),
+              theme.background,
             ]}
-          >
-            <Image
-              source={venueImage(venue)}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-              transition={200}
-            />
-            <LinearGradient
-              colors={[
-                withAlpha(theme.background, 0.1),
-                withAlpha(theme.background, 0.55),
-                theme.background,
-              ]}
-              locations={[0, 0.5, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.top}>
-              <View style={styles.chips}>
-                <Tag label={ACTIVITIES[session.activity].label} />
-                {live && <Tag label="Live" tone="move" />}
-                {session.womenOnly && <Tag label="Women-only" />}
-                {session.substituteSeat && <Tag label="Substitute seat" />}
-                {session.seriesId && !session.substituteSeat && <Tag label="Standing slot" />}
-                {session.abilityFlex === "flexible" && <Tag label="Flexible level" />}
-                {session.visibility === "unlisted" && <Tag label="Unlisted" />}
-              </View>
-            </View>
-            <View>
-              <T variant="eyebrow" style={{ color: withAlpha(theme.text, 0.75) }}>
-                {formatWhen(session.startAt)}
-              </T>
-              <T variant="heading" style={styles.title}>
-                {session.title}
-              </T>
-              <T variant="label" style={styles.level}>
-                {session.abilityLabel}
-              </T>
-              <View style={styles.meta}>
-                <Meta icon={MapPin} text={venue?.name ?? "—"} />
-                <Meta icon={Clock} text={formatDuration(session.durationMin)} />
-                <Meta icon={Users} text={seats} />
-              </View>
+            locations={[0, 0.5, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.top}>
+            <View style={styles.chips}>
+              <Tag label={ACTIVITIES[session.activity].label} />
+              {live && <Tag label="Live" tone="move" />}
+              {session.womenOnly && <Tag label="Women-only" />}
+              {session.substituteSeat && <Tag label="Substitute seat" />}
+              {session.seriesId && !session.substituteSeat && <Tag label="Standing slot" />}
+              {session.abilityFlex === "flexible" && <Tag label="Flexible level" />}
+              {session.visibility === "unlisted" && <Tag label="Unlisted" />}
             </View>
           </View>
-        )}
-      </Pressable>
+          <View>
+            <T variant="eyebrow" style={{ color: withAlpha(theme.text, 0.75) }}>
+              {formatWhen(session.startAt)}
+            </T>
+            <T variant="heading" style={styles.title}>
+              {session.title}
+            </T>
+            <T variant="label" style={styles.level}>
+              {session.abilityLabel}
+            </T>
+            <View style={styles.meta}>
+              <Meta icon={MapPin} text={venue?.name ?? "—"} />
+              <Meta icon={Clock} text={formatDuration(session.durationMin)} />
+              <Meta icon={Users} text={seats} />
+            </View>
+          </View>
+        </View>
+      </PressScale>
     </Link>
   );
 }

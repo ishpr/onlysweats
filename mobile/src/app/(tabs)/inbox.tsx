@@ -1,7 +1,9 @@
 import { Link, useRouter } from "expo-router";
+import { MessageCircle } from "lucide-react-native";
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { Avatar, Button, Card, Row, Screen, StateView, T } from "@/components/ui";
+import { Enter } from "@/components/motion";
+import { Avatar, Button, Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
 import { formatWhen } from "@/lib/format";
 import { byId } from "@/lib/lookup";
 import { useMe, useMine, useNotifications, useRefreshOnFocus } from "@/lib/queries";
@@ -57,36 +59,43 @@ export default function Inbox() {
           onRetry={() => void mine.refetch()}
         />
       ) : threads.length === 0 ? (
-        <StateView empty="No threads yet. Join a session and its thread opens here." />
+        <EmptyState
+          icon={MessageCircle}
+          title="No threads yet"
+          body="A thread opens with each seat — yours or someone’s on a session you posted — and closes a day after."
+          action={{ label: "Find a session", onPress: () => router.push("/sessions") }}
+        />
       ) : (
-        threads.map((b) => {
+        threads.map((b, i) => {
           const s = sessions.get(b.sessionId);
           const other = people.get(b.hostId === me?.id ? b.participantId : b.hostId);
           return (
-            <Link key={b.id} href={{ pathname: "/thread/[id]", params: { id: b.id } }} asChild>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${other?.name}, ${s?.title}, ${STATUS[b.status]}`}
-              >
-                <Card>
-                  <Row>
-                    <Avatar initials={other?.initials ?? "?"} accent={other?.accent} />
-                    <View style={styles.flex}>
-                      <T variant="label">{other?.name ?? "—"}</T>
-                      <T variant="caption" color="textSecondary" numberOfLines={1}>
-                        {s?.title} · {s ? formatWhen(s.startAt) : ""}
+            <Enter key={b.id} index={i}>
+              <Link href={{ pathname: "/thread/[id]", params: { id: b.id } }} asChild>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${other?.name}, ${s?.title}, ${STATUS[b.status]}`}
+                >
+                  <Card>
+                    <Row>
+                      <Avatar initials={other?.initials ?? "?"} accent={other?.accent} />
+                      <View style={styles.flex}>
+                        <T variant="label">{other?.name ?? "—"}</T>
+                        <T variant="caption" color="textSecondary" numberOfLines={1}>
+                          {s?.title} · {s ? formatWhen(s.startAt) : ""}
+                        </T>
+                      </View>
+                      <T
+                        variant="caption"
+                        color={b.status === "confirmed" ? "accent" : "textSecondary"}
+                      >
+                        {STATUS[b.status]}
                       </T>
-                    </View>
-                    <T
-                      variant="caption"
-                      color={b.status === "confirmed" ? "accent" : "textSecondary"}
-                    >
-                      {STATUS[b.status]}
-                    </T>
-                  </Row>
-                </Card>
-              </Pressable>
-            </Link>
+                    </Row>
+                  </Card>
+                </Pressable>
+              </Link>
+            </Enter>
           );
         })
       )}

@@ -1,8 +1,10 @@
 import { type Href, useRouter } from "expo-router";
+import { Bell } from "lucide-react-native";
 import { useEffect } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { Card, Row, Screen, StateView, T } from "@/components/ui";
+import { Enter } from "@/components/motion";
+import { Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
 import { useTheme } from "@/hooks/use-theme";
 import { formatWhen } from "@/lib/format";
 import { useMarkNotificationsRead, useNotifications } from "@/lib/queries";
@@ -35,31 +37,36 @@ export default function Activity() {
   return (
     <Screen onRefresh={() => void list.refetch()} refreshing={list.isRefetching}>
       {list.data.notifications.length === 0 && (
-        <StateView empty="Nothing yet. Joins, messages, reminders and fees will show up here." />
+        <EmptyState
+          icon={Bell}
+          title="Nothing yet"
+          body="When someone joins, messages you, or a session changes, it lands here — whether or not notifications are on."
+        />
       )}
-      {list.data.notifications.map((n) => (
-        <Pressable
-          key={n.id}
-          accessibilityRole={n.url ? "button" : "text"}
-          accessibilityLabel={`${n.title}. ${n.body}`}
-          disabled={!n.url}
-          onPress={() => n.url && router.push(n.url as Href)}
-        >
-          <Card>
-            <Row style={styles.top}>
-              {!n.read && <View style={[styles.dot, { backgroundColor: theme.accent }]} />}
-              <View style={styles.flex}>
-                <T variant="label">{n.title}</T>
-                <T variant="caption" color="textSecondary">
-                  {n.body}
-                </T>
-                <T variant="caption" color="textFaint">
-                  {formatWhen(n.createdAt)}
-                </T>
-              </View>
-            </Row>
-          </Card>
-        </Pressable>
+      {list.data.notifications.map((n, i) => (
+        <Enter key={n.id} index={i}>
+          <Pressable
+            accessibilityRole={n.url ? "button" : "text"}
+            accessibilityLabel={`${n.title}. ${n.body}`}
+            disabled={!n.url}
+            onPress={() => n.url && router.push(n.url as Href)}
+          >
+            <Card>
+              <Row style={styles.top}>
+                {!n.read && <View style={[styles.dot, { backgroundColor: theme.accent }]} />}
+                <View style={styles.flex}>
+                  <T variant="label">{n.title}</T>
+                  <T variant="caption" color="textSecondary">
+                    {n.body}
+                  </T>
+                  <T variant="caption" color="textFaint">
+                    {formatWhen(n.createdAt)}
+                  </T>
+                </View>
+              </Row>
+            </Card>
+          </Pressable>
+        </Enter>
       ))}
     </Screen>
   );
