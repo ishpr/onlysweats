@@ -436,8 +436,10 @@ export function injectGrokPwaHead(html, ctx = {}) {
 
   const missing = grokPwaHeadTags(appName)
     .filter(([key]) => {
-      if (key === "manifest") return !next.includes('href="/__grok/manifest.webmanifest"');
-      if (key === "apple-touch-icon") return !next.includes('href="/__grok/icon-180.png"');
+      // SamePace ships its own manifest and icons (brand/build.py → public/), linked
+      // from the root route. The scaffold's "Grok App" ones only fill in when absent.
+      if (key === "manifest") return !next.includes('rel="manifest"');
+      if (key === "apple-touch-icon") return !next.includes('rel="apple-touch-icon"');
       return !next.includes(`name="${key}"`);
     })
     .map(([, tag]) => tag);
@@ -447,7 +449,10 @@ export function injectGrokPwaHead(html, ctx = {}) {
     grokOgHeadTags({ host, appName, site, documentTitle, cwd }).join(""),
   );
 
-  if (!next.includes("/grok-app-builder/extensions.js")) {
+  // The app-builder's extensions.js is a third-party script for the builder's live
+  // preview. SamePace is a standalone product with an admin console: it is never
+  // injected. A project that sets VITE_PROJECT_ID still gets its preview script.
+  if (projectId && !next.includes("/grok-app-builder/extensions.js")) {
     missing.push(...grokExtensionsHeadTags(projectId));
   } else if (projectId && !next.includes('name="grok-project-id"')) {
     missing.push(`<meta name="grok-project-id" content="${escapeHtml(projectId)}">`);

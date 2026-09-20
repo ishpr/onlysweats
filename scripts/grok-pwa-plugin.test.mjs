@@ -25,16 +25,23 @@ test("injects before </head>", () => {
   const out = injectGrokPwaHead("<html><head><title>x</title></head><body></body></html>");
   assert.match(out, /rel="manifest"/);
   assert.match(out, /apple-touch-icon/);
-  assert.match(out, /grok-app-builder\/extensions\.js/);
   assert.ok(out.indexOf("manifest") < out.indexOf("</head>"));
 });
 
-test("injects the extensions script without a project id", () => {
+test("leaves a document's own manifest and touch icon alone", () => {
+  const out = injectGrokPwaHead(
+    '<html><head><link rel="manifest" href="/manifest.webmanifest"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/></head></html>',
+  );
+  assert.doesNotMatch(out, /__grok\/manifest/);
+  assert.doesNotMatch(out, /__grok\/icon-180/);
+});
+
+test("never injects the third-party extensions script without a project id", () => {
   const out = injectGrokPwaHead("<html><head></head></html>", {
     appName: "Demo",
     projectId: "",
   });
-  assert.match(out, /src="https:\/\/grok\.com\/grok-app-builder\/extensions\.js" defer/);
+  assert.doesNotMatch(out, /extensions\.js/);
   assert.doesNotMatch(out, /grok-project-id/);
   assert.doesNotMatch(out, /data-project-id/);
   assert.doesNotMatch(out, /property="grok:app_id"/);

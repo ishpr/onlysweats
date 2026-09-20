@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { Linking, StyleSheet } from "react-native";
 
+import { Lockup } from "@/components/brand";
 import { Button, Notice, Screen, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -12,9 +13,7 @@ export function Suspended({ reason }: { reason: string }) {
   const router = useRouter();
   return (
     <Screen edges={["top", "bottom"]} contentStyle={styles.content}>
-      <T variant="eyebrow" color="accent">
-        SamePace
-      </T>
+      <Lockup />
       <T variant="title">Your account is paused.</T>
       <T color="textSecondary">
         We paused it after reviewing a report. Your sessions were called off and your seats

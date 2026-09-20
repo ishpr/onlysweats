@@ -164,6 +164,59 @@ def og_card(wm: Wordmark, body_font: Wordmark) -> str:
     return svg("0 0 1200 630", washes + art + word + line, w=1200, h=630, title="SamePace. " + TAGLINE)
 
 
+def feature_graphic(wm: Wordmark, body_font: Wordmark) -> str:
+    """Google Play feature graphic, 1024x500. Play crops the edges in some placements, so it all sits centred."""
+    c = ON_DARK
+    washes = (
+        "<defs>"
+        f'<radialGradient id="f1" cx="512" cy="-60" r="560" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="{c["b"]}" stop-opacity="0.16"/><stop offset="1" stop-color="{c["b"]}" stop-opacity="0"/></radialGradient>'
+        f'<radialGradient id="f2" cx="0" cy="500" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="{c["a"]}" stop-opacity="0.12"/><stop offset="1" stop-color="{c["a"]}" stop-opacity="0"/></radialGradient>'
+        "</defs>"
+        f'<rect width="1024" height="500" fill="{INK}"/>'
+        '<rect width="1024" height="500" fill="url(#f1)"/><rect width="1024" height="500" fill="url(#f2)"/>'
+    )
+    k = 2.3
+    art = f'<g transform="translate({512 - 50 * k} 44) scale({k})">{mark(c)}</g>'
+    _, tw = wm.paths("samepace", 84, 0, 0, two_tone(c))
+    word, _ = wm.paths("samepace", 84, 512 - tw / 2, 346, two_tone(c))
+    _, lw = body_font.paths(TAGLINE, 28, 0, 0, [MUTED] * len(TAGLINE))
+    line, _ = body_font.paths(TAGLINE, 28, 512 - lw / 2, 412, [MUTED] * len(TAGLINE))
+    return svg("0 0 1024 500", washes + art + word + line, w=1024, h=500, title="SamePace. " + TAGLINE)
+
+
+def to_jpeg(png: Path, dst: Path) -> bool:
+    """Store listings and link previews want no alpha channel. Uses macOS `sips`."""
+    if not shutil.which("sips"):
+        print(f"sips not found: {dst.name} not refreshed")
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["sips", "-s", "format", "jpeg", "-s", "formatOptions", "92", str(png), "--out", str(dst)],
+        check=True,
+        capture_output=True,
+    )
+    return True
+
+
+MANIFEST = """{
+  "name": "SamePace",
+  "short_name": "SamePace",
+  "description": "%s",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "%s",
+  "theme_color": "%s",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
+"""
+
+
 # ── Icons ────────────────────────────────────────────────────────────────────
 
 
@@ -266,6 +319,10 @@ def main() -> None:
     render(splash, img / "splash-icon.png", 228)
     splash.unlink()
     render(icon_micro, img / "favicon.png", 48)
+    # Android status-bar icon for push: the system tints it, so white on transparent.
+    note = write(PNG / ".notification.svg", svg("0 0 100 100", scaled(mark({"a": "#FFFFFF", "b": "#FFFFFF"}), 1.1)))
+    render(note, img / "notification-icon.png", 96)
+    note.unlink()
 
     # iOS 26 layered icon: one vector layer on a solid ink fill.
     layer = svg("0 0 1024 1024", f'<g transform="scale(10.24)">{mark(ON_DARK)}</g>', w=1024, h=1024)
@@ -285,6 +342,27 @@ def main() -> None:
     else:
         print("sips not found: public/og.jpg not refreshed; convert brand/svg/share-card.svg by hand")
     card_png.unlink()
+
+    # Web app icons + manifest (home-screen installs, iOS share sheet)
+    public = ROOT / "public"
+    render(icon_square, public / "apple-touch-icon.png", 180)
+    render(icon_square, public / "icon-192.png", 192)
+    render(icon_square, public / "icon-512.png", 512)
+    # Maskable icons are cropped to a circle of 80%: same safe zone as Android adaptive.
+    maskable = write(PNG / ".maskable.svg", svg("0 0 100 100", f'<rect width="100" height="100" fill="{INK}"/>' + scaled(mark(ON_DARK), 0.78)))
+    render(maskable, public / "icon-maskable-512.png", 512)
+    maskable.unlink()
+    write(public / "manifest.webmanifest", MANIFEST % (TAGLINE, INK, INK))
+
+    # Store listings (upload these by hand in App Store Connect / Play Console)
+    store = ROOT / "brand" / "store"
+    render(icon_square, store / "app-store-icon-1024.png", 1024)
+    render(icon_square, store / "play-icon-512.png", 512)
+    graphic = write(SVG / "play-feature-graphic.svg", feature_graphic(wm, Wordmark(find_font("400Regular"), tracking=0.0)))
+    graphic_png = store / ".feature.png"
+    render(graphic, graphic_png, 1024, 500)
+    to_jpeg(graphic_png, store / "play-feature-graphic-1024x500.jpg")
+    graphic_png.unlink()
 
     print(f"wrote {len(list(SVG.glob('*.svg')))} SVG masters, {len(list(PNG.glob('*.png')))} PNG masters, mobile icons, favicon")
 
