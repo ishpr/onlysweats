@@ -15,6 +15,9 @@ export default tseslint.config(
       ".nitro/**",
       "node_modules/**",
       "src/routeTree.gen.ts",
+      // Session worktrees are other checkouts of this repo; the Expo app lints itself.
+      ".claude/**",
+      "mobile/**",
     ],
   },
   js.configs.recommended,
