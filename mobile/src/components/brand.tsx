@@ -23,6 +23,21 @@ export function PaceMark({ size = 28 }: { size?: number }) {
   );
 }
 
+/** Mark + lowercase wordmark, stacked — for the screens before there's a header. */
+export function Lockup() {
+  return (
+    <View style={styles.lockup} accessibilityRole="header">
+      <PaceMark size={56} />
+      <T style={styles.lockupWord} accessibilityLabel="SamePace">
+        same
+        <T style={styles.lockupWord} color="accent">
+          pace
+        </T>
+      </T>
+    </View>
+  );
+}
+
 export function AppHeader() {
   return (
     <View style={styles.header} accessibilityRole="header">
@@ -71,6 +86,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingTop: Spacing.one,
     paddingBottom: Spacing.one,
+  },
+  lockup: { alignItems: "flex-start", gap: Spacing.one },
+  lockupWord: {
+    fontSize: 28,
+    lineHeight: 34,
+    letterSpacing: -0.6,
+    fontFamily: "Outfit_600SemiBold",
   },
   wordmark: { fontSize: 17, lineHeight: 22, letterSpacing: -0.3, fontFamily: "Outfit_600SemiBold" },
   banner: {

@@ -3,7 +3,7 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
 
-import { PaceMark } from "@/components/brand";
+import { Lockup } from "@/components/brand";
 import { Button, Field, Notice, Screen, StateView, T } from "@/components/ui";
 import { HitTarget, Radius, Spacing } from "@/constants/theme";
 import { fetchAuthConfig } from "@/lib/api";
@@ -67,10 +67,7 @@ export default function SignIn() {
     >
       <Screen edges={["top", "bottom"]} contentStyle={styles.content}>
         <View style={styles.hero}>
-          <PaceMark size={44} />
-          <T variant="eyebrow" color="accent">
-            SamePace
-          </T>
+          <Lockup />
           <T variant="title">Post the workout you’re doing anyway.</T>
           <T color="textSecondary">
             Someone at your level joins. SamePace makes sure you both show up.

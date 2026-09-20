@@ -15,7 +15,9 @@ Needs `fonttools` (`pip install fonttools`) and `rsvg-convert` (`brew install li
 
 | Use | File |
 | --- | --- |
-| App Store / Play Store icon | `png/app-icon-1024.png` |
+| App Store Connect icon (1024, no alpha, square) | `store/app-store-icon-1024.png` |
+| Google Play icon (512) | `store/play-icon-512.png` |
+| Google Play feature graphic (1024×500) | `store/play-feature-graphic-1024x500.jpg` |
 | Icon shown with rounded corners (decks, web) | `svg/app-icon.svg` |
 | Header or footer on a dark page | `svg/lockup-horizontal-on-dark.svg` |
 | Header or footer on a light page | `svg/lockup-horizontal-on-light.svg` |
@@ -24,7 +26,7 @@ Needs `fonttools` (`pip install fonttools`) and `rsvg-convert` (`brew install li
 | Anything 24 px or smaller | `svg/mark-micro-*.svg`, `svg/app-icon-micro.svg` |
 | Link previews (1200×630) | `svg/share-card.svg`, built to `public/og.jpg` |
 
-The build also writes the files the apps load directly: `mobile/assets/images/*`, `mobile/assets/expo.icon/`, `public/favicon.svg` and `public/og.jpg`. The JPEG step uses macOS `sips`. In code, use `PaceMark` (`src/components/icons.tsx`, `mobile/src/components/brand.tsx`), which draws the same geometry.
+The build also writes the files the apps load directly: `mobile/assets/images/*` (app icon, Android adaptive layers, splash, and the white `notification-icon.png` Android tints for push), `mobile/assets/expo.icon/`, and for the web `public/favicon.svg`, `public/apple-touch-icon.png`, `public/icon-*.png`, `public/manifest.webmanifest` and `public/og.jpg`. The store files are uploaded by hand; the app binaries get their icon from `mobile/app.json`. The JPEG step uses macOS `sips`. In code, use `PaceMark` (`src/components/icons.tsx`, `mobile/src/components/brand.tsx`), which draws the same geometry.
 
 ## Colours
 
