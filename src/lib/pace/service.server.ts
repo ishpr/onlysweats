@@ -82,6 +82,9 @@ type ProfileRow = {
   would_join_yes: number;
   would_join_total: number;
   frozen_until: Date | null;
+  suspended_at: Date | null;
+  suspended_reason: string | null;
+  deleted_at: Date | null;
   created_at: Date;
 };
 
@@ -133,6 +136,10 @@ export type MeDTO = Person & {
   frozenUntil: string | null;
   /** Completed sessions left before membership would start. */
   freeSessionsLeft: number;
+  /** Set when the account is paused by SamePace. Only `/me` works until it lifts. */
+  suspended: { reason: string } | null;
+  /** The account was deleted; its token opens nothing. Never sent to a live client. */
+  deleted: boolean;
 };
 
 export type SessionDTO = {
@@ -218,6 +225,19 @@ function toPerson(r: ProfileRow): Person {
 
 // ── Profiles ─────────────────────────────────────────────────────────────────
 
+/** Only a hash of a banned email is ever stored. */
+export async function emailHash(email: string) {
+  const bytes = new TextEncoder().encode(email.trim().toLowerCase());
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function isBanned(sql: Sql, email: string) {
+  const [row] = await sql`
+    select 1 from banned_identities where email_hash = ${await emailHash(email)}`;
+  return Boolean(row);
+}
+
 function initialsOf(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   const letters = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : name.slice(0, 2);
@@ -246,6 +266,8 @@ async function toMe(sql: Sql, r: ProfileRow, now: number): Promise<MeDTO> {
     strikes: Number(strikes?.n ?? 0),
     frozenUntil: frozenUntil && frozenUntil > now ? at(frozenUntil) : null,
     freeSessionsLeft: Math.max(0, FREE_SESSIONS - r.completed_count),
+    suspended: r.suspended_at ? { reason: r.suspended_reason ?? "" } : null,
+    deleted: Boolean(r.deleted_at),
   };
 }
 
@@ -261,6 +283,9 @@ export async function ensureProfile(
 ): Promise<MeDTO> {
   const [existing] = await sql<ProfileRow>`select * from profiles where id = ${user.id}`;
   if (existing) return toMe(sql, existing, now);
+  if (user.email && (await isBanned(sql, user.email))) {
+    throw new PaceError(403, "This account can’t be used on SamePace.");
+  }
   // Apple's "Hide My Email" addresses are random — never use one as a name.
   const relay = user.email?.endsWith("@privaterelay.appleid.com");
   const fromEmail = relay ? undefined : user.email?.split("@")[0];
@@ -313,8 +338,34 @@ export async function listVenues(sql: Sql): Promise<Omit<Venue, "hint">[]> {
   return rows.map(({ hint: _hint, ...v }) => v);
 }
 
+/**
+ * A block is mutual in effect and covers everyone on the session: the poster and
+ * anyone holding a seat, whichever side did the blocking.
+ */
+const BLOCKED_WITH_VIEWER = `exists (
+  select 1 from blocks k
+  where (k.blocker_id = $1 and (k.blocked_id = s.host_id or k.blocked_id in (
+      select b.participant_id from bookings b
+      where b.session_id = s.id and b.status in ('pending', 'confirmed'))))
+    or (k.blocked_id = $1 and (k.blocker_id = s.host_id or k.blocker_id in (
+      select b.participant_id from bookings b
+      where b.session_id = s.id and b.status in ('pending', 'confirmed')))))`;
+
+export async function blockedBetween(sql: Sql, a: string, others: string[]) {
+  const ids = others.filter((id) => id !== a);
+  if (ids.length === 0) return false;
+  const rows = await sql.query(
+    `select 1 from blocks
+     where (blocker_id = $1 and blocked_id = any($2)) or (blocked_id = $1 and blocker_id = any($2))
+     limit 1`,
+    [a, ids],
+  );
+  return rows.length > 0;
+}
+
 const SESSION_SELECT = `
   select s.*, v.hint as venue_hint,
+    ${BLOCKED_WITH_VIEWER} as viewer_blocked,
     (select count(*) from bookings b
       where b.session_id = s.id and b.status in ('pending', 'confirmed', 'completed')) as seats_taken,
     exists (select 1 from bookings b
@@ -329,6 +380,7 @@ type SessionViewRow = SessionRow & {
   seats_taken: number;
   viewer_confirmed: boolean;
   viewer_in_series: boolean;
+  viewer_blocked: boolean;
 };
 
 function viewOf(r: SessionViewRow, viewer: string, mine: MemberAbilities): SessionDTO {
@@ -386,6 +438,7 @@ export async function listPublicSessions(
        and s.start_at < now() + interval '14 days'
        and ($2::boolean is not true or s.women_only)
        and (not s.women_only or $3::boolean or s.host_id = $1)
+       and not ${BLOCKED_WITH_VIEWER}
      order by s.start_at`,
     [viewer, opts.womenOnly ?? null, me.gender === "woman"],
   );
@@ -414,12 +467,15 @@ export async function listMySessions(sql: Sql, viewer: string): Promise<SessionD
 }
 
 async function canSee(sql: Sql, r: SessionViewRow, viewer: string, inviteCode?: string) {
-  if (r.visibility === "public" || r.host_id === viewer || r.viewer_in_series) return true;
-  // The invite link is the key to an unlisted session, before any seat exists.
-  if (inviteCode && r.invite_code === inviteCode) return true;
+  if (r.host_id === viewer) return true;
   const [seat] = await sql`
     select 1 from bookings where session_id = ${r.id} and participant_id = ${viewer} limit 1`;
-  return Boolean(seat);
+  if (seat) return true;
+  // Blocked either way round: it looks exactly like a session that isn't there.
+  if (r.viewer_blocked) return false;
+  if (r.visibility === "public" || r.viewer_in_series) return true;
+  // The invite link is the key to an unlisted session, before any seat exists.
+  return Boolean(inviteCode && r.invite_code === inviteCode);
 }
 
 export async function getSession(
@@ -448,7 +504,9 @@ export async function getInvite(
     `${SESSION_SELECT} where s.invite_code = $2 and s.visibility = 'unlisted' and s.status = 'open'`,
     [viewer, inviteCode],
   );
-  if (!row) throw new PaceError(404, "Invite expired.");
+  if (!row || (row.viewer_blocked && row.host_id !== viewer)) {
+    throw new PaceError(404, "Invite expired.");
+  }
   return {
     session: viewOf(row, viewer, await abilitiesOf(sql, viewer)),
     people: await people(sql, [row.host_id]),
@@ -610,6 +668,12 @@ export async function bookSeat(
       : [];
     const inSeries = regulars.some((m) => m.profile_id === userId);
     if (s.visibility === "unlisted" && s.invite_code !== opts.inviteCode && !mine && !inSeries) {
+      throw new PaceError(404, "That session is gone.");
+    }
+    const onIt = await tx<{ participant_id: string }>`
+      select participant_id from bookings where session_id = ${sessionId}
+        and status in ('pending', 'confirmed')`;
+    if (await blockedBetween(tx, userId, [s.host_id, ...onIt.map((b) => b.participant_id)])) {
       throw new PaceError(404, "That session is gone.");
     }
     const [{ n }] = await tx<{ n: number }>`
@@ -1049,6 +1113,9 @@ export async function repeatWeekly(
       await tx`update sessions set series_id = ${id} where id = ${s.id}`;
       const showed = await tx<{ participant_id: string }>`
         select participant_id from bookings where session_id = ${s.id} and status = 'completed'`;
+      if (await blockedBetween(tx, userId, [s.host_id, ...showed.map((x) => x.participant_id)])) {
+        throw new PaceError(409, "That standing slot can’t be set up.");
+      }
       for (const member of new Set([s.host_id, ...showed.map((x) => x.participant_id)])) {
         await tx`
           insert into series_members (series_id, profile_id) values (${id}, ${member})
@@ -1138,6 +1205,54 @@ export async function leaveSeries(sql: Sql, userId: string, seriesId: string, no
   });
 }
 
+/**
+ * Take a member off the calendar: leave every standing slot, call off what they
+ * posted, release the seats they hold. Nobody is charged for any of it — this
+ * runs when an account is deleted or paused, not when someone flakes.
+ */
+export async function withdrawEverything(sql: Sql, userId: string, now = Date.now()) {
+  await sql.transaction(async (tx) => {
+    const slots = await tx<{ series_id: string }>`
+      select series_id from series_members where profile_id = ${userId} and left_at is null`;
+    for (const { series_id } of slots) await leaveSeries(tx, userId, series_id, now);
+    const hosted = await tx<{ id: string }>`
+      select id from sessions where host_id = ${userId} and status = 'open'
+        and start_at > ${at(now)} for update`;
+    for (const { id } of hosted) {
+      await tx`
+        update bookings set status = 'cancelled', settled_at = ${at(now)}
+        where session_id = ${id} and status in ('pending', 'confirmed')`;
+      await tx`update sessions set status = 'cancelled' where id = ${id}`;
+    }
+    await tx`
+      update bookings b set status = 'cancelled', settled_at = ${at(now)}
+      from sessions s
+      where s.id = b.session_id and b.participant_id = ${userId}
+        and b.status in ('pending', 'confirmed') and s.start_at > ${at(now)}`;
+  });
+}
+
+/**
+ * What a block undoes between two people: upcoming seats with each other are
+ * released free, and the blocker steps out of any standing slot they share.
+ */
+export async function severTies(sql: Sql, blocker: string, blocked: string, now = Date.now()) {
+  await sql.transaction(async (tx) => {
+    const shared = await tx<{ series_id: string }>`
+      select a.series_id from series_members a
+      join series_members b on b.series_id = a.series_id
+      where a.profile_id = ${blocker} and a.left_at is null
+        and b.profile_id = ${blocked} and b.left_at is null`;
+    for (const { series_id } of shared) await leaveSeries(tx, blocker, series_id, now);
+    await tx`
+      update bookings b set status = 'cancelled', settled_at = ${at(now)}
+      from sessions s
+      where s.id = b.session_id and b.status in ('pending', 'confirmed') and s.start_at > ${at(now)}
+        and ((s.host_id = ${blocker} and b.participant_id = ${blocked})
+          or (s.host_id = ${blocked} and b.participant_id = ${blocker}))`;
+  });
+}
+
 // ── Chat ─────────────────────────────────────────────────────────────────────
 
 async function threadAccess(sql: Sql, userId: string, bookingId: string) {
@@ -1181,6 +1296,9 @@ export async function sendMessage(
     now,
   );
   if (!open) throw new PaceError(409, "This thread expired.");
+  if (await blockedBetween(sql, userId, [r.host_id, r.participant_id])) {
+    throw new PaceError(409, "This thread is closed.");
+  }
   const body = text.trim().slice(0, 2000);
   if (!body) throw new PaceError(400, "Say something.");
   await sql`

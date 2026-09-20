@@ -1,5 +1,6 @@
+import { useRouter } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Linking, StyleSheet, View } from "react-native";
 
 import { LevelPicker } from "@/components/ability-picker";
 import { AppHeader } from "@/components/brand";
@@ -18,6 +19,7 @@ import {
 } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { SITE_URL } from "@/lib/config";
 import { formatUsd, formatWhen } from "@/lib/format";
 import { useMe, useUpdateMe } from "@/lib/queries";
 import type { Gender } from "@/lib/types";
@@ -37,6 +39,7 @@ const LEVELS = ["run", "ride", "strength", "hike", "walk"] as const;
  */
 export default function You() {
   const { signOut } = useAuth();
+  const router = useRouter();
   const me = useMe();
   const update = useUpdateMe();
   const [name, setName] = useState<string | null>(null);
@@ -149,7 +152,51 @@ export default function You() {
       </Card>
 
       {update.error && <Notice tone="danger">{update.error.message}</Notice>}
+
+      <Card>
+        <T variant="label">Safety and account</T>
+        <T variant="caption" color="textSecondary">
+          Report or block someone from their session or your thread with them.
+        </T>
+        <Button variant="soft" label="Blocked members" onPress={() => router.push("/blocked")} />
+        <Button
+          variant="soft"
+          label="Help and support"
+          accessibilityRole="link"
+          onPress={() => void Linking.openURL(`${SITE_URL}/support`)}
+        />
+        <Row>
+          <Button
+            style={styles.flex}
+            variant="ghost"
+            label="Privacy"
+            accessibilityRole="link"
+            onPress={() => void Linking.openURL(`${SITE_URL}/privacy`)}
+          />
+          <Button
+            style={styles.flex}
+            variant="ghost"
+            label="Terms"
+            accessibilityRole="link"
+            onPress={() => void Linking.openURL(`${SITE_URL}/terms`)}
+          />
+        </Row>
+        {p.isAdmin && (
+          <Button
+            variant="soft"
+            label="Admin queue"
+            accessibilityRole="link"
+            onPress={() => void Linking.openURL(`${SITE_URL}/admin`)}
+          />
+        )}
+      </Card>
+
       <Button variant="ghost" label="Sign out" onPress={() => void signOut()} />
+      <Button
+        variant="ghost"
+        label="Delete account"
+        onPress={() => router.push("/delete-account")}
+      />
     </Screen>
   );
 }

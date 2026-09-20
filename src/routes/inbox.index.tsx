@@ -71,7 +71,7 @@ function Inbox() {
         })}
         {threads.length === 0 && (
           <p className="glass mt-4 rounded-2xl p-6 text-sm text-muted">
-            Threads open when a seat is held.
+            A thread opens when you join a session.
           </p>
         )}
       </div>

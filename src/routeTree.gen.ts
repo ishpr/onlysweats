@@ -10,10 +10,15 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as PostRouteImport } from './routes/post'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as PrototypeRouteImport } from './routes/prototype'
 import { Route as SessionsRouteImport } from './routes/sessions'
+import { Route as SupportRouteImport } from './routes/support'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as YouRouteImport } from './routes/you'
 import { Route as InboxIndexRouteImport } from './routes/inbox.index'
 import { Route as InboxIdRouteImport } from './routes/inbox.$id'
@@ -28,6 +33,11 @@ import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HealthRoute = HealthRouteImport.update({
@@ -45,9 +55,29 @@ const PostRoute = PostRouteImport.update({
   path: '/post',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrototypeRoute = PrototypeRouteImport.update({
+  id: '/prototype',
+  path: '/prototype',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SessionsRoute = SessionsRouteImport.update({
   id: '/sessions',
   path: '/sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportRoute = SupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const YouRoute = YouRouteImport.update({
@@ -103,10 +133,15 @@ const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/health': typeof HealthRoute
   '/inbox': typeof InboxRouteWithChildren
   '/post': typeof PostRoute
+  '/privacy': typeof PrivacyRoute
+  '/prototype': typeof PrototypeRoute
   '/sessions': typeof SessionsRouteWithChildren
+  '/support': typeof SupportRoute
+  '/terms': typeof TermsRoute
   '/you': typeof YouRoute
   '/inbox/$id': typeof InboxIdRoute
   '/invite/$code': typeof InviteCodeRoute
@@ -120,8 +155,13 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/health': typeof HealthRoute
   '/post': typeof PostRoute
+  '/privacy': typeof PrivacyRoute
+  '/prototype': typeof PrototypeRoute
+  '/support': typeof SupportRoute
+  '/terms': typeof TermsRoute
   '/you': typeof YouRoute
   '/inbox/$id': typeof InboxIdRoute
   '/invite/$code': typeof InviteCodeRoute
@@ -136,10 +176,15 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/health': typeof HealthRoute
   '/inbox': typeof InboxRouteWithChildren
   '/post': typeof PostRoute
+  '/privacy': typeof PrivacyRoute
+  '/prototype': typeof PrototypeRoute
   '/sessions': typeof SessionsRouteWithChildren
+  '/support': typeof SupportRoute
+  '/terms': typeof TermsRoute
   '/you': typeof YouRoute
   '/inbox/$id': typeof InboxIdRoute
   '/invite/$code': typeof InviteCodeRoute
@@ -155,10 +200,15 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/health'
     | '/inbox'
     | '/post'
+    | '/privacy'
+    | '/prototype'
     | '/sessions'
+    | '/support'
+    | '/terms'
     | '/you'
     | '/inbox/$id'
     | '/invite/$code'
@@ -172,8 +222,13 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/health'
     | '/post'
+    | '/privacy'
+    | '/prototype'
+    | '/support'
+    | '/terms'
     | '/you'
     | '/inbox/$id'
     | '/invite/$code'
@@ -187,10 +242,15 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/health'
     | '/inbox'
     | '/post'
+    | '/privacy'
+    | '/prototype'
     | '/sessions'
+    | '/support'
+    | '/terms'
     | '/you'
     | '/inbox/$id'
     | '/invite/$code'
@@ -205,10 +265,15 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   HealthRoute: typeof HealthRoute
   InboxRoute: typeof InboxRouteWithChildren
   PostRoute: typeof PostRoute
+  PrivacyRoute: typeof PrivacyRoute
+  PrototypeRoute: typeof PrototypeRoute
   SessionsRoute: typeof SessionsRouteWithChildren
+  SupportRoute: typeof SupportRoute
+  TermsRoute: typeof TermsRoute
   YouRoute: typeof YouRoute
   InviteCodeRoute: typeof InviteCodeRoute
   LiveIdRoute: typeof LiveIdRoute
@@ -224,6 +289,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/health': {
@@ -247,11 +319,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PostRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prototype': {
+      id: '/prototype'
+      path: '/prototype'
+      fullPath: '/prototype'
+      preLoaderRoute: typeof PrototypeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sessions': {
       id: '/sessions'
       path: '/sessions'
       fullPath: '/sessions'
       preLoaderRoute: typeof SessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/you': {
@@ -355,10 +455,15 @@ const SessionsRouteWithChildren = SessionsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   HealthRoute: HealthRoute,
   InboxRoute: InboxRouteWithChildren,
   PostRoute: PostRoute,
+  PrivacyRoute: PrivacyRoute,
+  PrototypeRoute: PrototypeRoute,
   SessionsRoute: SessionsRouteWithChildren,
+  SupportRoute: SupportRoute,
+  TermsRoute: TermsRoute,
   YouRoute: YouRoute,
   InviteCodeRoute: InviteCodeRoute,
   LiveIdRoute: LiveIdRoute,

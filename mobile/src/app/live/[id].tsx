@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Linking, StyleSheet, View } from "react-native";
 
 import { Button, Card, Chip, Field, Notice, Row, Screen, StateView, T } from "@/components/ui";
+import { ReportLink } from "@/components/report-link";
 import { useNow } from "@/hooks/use-now";
 import { Spacing } from "@/constants/theme";
 import { checkinWindow, distanceM, formatTime, inCheckinWindow } from "@/lib/format";
@@ -271,6 +272,14 @@ export default function Live() {
             }
           />
         </Card>
+      )}
+      {other && (
+        <ReportLink
+          memberId={other.id}
+          name={other.name.split(" ")[0]}
+          sessionId={session.id}
+          bookingId={booking.id}
+        />
       )}
       {done && (
         <Card>

@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { T, withAlpha } from "@/components/ui";
 import { Fonts, Radius, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
-import { useMine } from "@/lib/queries";
+import { Suspended } from "@/components/suspended";
+import { useMe, useMine } from "@/lib/queries";
 
 const TABS = {
   index: { label: "Today", icon: CalendarDays },
@@ -17,6 +18,9 @@ const TABS = {
 } as const;
 
 export default function TabsLayout() {
+  const me = useMe().data;
+  // A paused account can read why and delete itself. Nothing else loads.
+  if (me?.suspended) return <Suspended reason={me.suspended.reason} />;
   return (
     <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <TabBar {...props} />}>
       <Tabs.Screen name="index" />

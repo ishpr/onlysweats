@@ -159,8 +159,6 @@ export const ACTIVITIES: Record<
 };
 
 export const ME_ID = "me";
-export const TAKE_RATE = 0.18;
-export const REPEAT_TAKE = 0.1;
 export const CHECKIN_BEFORE_MIN = 20;
 export const CHECKIN_AFTER_MIN = 25;
 export const GEOFENCE_M = 150;
