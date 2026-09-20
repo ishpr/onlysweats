@@ -1,9 +1,11 @@
-import { Link } from "expo-router";
+import { useRouter } from "expo-router";
+import { MapPinned } from "lucide-react-native";
 import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { SessionCard } from "@/components/session-card";
-import { Button, Card, Chip, Screen, StateView, T } from "@/components/ui";
+import { Enter } from "@/components/motion";
+import { Chip, EmptyState, Screen, StateView, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { clusterHour } from "@/lib/format";
 import { byId } from "@/lib/lookup";
@@ -28,6 +30,7 @@ const FILTERS: { id: string; label: string; test: (s: Session) => boolean }[] = 
 
 export default function Sessions() {
   useRefreshOnFocus();
+  const router = useRouter();
   const [filter, setFilter] = useState("all");
   const open = useSessions();
   const venues = byId(useVenues().data);
@@ -81,14 +84,25 @@ export default function Sessions() {
           onRetry={() => void open.refetch()}
         />
       ) : list.length === 0 ? (
-        <Card>
-          <T variant="label">Nothing in that window.</T>
-          <Link href="/post" asChild>
-            <Button variant="soft" label="Post the workout you’re doing anyway" />
-          </Link>
-        </Card>
+        <EmptyState
+          icon={MapPinned}
+          title={hidden > 0 ? "Nothing at your level right now" : "Nothing posted for that yet"}
+          body={
+            hidden > 0
+              ? `${hidden} session${hidden === 1 ? " is" : "s are"} outside the level on your profile. Or post yours — someone at your level is looking too.`
+              : "Be the first. Post the workout you’re doing anyway and someone at your level can join."
+          }
+          action={{ label: "Post a session", onPress: () => router.push("/post") }}
+          secondary={
+            hidden > 0 ? { label: "Show all levels", onPress: () => setAllLevels(true) } : undefined
+          }
+        />
       ) : (
-        list.map((s) => <SessionCard key={s.id} session={s} venue={venues.get(s.venueId)} />)
+        list.map((s, i) => (
+          <Enter key={s.id} index={i}>
+            <SessionCard session={s} venue={venues.get(s.venueId)} />
+          </Enter>
+        ))
       )}
     </Screen>
   );

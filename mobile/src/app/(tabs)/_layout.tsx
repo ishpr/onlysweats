@@ -1,12 +1,22 @@
 import { BlurView } from "expo-blur";
 import { Tabs, useRouter } from "expo-router";
 import { CalendarDays, MapPinned, MessageCircle, Plus, UserRound } from "lucide-react-native";
+import { useEffect } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { T, withAlpha } from "@/components/ui";
 import { Fonts, Radius, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { haptic } from "@/lib/haptics";
 import { Suspended } from "@/components/suspended";
 import { useMe, useMine } from "@/lib/queries";
 
@@ -29,6 +39,21 @@ export default function TabsLayout() {
       <Tabs.Screen name="you" />
     </Tabs>
   );
+}
+
+/** The icon dips and springs back when its tab becomes active. */
+function TabIcon({ active, children }: { active: boolean; children: React.ReactNode }) {
+  const reduced = useReducedMotion();
+  const scale = useSharedValue(1);
+  useEffect(() => {
+    if (!active || reduced) return;
+    scale.value = withSequence(
+      withTiming(0.82, { duration: 90 }),
+      withSpring(1, { damping: 9, stiffness: 260 }),
+    );
+  }, [active, reduced, scale]);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  return <Animated.View style={style}>{children}</Animated.View>;
 }
 
 // Android has no live blur behind a view (BlurView only tints), so content would
@@ -75,11 +100,16 @@ function TabBar({ state, navigation }: TabBarProps) {
                 target: route.key,
                 canPreventDefault: true,
               });
-              if (!active && !e.defaultPrevented) navigation.navigate(route.name);
+              if (!active && !e.defaultPrevented) {
+                haptic.select();
+                navigation.navigate(route.name);
+              }
             }}
           >
             <View>
-              <tab.icon size={20} color={color} />
+              <TabIcon active={active}>
+                <tab.icon size={20} color={color} />
+              </TabIcon>
               {route.name === "inbox" && waiting > 0 && (
                 <View style={[styles.dot, { backgroundColor: theme.move }]}>
                   <T style={styles.dotText}>{waiting}</T>
@@ -94,7 +124,10 @@ function TabBar({ state, navigation }: TabBarProps) {
         accessibilityRole="button"
         accessibilityLabel="Post a session"
         style={styles.item}
-        onPress={() => router.push("/post")}
+        onPress={() => {
+          haptic.tap();
+          router.push("/post");
+        }}
       >
         <View style={[styles.post, { backgroundColor: theme.text }]}>
           <Plus size={16} color={theme.background} strokeWidth={2.5} />

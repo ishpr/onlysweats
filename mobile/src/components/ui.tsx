@@ -6,7 +6,6 @@
 import { type ReactNode } from "react";
 import {
   ActivityIndicator,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -32,6 +31,8 @@ import {
   type ThemeColor,
 } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+
+import { Appear, PressScale, Skeleton } from "./motion";
 
 // ── Text ─────────────────────────────────────────────────────────────────────
 
@@ -192,24 +193,23 @@ export function Button({
   const { bg, fg } = palette[variant];
   const off = disabled || loading;
   return (
-    <Pressable
+    <PressScale
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: off, busy: loading }}
       disabled={off}
-      style={({ pressed }) => [
-        styles.button,
-        { backgroundColor: bg, opacity: off ? 0.45 : pressed ? 0.8 : 1 },
-        style,
-      ]}
+      // The dimming for "off" sits on an inner view: the press animation owns opacity here.
+      style={[styles.button, { backgroundColor: bg }, style]}
       {...rest}
     >
-      {loading ? (
-        <ActivityIndicator color={fg} />
-      ) : (
-        <Text style={[TYPE.label, { color: fg }]}>{label}</Text>
-      )}
-    </Pressable>
+      <View style={off ? styles.dim : undefined}>
+        {loading ? (
+          <ActivityIndicator color={fg} />
+        ) : (
+          <Text style={[TYPE.label, { color: fg }]}>{label}</Text>
+        )}
+      </View>
+    </PressScale>
   );
 }
 
@@ -224,11 +224,13 @@ export function Chip({
 }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <PressScale
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ selected }}
       onPress={onPress}
+      feedback="select"
+      scaleTo={0.95}
       hitSlop={4}
       style={[
         styles.chip,
@@ -246,7 +248,7 @@ export function Chip({
       >
         {label}
       </Text>
-    </Pressable>
+    </PressScale>
   );
 }
 
@@ -355,43 +357,80 @@ export function Notice({
   );
 }
 
-/** Full-screen loading / error / empty states for a query. */
+type IconType = (props: { size?: number; color?: string; strokeWidth?: number }) => ReactNode;
+
+/**
+ * Nothing here yet — said plainly, with the one thing to do about it. An empty
+ * screen is the first thing a new member sees, so it always points somewhere.
+ */
+export function EmptyState({
+  icon: Icon,
+  title,
+  body,
+  action,
+  secondary,
+}: {
+  icon?: IconType;
+  title: string;
+  body?: string;
+  action?: { label: string; onPress: () => void };
+  secondary?: { label: string; onPress: () => void };
+}) {
+  const theme = useTheme();
+  return (
+    <Appear style={styles.state}>
+      {Icon && (
+        <View
+          style={[
+            styles.emptyIcon,
+            { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+          ]}
+        >
+          <Icon size={26} color={theme.textSecondary} strokeWidth={1.75} />
+        </View>
+      )}
+      <View style={styles.emptyText}>
+        <T variant="heading" style={styles.center}>
+          {title}
+        </T>
+        {body ? (
+          <T color="textSecondary" style={styles.center}>
+            {body}
+          </T>
+        ) : null}
+      </View>
+      {action && <Button label={action.label} variant="accent" onPress={action.onPress} />}
+      {secondary && <Button label={secondary.label} variant="ghost" onPress={secondary.onPress} />}
+    </Appear>
+  );
+}
+
+/** Loading / error / empty states for a query. */
 export function StateView({
   loading,
   error,
   onRetry,
   empty,
+  rows = 3,
 }: {
   loading?: boolean;
   error?: Error | null;
   onRetry?: () => void;
   empty?: string;
+  /** How many placeholder cards to show while loading. */
+  rows?: number;
 }) {
-  const theme = useTheme();
-  if (loading) {
-    return (
-      <View style={styles.state}>
-        <ActivityIndicator color={theme.textSecondary} />
-      </View>
-    );
-  }
+  if (loading) return <Skeleton rows={rows} />;
   if (error) {
     return (
-      <View style={styles.state}>
-        <T variant="label" style={styles.center}>
-          {error.message}
-        </T>
-        {onRetry && <Button label="Try again" variant="soft" onPress={onRetry} />}
-      </View>
+      <EmptyState
+        title="That didn’t load"
+        body={error.message}
+        action={onRetry ? { label: "Try again", onPress: onRetry } : undefined}
+      />
     );
   }
-  return (
-    <View style={styles.state}>
-      <T color="textSecondary" style={styles.center}>
-        {empty}
-      </T>
-    </View>
-  );
+  return <EmptyState title={empty ?? "Nothing here yet."} />;
 }
 
 const styles = StyleSheet.create({
@@ -454,4 +493,14 @@ const styles = StyleSheet.create({
     padding: Spacing.four,
   },
   center: { textAlign: "center" },
+  dim: { opacity: 0.45 },
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: Radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyText: { gap: Spacing.one, maxWidth: 320 },
 });

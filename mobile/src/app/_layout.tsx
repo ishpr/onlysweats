@@ -5,7 +5,12 @@ import {
   Outfit_700Bold,
   useFonts,
 } from "@expo-google-fonts/outfit";
-import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
+import {
+  MutationCache,
+  QueryClient,
+  QueryClientProvider,
+  focusManager,
+} from "@tanstack/react-query";
 import { DarkTheme, DefaultTheme, type Href, Stack, ThemeProvider, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -16,6 +21,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { ApiError } from "@/lib/api";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { haptic } from "@/lib/haptics";
 import { onNotificationOpened, syncPush } from "@/lib/push";
 
 SplashScreen.preventAutoHideAsync();
@@ -29,6 +35,16 @@ export default function RootLayout() {
   const [queryClient] = useState(
     () =>
       new QueryClient({
+        // How a server decision feels: each mutation names its own success, and a
+        // refusal always lands the same way.
+        mutationCache: new MutationCache({
+          onSuccess: (_data, _vars, _ctx, mutation) => {
+            const kind = mutation.meta?.haptic;
+            if (kind === "success") haptic.success();
+            else if (kind === "warning") haptic.warning();
+          },
+          onError: () => haptic.error(),
+        }),
         defaultOptions: {
           queries: {
             staleTime: 15_000,
