@@ -102,6 +102,7 @@ export default function Live() {
   }, [nowInside, resetGeo]);
 
   const booking = mine.data?.bookings.find((b) => b.id === id);
+  const slot = mine.data?.series.find((x) => x.id === booking?.seriesId);
   const session = byId(mine.data?.sessions).get(booking?.sessionId ?? "");
   if (!booking || !session) {
     return (
@@ -308,6 +309,28 @@ export default function Live() {
               label="Same time next week"
               loading={repeat.isPending}
               onPress={() => repeat.mutate(booking.id)}
+            />
+          )}
+          {slot && !slot.trainingBlockId && (
+            <Button
+              variant="soft"
+              label="Give it a finish line"
+              accessibilityHint="Turns this standing slot into a training block with a goal and a date"
+              onPress={() =>
+                router.replace({ pathname: "/training-block/new", params: { seriesId: slot.id } })
+              }
+            />
+          )}
+          {slot?.trainingBlockId && (
+            <Button
+              variant="soft"
+              label="Open the training block"
+              onPress={() =>
+                router.replace({
+                  pathname: "/training-block/[id]",
+                  params: { id: slot.trainingBlockId! },
+                })
+              }
             />
           )}
         </Card>

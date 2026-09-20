@@ -163,6 +163,62 @@ export type Series = {
   venueId: string;
   nextSessionId: string | null;
   nextStartAt: string | null;
+  /** Set when this slot is part of a training block. */
+  trainingBlockId: string | null;
+};
+
+export type GoalKind =
+  | "race_5k"
+  | "race_10k"
+  | "race_half"
+  | "race_marathon"
+  | "ride_century"
+  | "hike_trip"
+  | "event_other"
+  | "consistency";
+
+/** The goals on offer, and the activities each one goes with (absent = any). */
+export const GOALS: { kind: GoalKind; label: string; activities?: Activity[] }[] = [
+  { kind: "consistency", label: "Just keep showing up" },
+  { kind: "race_5k", label: "5k", activities: ["run", "walk"] },
+  { kind: "race_10k", label: "10k", activities: ["run", "walk"] },
+  { kind: "race_half", label: "Half marathon", activities: ["run", "walk"] },
+  { kind: "race_marathon", label: "Marathon", activities: ["run", "walk"] },
+  { kind: "ride_century", label: "Century ride", activities: ["ride"] },
+  { kind: "hike_trip", label: "Hiking trip", activities: ["hike"] },
+  { kind: "event_other", label: "Another event" },
+];
+
+export type TrainingBlockSlot = {
+  seriesId: string;
+  title: string;
+  abilityLabel: string;
+  venueId: string;
+  streak: number;
+  nextSessionId: string | null;
+  nextStartAt: string | null;
+};
+
+/** One to four standing slots tied to a goal and a date. */
+export type TrainingBlock = {
+  id: string;
+  createdBy: string;
+  activity: Activity;
+  goalKind: GoalKind;
+  eventName: string | null;
+  goalLabel: string;
+  /** `YYYY-MM-DD`, in the cluster. */
+  startsOn: string;
+  goalDate: string;
+  weeks: number;
+  weekNumber: number;
+  capacity: number;
+  status: "forming" | "active" | "closing" | "ended";
+  memberIds: string[];
+  slots: TrainingBlockSlot[];
+  /** Mine alone: sessions I checked in to, out of the ones I had. */
+  my: { planned: number; kept: number; keptMiles: number; finished: boolean | null };
+  group: { planned: number; kept: number };
 };
 
 export type ChatMessage = {

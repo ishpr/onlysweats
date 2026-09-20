@@ -8,6 +8,7 @@ import type {
   Booking,
   ChatMessage,
   Gender,
+  GoalKind,
   MemberAbilities,
   Me,
   NotifyPrefs,
@@ -17,11 +18,18 @@ import type {
   ReportInput,
   Series,
   Session,
+  TrainingBlock,
   Venue,
 } from "./types";
 
 type SessionList = { sessions: Session[]; people: Person[] };
-type Mine = { bookings: Booking[]; sessions: Session[]; series: Series[]; people: Person[] };
+type Mine = {
+  bookings: Booking[];
+  sessions: Session[];
+  series: Series[];
+  trainingBlocks: TrainingBlock[];
+  people: Person[];
+};
 
 export const keys = {
   me: ["me"] as const,
@@ -33,6 +41,7 @@ export const keys = {
   messages: (bookingId: string) => ["messages", bookingId] as const,
   blocks: ["blocks"] as const,
   notifications: ["notifications"] as const,
+  trainingBlock: (id: string) => ["training-block", id] as const,
 };
 
 export const useMe = () => useQuery({ queryKey: keys.me, queryFn: () => api<Me>("/me") });
@@ -111,6 +120,7 @@ function useRefreshAll() {
       qc.invalidateQueries({ queryKey: keys.mine }),
       qc.invalidateQueries({ queryKey: ["sessions"] }),
       qc.invalidateQueries({ queryKey: ["session"] }),
+      qc.invalidateQueries({ queryKey: ["training-block"] }),
       qc.invalidateQueries({ queryKey: keys.me }),
     ]);
 }
@@ -204,6 +214,40 @@ export function useRepeatWeekly() {
     meta: { haptic: "success" },
     mutationFn: async (bookingId: string) =>
       (await api<{ series: Series }>(`/bookings/${bookingId}/repeat`, { method: "POST" })).series,
+    onSuccess: refresh,
+  });
+}
+
+export const useTrainingBlock = (id: string) =>
+  useQuery({
+    queryKey: keys.trainingBlock(id),
+    queryFn: () => api<{ block: TrainingBlock; people: Person[] }>(`/training-blocks/${id}`),
+  });
+
+/** "Make this a training block": a standing slot gets a goal and a date. */
+export function useMakeTrainingBlock() {
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: async (v: {
+      seriesId: string;
+      goalKind: GoalKind;
+      eventName?: string;
+      goalDate: string;
+    }) =>
+      (
+        await api<{ block: TrainingBlock }>(`/series/${v.seriesId}/training-block`, {
+          method: "POST",
+          json: { goalKind: v.goalKind, eventName: v.eventName, goalDate: v.goalDate },
+        })
+      ).block,
+    onSuccess: refresh,
+  });
+}
+
+export function useLeaveTrainingBlock() {
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: (blockId: string) => api(`/training-blocks/${blockId}/leave`, { method: "POST" }),
     onSuccess: refresh,
   });
 }

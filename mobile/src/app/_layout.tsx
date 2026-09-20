@@ -157,6 +157,11 @@ function Routes() {
           />
           <Stack.Screen name="post" options={{ title: "Post a session", presentation: "modal" }} />
           <Stack.Screen name="invite/[code]" options={{ title: "Invite" }} />
+          <Stack.Screen name="training-block/[id]" options={{ title: "" }} />
+          <Stack.Screen
+            name="training-block/new"
+            options={{ title: "Training block", presentation: "modal" }}
+          />
           <Stack.Screen
             name="report"
             options={{ title: "Report or block", presentation: "modal" }}
