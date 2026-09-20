@@ -77,6 +77,10 @@ export default function SessionDetail() {
   const live = Boolean(liveSeat) && inCheckinWindow(session.startAt, now);
 
   const fail = (err: Error) => setError(err.message);
+  // On a block that still takes people, a free seat that isn't a substitute's is a
+  // regular's: every week, so it's asked for on the block's page, never here.
+  const regularSeat =
+    Boolean(session.block?.joinable) && !session.substituteSeat && !isHost && !mySeat;
 
   function hold() {
     setError("");
@@ -181,12 +185,23 @@ export default function SessionDetail() {
         </T>
       </Card>
 
-      {session.seriesId && (
+      {session.block ? (
         <Notice>
+          {`Week ${session.block.weekNumber} of ${session.block.weeks} of a training block: ${session.block.goalLabel}. `}
           {session.substituteSeat
-            ? "A standing slot with a regular out this week. You’d fill in for this occurrence only."
-            : "A standing slot: same time every week until someone leaves it."}
+            ? "A regular is out this week — you’d fill in for this one only."
+            : regularSeat
+              ? "A seat here is a seat every week until the goal date."
+              : "Same time every week until the goal date."}
         </Notice>
+      ) : (
+        session.seriesId && (
+          <Notice>
+            {session.substituteSeat
+              ? "A standing slot with a regular out this week. You’d fill in for this occurrence only."
+              : "A standing slot: same time every week until someone leaves it."}
+          </Notice>
+        )
       )}
 
       <Row>
@@ -311,6 +326,17 @@ export default function SessionDetail() {
             />
           )}
         </>
+      ) : regularSeat && session.block ? (
+        <Button
+          variant="accent"
+          label="See the training block"
+          onPress={() =>
+            router.push({
+              pathname: "/training-block/[id]",
+              params: { id: session.block!.id, invite: invite ?? "" },
+            })
+          }
+        />
       ) : (
         <Button
           label={

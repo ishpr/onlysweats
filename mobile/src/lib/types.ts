@@ -133,6 +133,19 @@ export type Session = {
   seriesId: string | null;
   /** An open seat on someone else's standing slot — this occurrence only. */
   substituteSeat: boolean;
+  /**
+   * Set when this is one week of a training block. While `joinable`, a free seat
+   * that isn't a substitute seat is a regular's: join the block, not the session.
+   */
+  block: {
+    id: string;
+    goalLabel: string;
+    goalDate: string;
+    weeks: number;
+    weekNumber: number;
+    regularSeatsLeft: number;
+    joinable: boolean;
+  } | null;
 };
 
 export type Booking = {
@@ -213,8 +226,24 @@ export type TrainingBlock = {
   weeks: number;
   weekNumber: number;
   capacity: number;
+  visibility: "public" | "unlisted";
+  joinMode: "instant" | "approve";
+  womenOnly: boolean;
   status: "forming" | "active" | "closing" | "ended";
+  /** Who I am to it. Only a member gets progress, requests and the invite code. */
+  viewer: "member" | "pending" | "declined" | "visitor";
+  /** Empty in discovery: a list of blocks carries no member ids. */
   memberIds: string[];
+  memberCount: number;
+  /** Regular seats still open. Joining takes one on every slot. */
+  seatsLeft: number;
+  /** Running, a seat open, and four weeks or more to go. */
+  joinable: boolean;
+  fitsMe: boolean | null;
+  /** Members only: who has asked to join. */
+  requests: string[];
+  /** Whoever started it only. */
+  inviteCode?: string;
   slots: TrainingBlockSlot[];
   /** Mine alone: sessions I checked in to, out of the ones I had. */
   my: { planned: number; kept: number; keptMiles: number; finished: boolean | null };
@@ -244,6 +273,22 @@ export type PostSessionInput = Pick<
   | "joinMode"
   | "womenOnly"
 >;
+
+/** One weekly slot of a block: a session without what the block fixes. */
+export type BlockSlotInput = Pick<
+  Session,
+  "venueId" | "title" | "detail" | "ability" | "abilityFlex" | "startAt" | "durationMin"
+>;
+
+export type PostBlockInput = Pick<
+  Session,
+  "activity" | "capacity" | "visibility" | "joinMode" | "womenOnly"
+> & {
+  goalKind: GoalKind;
+  eventName?: string;
+  goalDate: string;
+  slots: BlockSlotInput[];
+};
 
 export type RatingInput = {
   showedUp: boolean;

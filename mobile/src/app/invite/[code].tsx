@@ -1,4 +1,4 @@
-import { Link, useLocalSearchParams } from "expo-router";
+import { Link, Redirect, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 
 import { Button, Screen, StateView, T } from "@/components/ui";
@@ -16,6 +16,17 @@ export default function Invite() {
       <Screen edges={["bottom"]}>
         <StateView loading={invite.isPending} error={invite.error} />
       </Screen>
+    );
+  }
+  // The same link shape opens an unlisted training block.
+  if ("trainingBlockId" in invite.data) {
+    return (
+      <Redirect
+        href={{
+          pathname: "/training-block/[id]",
+          params: { id: invite.data.trainingBlockId, invite: code },
+        }}
+      />
     );
   }
   const { session, people } = invite.data;
