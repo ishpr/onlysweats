@@ -11,7 +11,15 @@ import {
 } from "react";
 import { Platform } from "react-native";
 
-import { authRequest, setApiToken, setUnauthorizedHandler, signOutRequest } from "./api";
+import {
+  api,
+  authRequest,
+  setApiToken,
+  setUnauthorizedHandler,
+  signOutRequest,
+  socialSignInRequest,
+} from "./api";
+import { signOutOfGoogle, type SocialResult } from "./social";
 
 const TOKEN_KEY = "pace.session-token";
 
@@ -29,7 +37,10 @@ type AuthState = {
   signedIn: boolean | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
-  signOut: () => Promise<void>;
+  /** Finish an Apple/Google sign-in. A `null` result (they backed out) is a no-op. */
+  signInWithToken: (result: SocialResult) => Promise<void>;
+  /** `accountDeleted` also withdraws the app's access to the Google account. */
+  signOut: (opts?: { accountDeleted?: boolean }) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -80,8 +91,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { token } = await authRequest("/sign-up/email", { name, email, password });
         await accept(token);
       },
-      signOut: async () => {
+      signInWithToken: async (result) => {
+        if (!result) return;
+        const { token } = await socialSignInRequest(result.provider, result.idToken);
+        await accept(token);
+        if (result.authorizationCode) {
+          // Best effort: sign-in has already succeeded.
+          void api("/me/apple-authorization", {
+            method: "POST",
+            json: { code: result.authorizationCode },
+          }).catch(() => undefined);
+        }
+      },
+      signOut: async (opts) => {
         await signOutRequest();
+        await signOutOfGoogle({ revoke: opts?.accountDeleted });
         await drop();
       },
     };

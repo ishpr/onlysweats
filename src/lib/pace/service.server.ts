@@ -286,7 +286,10 @@ export async function ensureProfile(
   if (user.email && (await isBanned(sql, user.email))) {
     throw new PaceError(403, "This account can’t be used on SamePace.");
   }
-  const name = (user.name?.trim() || user.email?.split("@")[0] || "Member").slice(0, 80);
+  // Apple's "Hide My Email" addresses are random — never use one as a name.
+  const relay = user.email?.endsWith("@privaterelay.appleid.com");
+  const fromEmail = relay ? undefined : user.email?.split("@")[0];
+  const name = (user.name?.trim() || fromEmail || "Member").slice(0, 80);
   const base =
     name
       .toLowerCase()

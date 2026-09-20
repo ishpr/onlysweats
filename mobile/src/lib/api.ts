@@ -78,6 +78,31 @@ export async function authRequest(
   return { token: bearer, user: body.user };
 }
 
+export type AuthConfig = {
+  apple: boolean;
+  google: { webClientId: string; iosClientId: string | null } | null;
+  /** A development convenience — off in production once a provider is configured. */
+  password: boolean;
+};
+
+/** Which sign-in methods the server offers. The one endpoint that needs no session. */
+export const fetchAuthConfig = async () => parse<AuthConfig>(await send("/api/v1/auth-config"));
+
+/** Hand the server an identity token from Apple or Google; it verifies and signs us in. */
+export async function socialSignInRequest(
+  provider: "apple" | "google",
+  idToken: { token: string; nonce?: string; user?: unknown },
+): Promise<AuthResult> {
+  const res = await send("/api/auth/sign-in/social", {
+    method: "POST",
+    json: { provider, idToken },
+  });
+  const bearer = res.headers.get("set-auth-token");
+  const body = await parse<{ user: AuthResult["user"] }>(res);
+  if (!bearer) throw new ApiError(500, "Signed in, but no session came back.");
+  return { token: bearer, user: body.user };
+}
+
 export async function signOutRequest() {
   await send("/api/auth/sign-out", { method: "POST", json: {} }).catch(() => undefined);
 }

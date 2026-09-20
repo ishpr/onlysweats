@@ -18,6 +18,39 @@ The app finds the API at the same host Metro is served from, on port 8088, so
 simulators, emulators and phones on the LAN all work. Override with
 `EXPO_PUBLIC_API_URL`.
 
+## Sign-in
+
+Sign in with Apple and Google only — no passwords. The OS / Google SDK hands the
+app an identity token, the server verifies it (`/api/auth/sign-in/social`), and
+the session token goes in the keychain. `GET /api/v1/auth-config` tells the app
+which buttons to draw.
+
+Both need a **development build**, not Expo Go (Expo Go has neither native
+module, so the buttons hide themselves there):
+
+```bash
+npx eas build --profile development --platform ios
+```
+
+Then `npx expo start` opens the dev build; `npx expo start --go` still opens Expo Go.
+
+Set up on 2026-09-20 (all public identifiers — no secrets in this flow):
+
+| Where | What |
+| --- | --- |
+| Apple Developer (team `NZBE9W77FA`) | App ID `app.samepace`, *Sign in with Apple* enabled |
+| Google Cloud project `samepace-509220` | OAuth clients "SamePace server (web)" and "SamePace iOS" (bundle `app.samepace`) |
+| Vercel env | `APPLE_BUNDLE_ID`, `GOOGLE_WEB_CLIENT_ID`, `GOOGLE_IOS_CLIENT_ID` |
+| `eas.json` env | `GOOGLE_IOS_URL_SCHEME` (the iOS client id, reversed) |
+
+Still to do: an **Android** OAuth client (package `app.samepace` + the signing
+SHA-1 from the first EAS Android build), and moving the Google OAuth app from
+*Testing* to *In production* — until then only listed test users can sign in
+with Google.
+
+The email form is a development convenience: the server offers it outside
+production, and in production only until a provider is configured.
+
 ### Skipping sign-in in a simulator
 
 Put a session token in the gitignored `.env.local` and dev builds sign in with it:

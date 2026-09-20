@@ -17,16 +17,31 @@ The client never decides seats, check-in or fees.
 
 ## Auth
 
-Better Auth at `/api/auth/*`, email + password for now.
+Better Auth at `/api/auth/*`. Members sign in with **Apple or Google** — the app
+gets an identity token from the OS / Google's SDK and the server verifies its
+signature, issuer, audience and nonce:
 
 ```
-POST /api/auth/sign-up/email   { name, email, password }
-POST /api/auth/sign-in/email   { email, password }
+GET  /api/v1/auth-config        → { apple, google: { webClientId, iosClientId } | null, password }
+POST /api/auth/sign-in/social   { provider: "apple" | "google",
+                                  idToken: { token, nonce?, user?: { name: { firstName, lastName } } } }
 POST /api/auth/sign-out
 ```
 
-Both sign-up and sign-in answer with a `set-auth-token` response header. Store it
-in the device keychain and send it on every call:
+`auth-config` is the one endpoint that needs no session. Apple only shares a name
+on first authorization, so the app forwards it in `idToken.user`; `PATCH /me`
+covers the rest. The same verified email through either provider is one member.
+
+A provider is on when its public identifier is set on the server —
+`APPLE_BUNDLE_ID`, `GOOGLE_WEB_CLIENT_ID`, `GOOGLE_IOS_CLIENT_ID`. No client
+secret is involved in the identity-token flow.
+
+Email + password (`/api/auth/sign-up/email`, `/sign-in/email`) is a development
+convenience: available outside production, and in production only until a
+provider is configured. `AUTH_EMAIL_PASSWORD=on|off` overrides.
+
+Every sign-in answers with a `set-auth-token` response header. Store it in the
+device keychain and send it on every call:
 
 ```
 Authorization: Bearer <token>
@@ -60,6 +75,7 @@ The first authenticated API call creates the caller's profile.
 | GET/POST | `/bookings/:id/messages` | Booking-scoped chat. Opens on join, closes 24h after the session. |
 | POST | `/bookings/:id/rating` | Five booleans, once per side, after completion. `matchedListing` includes "level was as stated". |
 | DELETE | `/me` | Delete my account, now. See *Safety and account*. |
+| POST | `/me/apple-authorization` | `{ code }` — Apple's one-time authorization code, sent once after Sign in with Apple. The server trades it for a refresh token (stored encrypted) so `DELETE /me` can revoke the app's access, as the App Store requires. A no-op until `APPLE_TEAM_ID`, `APPLE_KEY_ID` and `APPLE_PRIVATE_KEY` are set. |
 | GET | `/blocks` | Members I blocked: `{ people }`. Being blocked is never visible. |
 | POST | `/blocks` | `{ memberId }`. Idempotent. |
 | DELETE | `/blocks/:id` | Unblock. |
@@ -166,9 +182,7 @@ occurrence only.
   the seat in discovery. Push notifications in general.
 - **Training blocks**, gym sessions matched on `gym_id`, `route_url` in the app.
 - **Verification** (phone, selfie liveness, ID for women-only) and fee disputes.
-- **Apple token revocation on delete.** Apple asks apps using Sign in with Apple
-  to revoke the user's token when the account is deleted; that needs a Sign in
-  with Apple key on the server.
+
 
 ## Local dev
 

@@ -25,7 +25,7 @@ export default function DeleteAccount() {
       {
         text: "Delete",
         style: "destructive",
-        onPress: () => remove.mutate(undefined, { onSuccess: () => void signOut() }),
+        onPress: () => remove.mutate(undefined, { onSuccess: () => void signOut({ accountDeleted: true }) }),
       },
     ]);
 

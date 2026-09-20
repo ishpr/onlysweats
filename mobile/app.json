@@ -11,8 +11,10 @@
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "app.samepace",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "SamePace checks that you are within 150 m of the meeting pin, only while the Live Session screen is open."
-      }
+        "NSLocationWhenInUseUsageDescription": "SamePace checks that you are within 150 m of the meeting pin, only while the Live Session screen is open.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -44,11 +46,19 @@
         {
           "locationWhenInUsePermission": "SamePace checks that you are within 150 m of the meeting pin, only while the Live Session screen is open."
         }
-      ]
+      ],
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "owner": "servesys-corporation",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2dbfcec9-77d6-4e78-8d3d-871c2ddcebc5"
+      }
     }
   }
 }
