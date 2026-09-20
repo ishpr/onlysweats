@@ -1,22 +1,39 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "ios": { "simulator": true }
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.281917036662-gkimr8co64pe6rqhhhjs1avdtcdp3efa"
+      }
     },
     "device": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.281917036662-gkimr8co64pe6rqhhhjs1avdtcdp3efa"
+      }
     },
     "preview": {
       "distribution": "internal",
-      "env": { "EXPO_PUBLIC_API_URL": "https://samepace.vercel.app" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://samepace.vercel.app",
+        "GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.281917036662-gkimr8co64pe6rqhhhjs1avdtcdp3efa"
+      }
     },
     "production": {
       "autoIncrement": true,
-      "env": { "EXPO_PUBLIC_API_URL": "https://samepace.vercel.app" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://samepace.vercel.app",
+        "GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.281917036662-gkimr8co64pe6rqhhhjs1avdtcdp3efa"
+      }
     }
   }
 }

@@ -34,14 +34,19 @@ npx eas build --profile development --platform ios
 
 Then `npx expo start` opens the dev build; `npx expo start --go` still opens Expo Go.
 
-What has to exist first (all public identifiers, no secrets):
+Set up on 2026-09-20 (all public identifiers — no secrets in this flow):
 
 | Where | What |
 | --- | --- |
-| Apple Developer | App ID `app.samepace` with the *Sign in with Apple* capability |
-| Google Cloud | OAuth client ids: one **Web application**, one **iOS** (bundle `app.samepace`), one **Android** (package `app.samepace` + the signing SHA-1) |
-| Server env | `APPLE_BUNDLE_ID`, `GOOGLE_WEB_CLIENT_ID`, `GOOGLE_IOS_CLIENT_ID` |
-| Build env | `GOOGLE_IOS_URL_SCHEME` = the iOS client id reversed (`com.googleusercontent.apps.…`) |
+| Apple Developer (team `NZBE9W77FA`) | App ID `app.samepace`, *Sign in with Apple* enabled |
+| Google Cloud project `samepace-509220` | OAuth clients "SamePace server (web)" and "SamePace iOS" (bundle `app.samepace`) |
+| Vercel env | `APPLE_BUNDLE_ID`, `GOOGLE_WEB_CLIENT_ID`, `GOOGLE_IOS_CLIENT_ID` |
+| `eas.json` env | `GOOGLE_IOS_URL_SCHEME` (the iOS client id, reversed) |
+
+Still to do: an **Android** OAuth client (package `app.samepace` + the signing
+SHA-1 from the first EAS Android build), and moving the Google OAuth app from
+*Testing* to *In production* — until then only listed test users can sign in
+with Google.
 
 The email form is a development convenience: the server offers it outside
 production, and in production only until a provider is configured.
