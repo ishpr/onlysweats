@@ -1,7 +1,7 @@
 /** Facts the public site states in more than one place. */
 export const SITE = {
   name: "SamePace",
-  url: "https://samepace.vercel.app",
+  url: "https://samepace.app",
   /** Where members reach a person. Shown on Support and in both policies. */
   supportEmail:
     (import.meta.env.VITE_SUPPORT_EMAIL as string | undefined) || "support@samepace.app",
