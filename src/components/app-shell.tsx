@@ -27,7 +27,7 @@ const NAV: {
   { to: "/you", label: "You", icon: UserRound, match: "/you" },
 ];
 
-const PUBLIC_PATHS = ["/", "/privacy", "/terms", "/support"];
+const PUBLIC_PATHS = ["/", "/privacy", "/terms", "/support", "/admin"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
