@@ -75,6 +75,7 @@ The first authenticated API call creates the caller's profile.
 | GET/POST | `/bookings/:id/messages` | Booking-scoped chat. Opens on join, closes 24h after the session. |
 | POST | `/bookings/:id/rating` | Five booleans, once per side, after completion. `matchedListing` includes "level was as stated". |
 | DELETE | `/me` | Delete my account, now. See *Safety and account*. |
+| POST | `/me/apple-authorization` | `{ code }` — Apple's one-time authorization code, sent once after Sign in with Apple. The server trades it for a refresh token (stored encrypted) so `DELETE /me` can revoke the app's access, as the App Store requires. A no-op until `APPLE_TEAM_ID`, `APPLE_KEY_ID` and `APPLE_PRIVATE_KEY` are set. |
 | GET | `/blocks` | Members I blocked: `{ people }`. Being blocked is never visible. |
 | POST | `/blocks` | `{ memberId }`. Idempotent. |
 | DELETE | `/blocks/:id` | Unblock. |
@@ -181,9 +182,7 @@ occurrence only.
   the seat in discovery. Push notifications in general.
 - **Training blocks**, gym sessions matched on `gym_id`, `route_url` in the app.
 - **Verification** (phone, selfie liveness, ID for women-only) and fee disputes.
-- **Apple token revocation on delete.** Apple asks apps using Sign in with Apple
-  to revoke the user's token when the account is deleted; that needs a Sign in
-  with Apple key on the server.
+
 
 ## Local dev
 

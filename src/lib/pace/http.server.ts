@@ -136,8 +136,17 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
     isAdmin: safety.isAdmin(user),
   })],
   ["DELETE", "/me", async ({ sql, userId }) => {
+    // Apple asks that deleting the account also revokes the app's access.
+    const { revokeAppleAccess } = await import("../auth/apple-revoke.server");
+    await revokeAppleAccess(sql, userId);
     await safety.deleteAccount(sql, userId);
     return { ok: true };
+  }],
+  // Sent once, right after Sign in with Apple, so that revocation is possible later.
+  ["POST", "/me/apple-authorization", async ({ sql, userId, body }) => {
+    const { storeAppleAuthorization } = await import("../auth/apple-revoke.server");
+    const { code } = z.object({ code: z.string().min(1).max(2000) }).parse(body);
+    return { stored: await storeAppleAuthorization(sql, userId, code) };
   }],
 
   ["GET", "/blocks", async ({ sql, userId }) => ({ people: await safety.listBlocks(sql, userId) })],
