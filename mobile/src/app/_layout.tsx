@@ -14,17 +14,20 @@ import {
 import { DarkTheme, DefaultTheme, type Href, Stack, ThemeProvider, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Appearance, AppState, Pressable, Text } from "react-native";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { ApiError } from "@/lib/api";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { AnimatedSplash } from "@/components/animated-splash";
 import { haptic } from "@/lib/haptics";
 import { onNotificationOpened, syncPush } from "@/lib/push";
 
 SplashScreen.preventAutoHideAsync();
+// No native cross-fade: the in-app mark is already exactly where the still one was.
+SplashScreen.setOptions({ fade: false });
 // Native chrome (keyboard, alerts, share sheet) follows the pinned dark scheme too.
 Appearance.setColorScheme("dark");
 
@@ -97,6 +100,10 @@ function Routes() {
     if (ready) void SplashScreen.hideAsync();
   }, [ready]);
 
+  // The native splash hands over to an identical mark that then animates.
+  const [splashDone, setSplashDone] = useState(false);
+  const endSplash = useCallback(() => setSplashDone(true), []);
+
   // Signed in: keep this device's push token fresh (never prompts), and open the
   // screen a tapped notification points at — including the tap that launched us.
   const router = useRouter();
@@ -108,6 +115,7 @@ function Routes() {
 
   // Keychain read / fonts in flight — the splash screen is still up.
   if (!ready || signedIn === null) return null;
+  const splash = splashDone ? null : <AnimatedSplash onDone={endSplash} />;
 
   const base = dark ? DarkTheme : DefaultTheme;
   return (
@@ -161,6 +169,7 @@ function Routes() {
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
+      {splash}
     </ThemeProvider>
   );
 }

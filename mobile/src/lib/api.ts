@@ -66,18 +66,6 @@ export async function api<T>(
 
 type AuthResult = { token: string; user: { id: string; name: string; email: string } };
 
-/** Better Auth email endpoints. The bearer token rides the `set-auth-token` header. */
-export async function authRequest(
-  path: "/sign-in/email" | "/sign-up/email",
-  json: { email: string; password: string; name?: string },
-): Promise<AuthResult> {
-  const res = await send(`/api/auth${path}`, { method: "POST", json });
-  const bearer = res.headers.get("set-auth-token");
-  const body = await parse<{ user: AuthResult["user"] }>(res);
-  if (!bearer) throw new ApiError(500, "Signed in, but no session came back.");
-  return { token: bearer, user: body.user };
-}
-
 export type AuthConfig = {
   apple: boolean;
   google: { webClientId: string; iosClientId: string | null } | null;

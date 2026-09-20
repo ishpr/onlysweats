@@ -48,8 +48,8 @@ SHA-1 from the first EAS Android build), and moving the Google OAuth app from
 *Testing* to *In production* — until then only listed test users can sign in
 with Google.
 
-The email form is a development convenience: the server offers it outside
-production, and in production only until a provider is configured.
+The app has no password form. The server still accepts passwords outside
+production, which is what the simulator token below relies on.
 
 ### Skipping sign-in in a simulator
 
@@ -87,6 +87,26 @@ and Expo Go can't get a token, and there the app simply reports "not available".
 iOS needs an APNs key (EAS creates it during the first device build); Android needs
 a Firebase project's `google-services.json` and its FCM v1 service-account key
 uploaded to EAS.
+
+## Widget, Live Activity, haptics, motion
+
+- **Widget** (`src/widgets/next-session.tsx`, iOS): my next session on the Home
+  Screen (small, medium) and Lock Screen. `src/lib/widgets.ts` writes a *timeline*
+  from `/bookings`, so it moves on to the following session — or "nothing booked" —
+  by itself. Tapping opens the session.
+- **Live Activity** (`src/widgets/live-session.tsx`): Lock Screen banner and
+  Dynamic Island while a seat is inside its check-in window — countdown, and who
+  has checked in. It starts and updates while the app is open; updating it from the
+  server with the app closed needs ActivityKit push tokens, which isn't built.
+- Both are `expo-widgets`: the `'widget'` functions run inside the extension and can
+  only see their props. They need a new native build, and the App Group
+  `group.app.samepace` (EAS registers it during a device build). Android home-screen
+  widgets aren't available through `expo-widgets` yet.
+- **Haptics** (`src/lib/haptics.ts`) are named by meaning; mutations declare
+  `meta: { haptic }` and the query client plays success / warning, and an error buzz
+  for any refusal. **Motion** lives in `src/components/motion.tsx` (press scale, list
+  entrance, skeletons, the check-in success mark) and
+  `src/components/animated-splash.tsx` (launch). All of it honours Reduce Motion.
 
 ## Not done
 

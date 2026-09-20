@@ -11,7 +11,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Post the workout you’re doing anyway. Someone at your level joins. SamePace makes sure you both show up.",
+          "Find a workout buddy at your level who actually shows up. Join a session near you or post the one you’re already doing — you both check in when you get there.",
       },
     ],
   }),
@@ -59,14 +59,14 @@ function Landing() {
     <SiteShell>
       <section className="py-8 md:py-14">
         <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-accent">
-          A workout buddy who shows up
+          Run · ride · lift · hike · walk
         </p>
         <h1 className="mt-3 text-balance text-[40px] font-semibold leading-[1.05] tracking-tight md:text-[56px]">
-          Post the workout you’re doing anyway.
+          A workout buddy at your level who shows up.
         </h1>
         <p className="mt-5 max-w-xl text-pretty text-lg leading-relaxed text-muted">
-          Someone at your level joins. {SITE.name} makes sure you both show up — and makes it one tap
-          to do it again next week.
+          Join a session near you, or post the one you’re already doing. You both check in when you
+          get there — so people turn up — and it’s one tap to do it again next week.
         </p>
         <p className="glass mt-8 inline-flex min-h-11 items-center rounded-full px-5 text-sm text-fg">
           In private testing for iPhone and Android · starting in {SITE.cluster}

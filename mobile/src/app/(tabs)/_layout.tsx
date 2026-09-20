@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { T, withAlpha } from "@/components/ui";
 import { Fonts, Radius, Spacing } from "@/constants/theme";
+import { useSurfaces } from "@/hooks/use-surfaces";
 import { useTheme } from "@/hooks/use-theme";
 import { haptic } from "@/lib/haptics";
 import { Suspended } from "@/components/suspended";
@@ -29,6 +30,7 @@ const TABS = {
 
 export default function TabsLayout() {
   const me = useMe().data;
+  useSurfaces();
   // A paused account can read why and delete itself. Nothing else loads.
   if (me?.suspended) return <Suspended reason={me.suspended.reason} />;
   return (

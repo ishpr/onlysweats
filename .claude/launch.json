@@ -2,9 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "onlysweats-dev",
-      "runtimeExecutable": "node",
+      "name": "samepace-dev",
+      "runtimeExecutable": "env",
       "runtimeArgs": [
+        "APPLE_BUNDLE_ID=app.samepace",
+        "GOOGLE_WEB_CLIENT_ID=281917036662-md6hs8jp6d69lkb5jq5594grse5i9cqn.apps.googleusercontent.com",
+        "GOOGLE_IOS_CLIENT_ID=281917036662-gkimr8co64pe6rqhhhjs1avdtcdp3efa.apps.googleusercontent.com",
+        "node",
         "scripts/with-app-env.mjs",
         "node_modules/.bin/vite",
         "dev",

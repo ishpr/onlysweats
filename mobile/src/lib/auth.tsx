@@ -13,13 +13,13 @@ import { Platform } from "react-native";
 
 import {
   api,
-  authRequest,
   setApiToken,
   setUnauthorizedHandler,
   signOutRequest,
   socialSignInRequest,
 } from "./api";
 import { unregisterPush } from "./push";
+import { clearWidgets } from "./widgets";
 import { signOutOfGoogle, type SocialResult } from "./social";
 
 const TOKEN_KEY = "pace.session-token";
@@ -36,8 +36,6 @@ const store = {
 type AuthState = {
   /** `null` while the keychain is still being read. */
   signedIn: boolean | null;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (name: string, email: string, password: string) => Promise<void>;
   /** Finish an Apple/Google sign-in. A `null` result (they backed out) is a no-op. */
   signInWithToken: (result: SocialResult) => Promise<void>;
   /** `accountDeleted` also withdraws the app's access to the Google account. */
@@ -51,6 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
 
   const drop = useCallback(async () => {
+    // Nothing about the last member stays on the Home Screen or Lock Screen.
+    clearWidgets();
     setApiToken(null);
     setSignedIn(false);
     queryClient.clear();
@@ -84,14 +84,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     return {
       signedIn,
-      signIn: async (email, password) => {
-        const { token } = await authRequest("/sign-in/email", { email, password });
-        await accept(token);
-      },
-      signUp: async (name, email, password) => {
-        const { token } = await authRequest("/sign-up/email", { name, email, password });
-        await accept(token);
-      },
       signInWithToken: async (result) => {
         if (!result) return;
         const { token } = await socialSignInRequest(result.provider, result.idToken);
