@@ -21,7 +21,7 @@ function Invite() {
       <div className="flex min-h-dvh flex-col items-center justify-center px-6 text-center">
         <p className="text-lg font-semibold">Invite expired</p>
         <Link to="/" className="mt-3 text-sm text-muted">
-          Open Pace
+          Open SamePace
         </Link>
       </div>
     );
@@ -49,7 +49,7 @@ function Invite() {
             toast.error(res.error);
             return;
           }
-          toast.success("Seat held. Pin unlocked.");
+          toast.success("You’re in. Pin unlocked.");
           void navigate({ to: "/inbox/$id", params: { id: res.bookingId } });
         }}
       >

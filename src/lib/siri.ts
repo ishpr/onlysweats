@@ -48,17 +48,6 @@ function findActivity(text: string): Session["activity"] | undefined {
   return undefined;
 }
 
-function parsePrice(text: string) {
-  const t = text.toLowerCase();
-  if (/\bfree\b|\$0|no charge/.test(t)) return 0;
-  const m = t.match(/\$\s?(\d{1,2})/) || t.match(/(\d{1,2})\s?(bucks|dollars)/);
-  if (!m) return undefined;
-  const n = Number(m[1]);
-  if (n >= 5 && n <= 40) return n * 100;
-  if (n === 0) return 0;
-  return undefined;
-}
-
 function parseSeats(text: string) {
   const t = text.toLowerCase();
   if (/two seats|2 seats|open two/.test(t)) return 3;
@@ -87,8 +76,6 @@ export function parsePostDraft(text: string): Record<string, string> | null {
   if (activity) params.activity = activity;
   const venue = findVenue(t);
   if (venue) params.venue = venue.id;
-  const price = parsePrice(t);
-  if (price !== undefined) params.price = String(price);
   const seats = parseSeats(t);
   if (seats) params.capacity = String(seats);
   for (const [name, dow] of Object.entries(DOW)) {
@@ -144,7 +131,7 @@ export function localSiri(text: string, ctx: SiriContext): SiriResult | null {
     const venue = draft.venue ? venueById(draft.venue) : undefined;
     const act = (draft.activity as Session["activity"] | undefined) ?? "run";
     return {
-      reply: `Drafted a ${ACTIVITIES[act].label.toLowerCase()}${venue ? ` at ${venue.name}` : ""}. You’re going anyway — open the seats and I’ll hold the rest.`,
+      reply: `Drafted a ${ACTIVITIES[act].label.toLowerCase()}${venue ? ` at ${venue.name}` : ""}. You’re going anyway — open the seats and I’ll fill in the rest.`,
       action: { type: "draft", params: draft },
     };
   }
@@ -181,9 +168,9 @@ export function localSiri(text: string, ctx: SiriContext): SiriResult | null {
     const host = people.find((p) => p.id === top.hostId);
     const v = venueById(top.venueId);
     return {
-      reply: `${host?.name.split(" ")[0] ?? "Host"} · ${formatWhen(top.startAt)} · ${v?.name ?? "trailhead"}. ${top.title} ${top.priceCents ? `Hold ${top.priceCents / 100} dollars.` : "Free seat."}`,
+      reply: `${host?.name.split(" ")[0] ?? "Someone"} · ${formatWhen(top.startAt)} · ${v?.name ?? "the meeting pin"}. ${top.title} ${top.joinMode === "instant" ? "Instant join." : "Ask to join."}`,
       action: { type: "navigate", to: `/sessions/${top.id}` },
-      chips: ["Check me in", "Post the run I’m doing anyway"],
+      chips: ["Check me in", "Post the workout I’m doing anyway"],
     };
   }
 
@@ -196,19 +183,19 @@ export function siriSystemPrompt(ctx: SiriContext) {
     .map((s) => {
       const host = people.find((p) => p.id === s.hostId)?.name ?? s.hostId;
       const v = venueById(s.venueId)?.name ?? s.venueId;
-      return `- ${s.id} | ${s.title} | ${host} | ${v} | ${s.startAt} | ${s.priceCents} cents | ${s.activity} | womenOnly=${s.womenOnly}`;
+      return `- ${s.id} | ${s.title} | ${host} | ${v} | ${s.startAt} | join=${s.joinMode} | ${s.activity} | womenOnly=${s.womenOnly}`;
     })
     .join("\n");
   const h = ctx.health;
-  return `You are Siri on Pace, a paid invitation marketplace for in-person workouts in Dallas (Oak Lawn / Uptown cluster). The user is ${people.find((p) => p.id === ME_ID)?.name}.
+  return `You are Siri on SamePace, a workout-buddy app for in-person sessions in Dallas (Oak Lawn / Uptown cluster). The user is ${people.find((p) => p.id === ME_ID)?.name}.
 
 Product rules:
 - Not dating. Never say tinder, swipe, match, spark, date, gym crush.
-- Preferred language: post the run, book a seat, hold the slot, show up, trailhead.
-- Hosts are accountability companions, not trainers. Never promise weight loss, a program, or coaching.
+- Preferred language: post the session, join, same time next week, show up, meeting pin. Any activity: run, ride, gym, hike, walk.
+- Nobody pays anybody for a session, and asking for payment is banned. Posters are accountability buddies, not trainers. Never promise weight loss, a program, or coaching.
 - Discovery is upcoming sessions, not faces.
 - Check-in: both devices within 150m of the pin, window start-20 to start+25. Fallback 4-digit code.
-- Cancel >12h full release; ≤12h capture 50%; participant no-show 100%; host no-show release + $10 credit.
+- Cancel >12h free; ≤12h $5 fee, waived if a substitute takes the seat; no-show either side $10 and a strike; the person who showed up gets $5 credit.
 
 Health (Apple Fitness, user opted in): connected=${h.connected} move=${h.moveKcal}/${h.moveGoal} exercise=${h.exerciseMin}/${h.exerciseGoal} stand=${h.standHours}/${h.standGoal} sleepMin=${h.sleepMin} hrv=${h.hrvMs} recovery=${h.recoveryPct}. Use this as personal context for which seat fits today. Do not prescribe training.
 
@@ -227,7 +214,7 @@ If they should open Health, mention [[health]].`;
 
 export const SIRI_CHIPS = [
   "What can I join this morning?",
-  "Post my Tuesday 6am Katy Trail run, two seats, $15",
+  "Post my Tuesday 6am Katy Trail run, two seats",
   "How’s my recovery?",
   "Check me in",
   "Women-only lake miles",

@@ -92,7 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className="press mt-4 flex min-h-12 items-center justify-center gap-2 rounded-full bg-fg text-bg text-[15px] font-medium"
         >
           <Plus className="size-4" />
-          Post a run
+          Post a session
         </Link>
       </aside>
 

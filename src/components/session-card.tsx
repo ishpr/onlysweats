@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router";
 import { Clock, MapPin, Users } from "lucide-react";
-import { formatUsd } from "@/lib/money";
 import { personById, venueById } from "@/lib/seed";
 import { seatsLeft } from "@/lib/store";
 import { When } from "@/components/when";
@@ -45,7 +44,6 @@ export function SessionCard({
             <Chip>{ACTIVITIES[session.activity].label}</Chip>
             {live && <Chip tone="move">Live</Chip>}
             {session.womenOnly && <Chip>Women-only</Chip>}
-            {session.priceCents === 0 && <Chip>Free seat</Chip>}
             {session.visibility === "unlisted" && <Chip>Unlisted</Chip>}
           </div>
           {host && <Avatar initials={host.initials} accent={host.accent} size="sm" />}
@@ -70,8 +68,8 @@ export function SessionCard({
               <Users className="size-3.5" />
               {left} {left === 1 ? "seat" : "seats"}
             </span>
-            <span className="font-medium tabular-nums text-fg">
-              {session.priceCents === 0 ? "Free" : formatUsd(session.priceCents)}
+            <span className="font-medium text-fg">
+              {session.joinMode === "instant" ? "Instant join" : "Ask to join"}
             </span>
           </div>
         </div>
