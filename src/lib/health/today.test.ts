@@ -155,7 +155,7 @@ describe("the day summary", () => {
     assert.equal(absent.snapshot.hrvMs, null);
     assert.equal(absent.snapshot.hrvRmssdMs, 24);
     assert.equal(readToday(absent.snapshot, absent.trends).status, "observed");
-    assert.deepEqual(readToday(absent.snapshot).lines, ["Recorded HRV (RMSSD): 24 ms."]);
+    assert.deepEqual(readToday(absent.snapshot).lines, ["HRV (RMSSD) 24 ms."]);
     assert.deepEqual(absent.trends.glucoseToday, []);
   });
 
@@ -281,12 +281,15 @@ describe("the day summary", () => {
     ]);
     assert.deepEqual(trends.glucoseToday, [{ minute: 480, value: 104, low: 104, high: 104 }]);
     const read = readToday(snapshot);
-    assert.equal(read.headline, "Your recorded activity");
     assert.equal(read.lines[0], "You ran 5.0 mi today — 50 min.");
-    assert.equal(
-      read.lines[1],
-      "Recorded resting heart rate: 63 bpm — above your earlier recorded average.",
-    );
+    assert.equal(read.lines[1], "Resting heart rate 63 bpm, above your usual 56.");
+    // Our read sits beside the recorded lines and says what tipped it.
+    assert.deepEqual(read.ourRead, {
+      effort: "easy",
+      headline: "You’ve done the work today",
+      because: "You’ve already trained for 50 min.",
+    });
+    assert.equal(read.headline, "You’ve done the work today");
   });
 });
 
@@ -305,52 +308,70 @@ describe("reading the day", () => {
     hrvRmssdSource: null,
     weekWorkouts: 0,
   };
-  it("describes short and long sleep as observations, without changing an effort or readiness score", () => {
+  it("keeps the recorded lines factual, and puts our read beside them with its reason", () => {
     const short = readToday({ ...blank, sleepMin: 5 * 60 + 20 });
     const long = readToday({ ...blank, sleepMin: 7 * 60 + 40 });
-    assert.equal(short.status, "observed");
-    assert.equal(long.status, "observed");
-    assert.equal(short.headline, long.headline);
     assert.deepEqual(short.lines, ["You slept 5 h 20 min."]);
     assert.deepEqual(long.lines, ["You slept 7 h 40 min."]);
-    assert.equal(
-      readToday({ ...blank, sleepMin: 6 * 60 + 30, sleepBaseMin: 8 * 60 }).lines[0],
-      "You slept 6 h 30 min — below your earlier recorded average.",
-    );
+    assert.deepEqual(short.ourRead, {
+      effort: "easy",
+      headline: "An easy day",
+      because: "You slept 5 h 20 min, a short night for you.",
+    });
+    assert.equal(long.ourRead?.effort, "ready");
+    assert.equal(long.headline, "A good day to go");
+    const belowUsual = readToday({ ...blank, sleepMin: 6 * 60 + 30, sleepBaseMin: 8 * 60 });
+    assert.equal(belowUsual.lines[0], "You slept 6 h 30 min, below your usual 8 h.");
+    assert.equal(belowUsual.ourRead?.effort, "easy");
+    // Training history alone is not enough to read a day from.
     assert.deepEqual(readToday({ ...blank, weekWorkouts: 2 }), {
       status: "observed",
-      headline: "Your recorded activity",
+      headline: "Your day so far",
       lines: ["2 workouts in the last 7 days."],
+      ourRead: null,
     });
   });
   it("keeps missing readings missing and distinguishes recorded zero from absence", () => {
     assert.equal(readToday(blank).status, "unknown");
+    assert.equal(readToday(blank).ourRead, null);
     assert.deepEqual(readToday({ ...blank, steps: 0 }), {
       status: "observed",
-      headline: "Your recorded activity",
+      headline: "Your day so far",
       lines: ["0 steps so far."],
+      ourRead: null,
     });
-    assert.deepEqual(readToday({ ...blank, restingHr: 70 }).lines, [
-      "Recorded resting heart rate: 70 bpm.",
-    ]);
-    assert.deepEqual(readToday({ ...blank, hrvMs: 20 }).lines, ["Recorded HRV (SDNN): 20 ms."]);
+    assert.deepEqual(readToday({ ...blank, restingHr: 70 }).lines, ["Resting heart rate 70 bpm."]);
+    assert.deepEqual(readToday({ ...blank, hrvMs: 20 }).lines, ["HRV 20 ms."]);
+    // One reading with nothing to compare it with is a steady day, not a verdict.
+    assert.equal(readToday({ ...blank, restingHr: 70 }).ourRead?.effort, "steady");
   });
-  it("states numerical heart comparisons without physiological conclusions or SDNN/RMSSD conflation", () => {
+  it("compares heart readings with the member's own usual, without conflating SDNN and RMSSD", () => {
     const read = readToday({ ...blank, restingHr: 70, restingHrBase: 55, hrvMs: 20, hrvBase: 60 });
     assert.equal(read.status, "observed");
     assert.deepEqual(read.lines, [
-      "Recorded resting heart rate: 70 bpm — above your earlier recorded average.",
-      "Recorded HRV (SDNN): 20 ms — below your earlier recorded average.",
+      "Resting heart rate 70 bpm, above your usual 55.",
+      "HRV 20 ms, below your usual 60.",
     ]);
+    assert.equal(read.ourRead?.because, "Your resting heart rate is up on your usual.");
     assert.deepEqual(readToday({ ...blank, restingHr: 55, restingHrBase: 55 }).lines, [
-      "Recorded resting heart rate: 55 bpm — equal to your earlier recorded average.",
+      "Resting heart rate 55 bpm, the same as your usual.",
     ]);
+    // RMSSD is only ever compared with RMSSD.
+    assert.equal(
+      readToday({ ...blank, hrvRmssdMs: 20, hrvRmssdBase: 30, hrvBase: 10 }).ourRead?.because,
+      "Your HRV is below your usual.",
+    );
+    assert.equal(
+      readToday({ ...blank, hrvMs: 60, hrvBase: 60, hrvRmssdMs: 20, hrvRmssdBase: 30 }).ourRead
+        ?.effort,
+      "steady",
+    );
   });
   it("labels RMSSD independently and tolerates an older server without additive fields", () => {
     const observed = readToday({ ...blank, hrvMs: 60, hrvRmssdMs: 24, hrvRmssdBase: 30 });
     assert.deepEqual(observed.lines, [
-      "Recorded HRV (SDNN): 60 ms.",
-      "Recorded HRV (RMSSD): 24 ms — below your earlier recorded average.",
+      "HRV (SDNN) 60 ms.",
+      "HRV (RMSSD) 24 ms, below your usual 30.",
     ]);
     assert.equal(observed.status, "observed");
     const legacy: Partial<DaySnapshot> = { ...blank };
@@ -370,21 +391,30 @@ describe("reading the day", () => {
     assert.equal(readToday(legacy as DaySnapshot, legacyTrends).status, "unknown");
   });
 
-  it("ranks sessions using entered matches and start time without taking health state", () => {
+  it("picks by entered level and time, and only leans gentle on a day we read as easy", () => {
     const sessions = [
       { id: "later-match", fitsMe: true, startAt: 3 },
       { id: "earlier-match", fitsMe: true, startAt: 2 },
       { id: "unknown", fitsMe: null, startAt: 1 },
       { id: "mismatch", fitsMe: false, startAt: 0 },
     ];
-    assert.deepEqual(pickForToday(sessions), {
+    assert.deepEqual(pickForToday(sessions), { id: "earlier-match", why: "At your level" });
+    assert.deepEqual(pickForToday(sessions, "ready"), {
       id: "earlier-match",
-      why: "Matches your entered level",
+      why: "At your level, and you’re fresh",
     });
-    assert.deepEqual(pickForToday([sessions[2], sessions[3]]), {
-      id: "unknown",
-      why: "Upcoming session",
+    assert.deepEqual(pickForToday([sessions[2], sessions[3]]), { id: "unknown", why: "Coming up" });
+    const walk = { id: "walk", fitsMe: null, startAt: 9, activity: "walk" };
+    assert.deepEqual(pickForToday([...sessions, walk], "easy"), {
+      id: "walk",
+      why: "Gentle enough for today",
     });
+    // With nothing gentle on offer, an easy day still gets the ordinary pick — never nothing.
+    assert.equal(pickForToday(sessions, "easy")?.id, "earlier-match");
+    assert.equal(
+      pickForToday([...sessions, { ...walk, fitsMe: false }], "easy")?.id,
+      "earlier-match",
+    );
     assert.equal(pickForToday([sessions[3]]), null);
     assert.equal(pickForToday([]), null);
   });
