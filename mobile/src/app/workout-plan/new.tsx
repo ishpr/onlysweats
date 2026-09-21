@@ -46,6 +46,7 @@ function NewWorkoutPlan({ member, session }: PrivateMemberProps) {
   });
   const [value, setValue] = useState(starting.value);
   const [version, setVersion] = useState(0);
+  const [reviewSuggested, setReviewSuggested] = useState(imported !== null);
   return (
     <Screen edges={["bottom"]}>
       <Stack.Screen options={{ title: "Create workout plan" }} />
@@ -70,6 +71,7 @@ function NewWorkoutPlan({ member, session }: PrivateMemberProps) {
         disabled={action.busy}
         onUse={(draft) => {
           setValue(planFields(planContentFromAIDraft(draft, Crypto.randomUUID)));
+          setReviewSuggested(true);
           setVersion((current) => current + 1);
         }}
       />
@@ -79,6 +81,7 @@ function NewWorkoutPlan({ member, session }: PrivateMemberProps) {
         value={value}
         onChange={setValue}
         busy={action.busy}
+        reviewSuggested={reviewSuggested}
         onSave={(content) =>
           void action.run(
             (signal) =>

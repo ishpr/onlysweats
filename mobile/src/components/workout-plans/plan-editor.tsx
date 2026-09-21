@@ -6,7 +6,17 @@ import { Spacing } from "@/constants/theme";
 import { ACTIVITIES } from "@/lib/types";
 import { emptySetFields, planContent, type PlanFields } from "@/lib/workout-plans/forms";
 import type { WorkoutPlanContent } from "../../../../shared/workout-plans";
+import { summarizeWorkoutPlan } from "../../../../shared/workout-plan-summary";
+import { PlanTimingSummary } from "./plan-timing-summary";
 import { SetFields } from "./set-fields";
+
+function currentSummary(value: PlanFields) {
+  try {
+    return summarizeWorkoutPlan(planContent(value));
+  } catch {
+    return null;
+  }
+}
 
 export function blankPlan(): PlanFields {
   return {
@@ -30,16 +40,19 @@ export function PlanEditor({
   busy,
   onSave,
   onCancel,
+  reviewSuggested = false,
 }: {
   value: PlanFields;
   onChange: (value: PlanFields) => void;
   busy: boolean;
   onSave: (plan: WorkoutPlanContent) => void;
   onCancel?: () => void;
+  reviewSuggested?: boolean;
 }) {
   const [active, setActive] = useState<string | null>(() => value.exercises[0]?.id ?? null);
   const [error, setError] = useState<string | null>(null);
   const totalSets = value.exercises.reduce((count, exercise) => count + exercise.sets.length, 0);
+  const summary = currentSummary(value);
   const changeExercise = (id: string, patch: Partial<PlanFields["exercises"][number]>) =>
     onChange({
       ...value,
@@ -225,6 +238,22 @@ export function PlanEditor({
         }}
       />
       {error && <Notice tone="danger">{error}</Notice>}
+      <Card>
+        <T variant="heading">Review your plan</T>
+        {summary ? (
+          <PlanTimingSummary summary={summary} />
+        ) : (
+          <T variant="caption" color="textSecondary">
+            Complete the plan fields with valid targets to see the set and timing summary. Missing
+            targets are not estimated.
+          </T>
+        )}
+        {reviewSuggested && (
+          <T variant="caption" color="textSecondary">
+            Check that every phase and time you asked for is included before saving this suggestion.
+          </T>
+        )}
+      </Card>
       <Button
         label="Save private workout plan"
         loading={busy}
