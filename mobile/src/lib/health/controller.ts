@@ -1,5 +1,8 @@
 import type {
-  HealthConnection, HealthDataType, HealthPage, HealthSyncInput,
+  HealthConnection,
+  HealthDataType,
+  HealthPage,
+  HealthSyncInput,
 } from "../../../../shared/health";
 
 export type HealthRequest = {
@@ -14,44 +17,65 @@ export type HealthTransport = {
 };
 export type HealthNativeReader = {
   isAvailable(): Promise<boolean>;
+  supportedTypes?(): Promise<HealthDataType[]>;
   requestAuthorization(types: HealthDataType[]): Promise<void>;
   readChanges(input: {
-    type: HealthDataType; anchor: string | null; sinceAt: string; limit: number;
+    type: HealthDataType;
+    anchor: string | null;
+    sinceAt: string;
+    limit: number;
+    zoneTypes?: ("heart_rate" | "cycling_power")[];
   }): Promise<HealthPage>;
 };
 export type HealthSyncState = {
   phase: "idle" | "loading" | "connecting" | "syncing" | "disconnecting" | "error";
   availability: "unknown" | "available" | "unavailable";
   connection: HealthConnection | null;
+  supportedTypes: HealthDataType[] | null;
   /** HealthKit conceals read permission. This only means its prompt completed. */
   promptCompleted: boolean;
   hasMore: boolean;
   error: string | null;
 };
 const initialState = (): HealthSyncState => ({
-  phase: "idle", availability: "unknown", connection: null,
-  promptCompleted: false, hasMore: false, error: null,
+  phase: "idle",
+  availability: "unknown",
+  connection: null,
+  supportedTypes: null,
+  promptCompleted: false,
+  hasMore: false,
+  error: null,
 });
 class Cancelled extends Error {}
 class SyncFailure extends Error {}
 function status(error: unknown): number | undefined {
-  return typeof error === "object" && error !== null && "status" in error &&
-    typeof error.status === "number" ? error.status : undefined;
+  return typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof error.status === "number"
+    ? error.status
+    : undefined;
 }
 function errorMessage(error: unknown): string {
   if (error instanceof SyncFailure) return error.message;
   switch (status(error)) {
-    case 0: return "Can’t reach SamePace. Your next sync will resume from the last saved page.";
-    case 401: return "Sign in again to manage your Apple Health connection.";
-    case 404: return "Apple Health sync isn’t available for this account yet.";
-    case 409: return "Your connection changed. Refresh its status before trying again.";
-    case 429: return "Too many sync requests. Try again shortly.";
-    default: return "Couldn’t complete Apple Health sync. Try again.";
+    case 0:
+      return "Can’t reach SamePace. Your next sync will resume from the last saved page.";
+    case 401:
+      return "Sign in again to manage your Apple Health connection.";
+    case 404:
+      return "Apple Health sync isn’t available for this account yet.";
+    case 409:
+      return "Your connection changed. Refresh its status before trying again.";
+    case 429:
+      return "Too many sync requests. Try again shortly.";
+    default:
+      return "Couldn’t complete Apple Health sync. Try again.";
   }
 }
 
 /**
- * Headless, foreground-only sync. Mounting or refreshing never requests permission,
+ * Headless sync bound to a captured login. Mounting or refreshing never requests permission,
  * creates a connection, or imports records. Only an explicit connect action opts
  * into storing the selected HealthKit records in the member's private account.
  * Cursors live on the server; no health records or anchors are stored locally.
@@ -78,26 +102,38 @@ export function createHealthSyncController(deps: {
     for (const listener of listeners) listener();
   };
   const current = (version: number) => !disposed && version === epoch && deps.transport.isCurrent();
-  const check = (version: number) => { if (!current(version)) throw new Cancelled(); };
+  const check = (version: number) => {
+    if (!current(version)) throw new Cancelled();
+  };
 
-  function start(kind: Kind, task: (job: Job) => Promise<void>, abortPrevious = true): Promise<void> {
+  function start(
+    kind: Kind,
+    task: (job: Job) => Promise<void>,
+    abortPrevious = true,
+  ): Promise<void> {
     if (disposed || !deps.ownerId || !deps.transport.isCurrent()) return Promise.resolve();
     if (abortPrevious) pending?.abort.abort();
     const job: Job = {
-      kind, epoch: ++epoch, abort: new AbortController(), promise: Promise.resolve(),
+      kind,
+      epoch: ++epoch,
+      abort: new AbortController(),
+      promise: Promise.resolve(),
     };
-    job.promise = Promise.resolve().then(async () => {
-      check(job.epoch);
-      await task(job);
-      check(job.epoch);
-      update({ phase: "idle" });
-    }).catch((error: unknown) => {
-      if (current(job.epoch) && !(error instanceof Cancelled)) {
-        update({ phase: "error", error: errorMessage(error) });
-      }
-    }).finally(() => {
-      if (pending === job) pending = null;
-    });
+    job.promise = Promise.resolve()
+      .then(async () => {
+        check(job.epoch);
+        await task(job);
+        check(job.epoch);
+        update({ phase: "idle" });
+      })
+      .catch((error: unknown) => {
+        if (current(job.epoch) && !(error instanceof Cancelled)) {
+          update({ phase: "error", error: errorMessage(error) });
+        }
+      })
+      .finally(() => {
+        if (pending === job) pending = null;
+      });
     pending = job;
     update({ phase: kind, error: null });
     return job.promise;
@@ -114,10 +150,15 @@ export function createHealthSyncController(deps: {
   async function available(job: Job): Promise<boolean> {
     const value = await checked(job, deps.native.isAvailable());
     update({ availability: value ? "available" : "unavailable" });
+    if (value && deps.native.supportedTypes)
+      update({ supportedTypes: await checked(job, deps.native.supportedTypes()) });
     return value;
   }
   async function fetchConnection(job: Job): Promise<HealthConnection | null> {
-    const result = await request<{ connection: HealthConnection | null }>(job, "/health/connection");
+    const result = await request<{ connection: HealthConnection | null }>(
+      job,
+      "/health/connection",
+    );
     update({ connection: result.connection });
     return result.connection;
   }
@@ -125,7 +166,9 @@ export function createHealthSyncController(deps: {
     getSnapshot: () => state,
     subscribe(listener: () => void) {
       listeners.add(listener);
-      return () => { listeners.delete(listener); };
+      return () => {
+        listeners.delete(listener);
+      };
     },
     refresh(): Promise<void> {
       if (pending) return pending.promise;
@@ -134,16 +177,25 @@ export function createHealthSyncController(deps: {
         await fetchConnection(job);
       });
     },
-    connect(types: HealthDataType[]): Promise<void> {
+    connect(types: HealthDataType[], automaticSync = false): Promise<void> {
       const selected = [...new Set(types)];
       if (pending?.kind === "connecting") return pending.promise;
       if (pending?.kind === "disconnecting") {
-        return pending.promise.then(() => controller.connect(selected));
+        return pending.promise.then(() => controller.connect(selected, automaticSync));
       }
       return start("connecting", async (job) => {
-        if (!selected.includes("workout")) throw new SyncFailure("Include workouts when choosing data to sync.");
-        if (!await available(job)) {
+        if (!selected.includes("workout"))
+          throw new SyncFailure("Include workouts when choosing data to sync.");
+        if (!(await available(job))) {
           throw new SyncFailure("Apple Health requires an iPhone build with HealthKit enabled.");
+        }
+        if (
+          state.supportedTypes &&
+          selected.some((type) => !state.supportedTypes!.includes(type))
+        ) {
+          throw new SyncFailure(
+            "A selected reading needs a newer iOS version. Update your choices.",
+          );
         }
         // Check rollout/session availability before showing a system permission prompt.
         await fetchConnection(job);
@@ -151,22 +203,28 @@ export function createHealthSyncController(deps: {
         await checked(job, deps.native.requestAuthorization(selected));
         update({ promptCompleted: true });
         const result = await request<{ connection: HealthConnection }>(job, "/health/connection", {
-          method: "POST", json: { deviceId, types: selected },
+          method: "POST",
+          json: { deviceId, types: selected, automaticSync },
         });
         update({ connection: result.connection, hasMore: false });
       });
     },
-    sync(): Promise<void> {
+    sync(automaticOnly = false): Promise<void> {
       if (pending) return pending.promise;
       return start("syncing", async (job) => {
         let connection = await fetchConnection(job);
-        if (!connection) { update({ hasMore: false }); return; }
-        if (!await available(job)) {
+        if (!connection || (automaticOnly && !connection.automaticSync)) {
+          update({ hasMore: false });
+          return;
+        }
+        if (!(await available(job))) {
           throw new SyncFailure("Apple Health requires an iPhone build with HealthKit enabled.");
         }
         const deviceId = await checked(job, deps.getDeviceId());
         if (connection.deviceId !== deviceId) {
-          throw new SyncFailure("This connection belongs to another iPhone. Reconnect to sync from this device.");
+          throw new SyncFailure(
+            "This connection belongs to another iPhone. Reconnect to sync from this device.",
+          );
         }
         const generation = connection.generation;
         const queue = [...connection.types];
@@ -177,19 +235,39 @@ export function createHealthSyncController(deps: {
           check(job.epoch);
           const type = queue.shift()!;
           const cursor = connection.cursors[type] ?? { sequence: 0, anchor: null };
-          const page = await checked(job, deps.native.readChanges({
-            type, anchor: cursor.anchor, sinceAt: connection.sinceAt, limit: 200,
-          }));
+          const page = await checked(
+            job,
+            deps.native.readChanges({
+              type,
+              anchor: cursor.anchor,
+              sinceAt: connection.sinceAt,
+              limit: 200,
+              zoneTypes: connection.types.filter(
+                (value): value is "heart_rate" | "cycling_power" =>
+                  value === "heart_rate" || value === "cycling_power",
+              ),
+            }),
+          );
           // The native page remains transient until the server acknowledges it.
           const input: HealthSyncInput = {
-            ...page, type, deviceId, generation, expectedSequence: cursor.sequence,
+            ...page,
+            type,
+            deviceId,
+            generation,
+            expectedSequence: cursor.sequence,
           };
           try {
             const result = await request<{ connection: HealthConnection }>(job, "/health/sync", {
-              method: "POST", json: input,
+              method: "POST",
+              json: input,
             });
-            if (result.connection.generation !== generation || result.connection.deviceId !== deviceId) {
-              throw new SyncFailure("Your connection changed. Refresh its status before trying again.");
+            if (
+              result.connection.generation !== generation ||
+              result.connection.deviceId !== deviceId
+            ) {
+              throw new SyncFailure(
+                "Your connection changed. Refresh its status before trying again.",
+              );
             }
             connection = result.connection;
             update({ connection });
@@ -200,8 +278,14 @@ export function createHealthSyncController(deps: {
             if (status(error) !== 409 || conflicts >= maxConflicts) throw error;
             conflicts += 1;
             const fresh = await fetchConnection(job);
+            if (automaticOnly && !fresh?.automaticSync) {
+              update({ hasMore: false });
+              return;
+            }
             if (!fresh || fresh.generation !== generation || fresh.deviceId !== deviceId) {
-              throw new SyncFailure("Your connection changed. Refresh its status before trying again.");
+              throw new SyncFailure(
+                "Your connection changed. Refresh its status before trying again.",
+              );
             }
             connection = fresh;
             queue.unshift(type);
@@ -210,17 +294,32 @@ export function createHealthSyncController(deps: {
         update({ hasMore: queue.length > 0 });
       });
     },
+    /** Explicit saved opt-in only; never creates a connection or requests access. */
+    async resumeAutomatic(): Promise<void> {
+      await controller.refresh();
+      if (
+        state.phase === "error" ||
+        !state.connection?.automaticSync ||
+        !deps.transport.isCurrent()
+      )
+        return;
+      await controller.sync(true);
+    },
     disconnect(): Promise<void> {
       if (pending?.kind === "disconnecting") return pending.promise;
       const previous = pending;
       // Supersede immediately so a pending native read cannot upload another page.
       // Let a connect request settle before DELETE: it must not recreate a connection
       // after the deletion. Sync writes are additionally protected by server generation.
-      return start("disconnecting", async (job) => {
-        if (previous) await checked(job, previous.promise);
-        await request<{ ok: true }>(job, "/health/connection", { method: "DELETE" });
-        update({ connection: null, promptCompleted: false, hasMore: false });
-      }, previous?.kind !== "connecting");
+      return start(
+        "disconnecting",
+        async (job) => {
+          if (previous) await checked(job, previous.promise);
+          await request<{ ok: true }>(job, "/health/connection", { method: "DELETE" });
+          update({ connection: null, promptCompleted: false, hasMore: false });
+        },
+        previous?.kind !== "connecting",
+      );
     },
     /** Cancel a mount's work; reusable after React Strict Mode effect cleanup. */
     cancel() {

@@ -12,8 +12,16 @@ module.exports = ({ config }) => {
     ...config,
     plugins: [
       ...(config.plugins ?? []),
+      ["expo-build-properties", { ios: { enableSceneSupport: true } }],
       "./plugins/with-healthkit",
+      "./plugins/with-intelligence",
+      "./plugins/with-watch",
       "expo-sharing",
+      ["expo-image-picker", {
+        photosPermission: "Choose a workout plan photo to turn into a private, editable draft on this iPhone.",
+        cameraPermission: "Photograph a workout plan to review its exercises before saving a log.",
+        microphonePermission: false,
+      }],
       ...(iosUrlScheme ? [["@react-native-google-signin/google-signin", { iosUrlScheme }]] : []),
     ],
   };

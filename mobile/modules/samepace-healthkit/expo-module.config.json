@@ -1,6 +1,13 @@
 {
-  "platforms": ["apple"],
+  "platforms": [
+    "apple"
+  ],
   "apple": {
-    "modules": ["SamePaceHealthKitModule"]
+    "modules": [
+      "SamePaceHealthKitModule"
+    ],
+    "appDelegateSubscribers": [
+      "HealthAppDelegateSubscriber"
+    ]
   }
 }

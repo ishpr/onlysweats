@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
+import { WorkoutLocalRecap } from "@/components/workout-local-recap";
 import { Button, Card, Chip, Field, Notice, Screen, StateView, T } from "@/components/ui";
 import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
@@ -62,6 +63,20 @@ function Workout({ member, session }: PrivateMemberProps) {
       {query.data && !query.error && (
         <>
           <WorkoutFacts workout={query.data.workout} correction={correction.data?.correction} />
+          <WorkoutLocalRecap
+            key={JSON.stringify([query.data.workout, correction.data?.correction ?? null])}
+            session={session}
+            summary={{
+              activity: query.data.workout.record.activity,
+              durationSeconds: query.data.workout.record.durationSeconds,
+              distanceMeters: query.data.workout.record.distanceMeters,
+              averageHeartRateBpm: query.data.workout.heartRate.sampleMeanBpm,
+              activeEnergyKcal: query.data.workout.record.activeEnergyKilocalories,
+              memberNote: correction.error
+                ? undefined
+                : (correction.data?.correction?.note ?? undefined),
+            }}
+          />
           {(correction.isPending || correction.error) && (
             <StateView
               loading={correction.isPending}
@@ -139,6 +154,35 @@ function WorkoutFacts({
         {workout.heartRate.sampleCount} readings from the workout’s recording source. The average is
         calculated across samples, not over time. This is recorded history, not a live pulse.
       </T>
+      {workout.record.zones?.map((group) => (
+        <View key={group.metric} style={{ gap: 4 }}>
+          <T variant="label">
+            {group.metric === "heart_rate" ? "Heart-rate" : "Cycling-power"} zones
+          </T>
+          <T variant="caption" color="textSecondary">
+            Recorded thresholds ·{" "}
+            {group.source === "system"
+              ? "Apple Health system"
+              : group.source === "user"
+                ? "Your Health settings"
+                : "Recording app"}
+          </T>
+          {group.zones.map((zone) => (
+            <T key={zone.index}>
+              Zone {zone.index + 1}: {zone.minimum ?? "below"}–{zone.maximum ?? "and above"}{" "}
+              {group.unit} ·{" "}
+              {zone.durationSeconds === null
+                ? "duration unavailable"
+                : `${(zone.durationSeconds / 60).toFixed(1)} min`}
+            </T>
+          ))}
+        </View>
+      ))}
+      {!workout.record.zones?.length && (
+        <T variant="caption" color="textSecondary">
+          Source-reported workout zones unavailable. We do not estimate missing zones.
+        </T>
+      )}
       {correction && (
         <>
           <T variant="label">Your correction</T>

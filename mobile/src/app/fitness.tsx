@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { View } from "react-native";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FitnessPilotPermissions, FitnessPilotResult } from "@/components/fitness-pilot";
 import type {
@@ -10,6 +10,7 @@ import type {
 } from "../../../shared/fitness-outcomes";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
 import { Button, Card, Chip, Field, Notice, Row, Screen, StateView, T } from "@/components/ui";
+import { takeFitnessDraft, type FitnessDraftHandoff } from "@/lib/assistant/draft-handoff";
 import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
 import { useRefreshOnFocus } from "@/lib/queries";
@@ -33,6 +34,10 @@ export default function FitnessRoute() {
 
 function Fitness({ member, session }: PrivateMemberProps) {
   useRefreshOnFocus();
+  const params = useLocalSearchParams<{ draftId?: string }>();
+  const [importedDraft] = useState(() =>
+    typeof params.draftId === "string" ? takeFitnessDraft(params.draftId, member.id) : null,
+  );
   const router = useRouter();
   const client = useQueryClient();
   const action = usePrivateAction(session);
@@ -85,6 +90,12 @@ function Fitness({ member, session }: PrivateMemberProps) {
         Log the exercise and sets you completed. Your entries stay private and separate from Apple
         Health measurements.
       </T>
+      {params.draftId && !importedDraft && (
+        <Notice>
+          This local draft is no longer available. Enter your workout below, or return to the
+          assistant to prepare it again.
+        </Notice>
+      )}
       <Button label="Apple Health workouts" variant="soft" onPress={() => router.push("/health")} />
       <Card>
         <T variant="heading">Optional AI assistance</T>
@@ -98,14 +109,10 @@ function Fitness({ member, session }: PrivateMemberProps) {
         {consent.data && (
           <>
             <T variant="label">
-              {consent.data.consent.enabled
-                ? "AI assistance is on"
-                : "AI assistance is off"}
+              {consent.data.consent.enabled ? "AI assistance is on" : "AI assistance is off"}
             </T>
             {!consent.data.consent.providerAvailable && (
-              <Notice>
-                AI assistance isn’t available yet. Logging by hand works without it.
-              </Notice>
+              <Notice>AI assistance isn’t available yet. Logging by hand works without it.</Notice>
             )}
             <Button
               label={showAiPermissions ? "Hide AI permissions" : "Review AI permissions"}
@@ -162,6 +169,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
         consent={consent.error ? undefined : consent.data?.consent}
         pilotConsent={pilot.error ? undefined : pilot.data?.consent}
         initial={editing}
+        importedDraft={!editing && formVersion === 0 ? importedDraft : null}
         disabled={action.busy}
         onSaved={saved}
         onCancel={() => {
@@ -303,6 +311,7 @@ function LogEditor({
   consent,
   pilotConsent,
   initial,
+  importedDraft,
   disabled,
   onSaved,
   onCancel,
@@ -311,21 +320,34 @@ function LogEditor({
   consent?: FitnessConsent;
   pilotConsent?: FitnessPilotConsent;
   initial: StrengthLog | null;
+  importedDraft?: FitnessDraftHandoff | null;
   disabled: boolean;
   onSaved: (measurementId?: string) => Promise<void>;
   onCancel: () => void;
 }) {
   const action = usePrivateAction(session);
-  const [exerciseId, setExercise] = useState<ExerciseId | null>(initial?.exerciseId ?? null);
-  const [startedAt, setStartedAt] = useState(() => localDateTime(initial?.startedAt));
-  const [note, setNote] = useState(initial?.note ?? "");
+  const [exerciseId, setExercise] = useState<ExerciseId | null>(
+    initial?.exerciseId ?? (importedDraft ? draftExerciseId(importedDraft.exerciseName) : null),
+  );
+  const [startedAt, setStartedAt] = useState(() =>
+    importedDraft ? "" : localDateTime(initial?.startedAt),
+  );
+  const [note, setNote] = useState(initial?.note ?? importedDraft?.note ?? "");
+  const [completionConfirmed, setCompletionConfirmed] = useState(!importedDraft);
   const [sets, setSets] = useState<SetFields[]>(
     () =>
       initial?.sets.map((set) => ({
         reps: String(set.reps),
         weight: set.weight === null ? "" : String(set.weight),
         unit: set.unit,
-      })) ?? [emptySet()],
+      })) ??
+      (importedDraft
+        ? Array.from({ length: importedDraft.sets ?? 0 }, () => ({
+            reps: importedDraft.reps === null ? "" : String(importedDraft.reps),
+            weight: importedDraft.weight === null ? "" : String(importedDraft.weight),
+            unit: importedDraft.unit,
+          }))
+        : [emptySet()]),
   );
   const [measurement, setMeasurement] = useState<{
     session: FitnessLoggingSession;
@@ -344,6 +366,8 @@ function LogEditor({
   const save = () =>
     action.run(
       async (signal) => {
+        if (!completionConfirmed)
+          throw new Error("Confirm that you completed these sets before saving.");
         if (!exerciseId) throw new Error("Choose the exercise you completed.");
         if (exerciseId === "other" && !note.trim())
           throw new Error("Describe the exercise in your note.");
@@ -395,6 +419,24 @@ function LogEditor({
   return (
     <Card>
       <T variant="heading">{initial ? "Edit your exercise" : "Log an exercise"}</T>
+      {importedDraft && (
+        <>
+          <Notice>
+            {importedDraft.intent === "planned"
+              ? "Imported from a workout plan."
+              : importedDraft.intent === "completed"
+                ? "Imported from a description of completed activity."
+                : "The source did not establish whether this workout was completed."}{" "}
+            Review the draft, enter when you trained and confirm only sets you actually completed.
+          </Notice>
+          <Chip
+            label="I completed these sets"
+            selected={completionConfirmed}
+            disabled={busy}
+            onPress={() => setCompletionConfirmed((value) => !value)}
+          />
+        </>
+      )}
       {pilotConsent?.enabled && !initial && (
         <>
           <T variant="caption" color="textSecondary">
@@ -572,7 +614,7 @@ function LogEditor({
       {action.error && <Notice tone="danger">{action.error}</Notice>}
       <Button
         label={initial ? "Save changes" : "Save exercise"}
-        disabled={busy}
+        disabled={busy || !completionConfirmed}
         loading={action.busy}
         onPress={() => void save()}
       />
@@ -583,5 +625,16 @@ function LogEditor({
         onPress={onCancel}
       />
     </Card>
+  );
+}
+
+function draftExerciseId(name: string): ExerciseId | null {
+  const normalized = name.trim().toLowerCase().replace(/[-_]/g, " ").replace(/\s+/g, " ");
+  return (
+    EXERCISE_CATALOGUE.find(
+      (item) =>
+        item.id.replace(/_/g, " ") === normalized ||
+        item.name.toLowerCase().replace(/-/g, " ") === normalized,
+    )?.id ?? null
   );
 }

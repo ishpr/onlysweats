@@ -17,6 +17,34 @@ struct HealthKitReaderChecks {
     precondition(hrvRecord["unit"] as? String == "ms")
     precondition(hrvRecord["externalId"] as? String == hrv.uuid.uuidString.lowercased())
 
+#if compiler(>=6.4) && !SAMEPACE_HEALTH_LEGACY_SDK
+    if #available(iOS 27.0, *) {
+      let rmssd = HKQuantitySample(type: .quantityType(forIdentifier: .heartRateVariabilityRMSSD)!,
+        quantity: HKQuantity(unit: .second(), doubleValue: 0.035), start: start, end: start)
+      let record = try HealthKitReader.serialize(rmssd, type: "heart_rate_variability_rmssd")
+      precondition(record["value"] as? Double == 35)
+      precondition(record["type"] as? String == "heart_rate_variability_rmssd")
+      let config = try HKWorkoutZoneConfiguration(quantityType: .quantityType(forIdentifier: .heartRate)!,
+        zoneBoundaries: [120.0, 140.0, 160.0, 180.0].map { HKQuantity(unit: .count().unitDivided(by: .minute()), doubleValue: $0) })
+      precondition(config.zones.count == 5)
+      precondition(config.zones[0].minimum == nil)
+      precondition(config.zones[4].maximum == nil)
+      precondition(config.source == .app)
+      let zoneRecord = try HealthKitReader.serializeZoneConfiguration(config, metric: "heart_rate", durations: [0: 0, 1: 120])
+      let zones = zoneRecord["zones"] as! [[String: Any]]
+      precondition(zoneRecord["source"] as? String == "app")
+      precondition(zoneRecord["unit"] as? String == "bpm")
+      precondition(zones[0]["minimum"] is NSNull)
+      precondition(zones[0]["maximum"] as? Double == 120)
+      precondition(zones[0]["durationSeconds"] as? Double == 0)
+      precondition(zones[1]["minimum"] as? Double == 120)
+      precondition(zones[1]["durationSeconds"] as? Double == 120)
+      precondition(zones[2]["durationSeconds"] is NSNull)
+      precondition(zones[4]["maximum"] is NSNull)
+      precondition(JSONSerialization.isValidJSONObject(zoneRecord))
+    }
+
+#endif
     let heartRate = HKQuantitySample(
       type: .quantityType(forIdentifier: .heartRate)!,
       quantity: HKQuantity(unit: .count().unitDivided(by: .second()), doubleValue: 2),

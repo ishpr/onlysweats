@@ -39,6 +39,8 @@ async function handle({ request }: { request: Request }) {
   const billing = await sweepBilling(sql);
   const { pruneOperations } = await import("@/lib/operations/service.server");
   await pruneOperations(sql);
+  const { pruneConversations } = await import("@/lib/conversation/service.server");
+  await pruneConversations(sql);
   return Response.json({
     ok: true,
     settled,

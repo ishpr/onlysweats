@@ -1,7 +1,15 @@
 /** Wire types for private Apple Health import. No native or server dependencies. */
 export type HealthDataType =
-  | "workout" | "heart_rate" | "resting_heart_rate" | "heart_rate_variability"
-  | "sleep" | "steps" | "distance" | "active_energy";
+  | "workout"
+  | "heart_rate"
+  | "resting_heart_rate"
+  | "heart_rate_variability"
+  | "heart_rate_variability_rmssd"
+  | "cycling_power"
+  | "sleep"
+  | "steps"
+  | "distance"
+  | "active_energy";
 
 export type HealthSource = { bundleId: string; name: string };
 export type HealthRecordBase = {
@@ -10,6 +18,19 @@ export type HealthRecordBase = {
   startAt: string;
   endAt: string;
 };
+/** Thresholds and time reported by HealthKit, never age-derived or inferred. */
+export type WorkoutZoneGroup = {
+  metric: "heart_rate" | "cycling_power";
+  unit: "bpm" | "W";
+  source: "system" | "user" | "app";
+  zones: {
+    index: number;
+    minimum: number | null;
+    maximum: number | null;
+    /** null means no source duration, distinct from a measured zero. */
+    durationSeconds: number | null;
+  }[];
+};
 export type WorkoutRecord = HealthRecordBase & {
   type: "workout";
   activity: "run" | "walk" | "ride" | "hike" | "strength" | "mobility" | "other";
@@ -17,14 +38,18 @@ export type WorkoutRecord = HealthRecordBase & {
   durationSeconds: number;
   distanceMeters: number | null;
   activeEnergyKilocalories: number | null;
+  /** Absent on older OS/imports; only consented metrics are included. */
+  zones?: WorkoutZoneGroup[];
 };
-export type QuantityRecord = HealthRecordBase & (
-  | { type: "heart_rate" | "resting_heart_rate"; value: number; unit: "bpm" }
-  | { type: "heart_rate_variability"; value: number; unit: "ms" }
-  | { type: "steps"; value: number; unit: "count" }
-  | { type: "distance"; value: number; unit: "m" }
-  | { type: "active_energy"; value: number; unit: "kcal" }
-);
+export type QuantityRecord = HealthRecordBase &
+  (
+    | { type: "heart_rate" | "resting_heart_rate"; value: number; unit: "bpm" }
+    | { type: "heart_rate_variability" | "heart_rate_variability_rmssd"; value: number; unit: "ms" }
+    | { type: "cycling_power"; value: number; unit: "W" }
+    | { type: "steps"; value: number; unit: "count" }
+    | { type: "distance"; value: number; unit: "m" }
+    | { type: "active_energy"; value: number; unit: "kcal" }
+  );
 export type SleepRecord = HealthRecordBase & {
   type: "sleep";
   stage: "in_bed" | "asleep_unspecified" | "awake" | "core" | "deep" | "rem";
@@ -38,6 +63,8 @@ export type HealthConnection = {
   /** Fixed initial lookback boundary, retained for every anchored query. */
   sinceAt: string;
   connectedAt: string;
+  /** Separate opt-in; false for connections created before automatic sync. */
+  automaticSync?: boolean;
   lastSyncedAt: string | null;
   cursors: Partial<Record<HealthDataType, HealthCursor>>;
 };

@@ -13,6 +13,8 @@ import { Platform } from "react-native";
 import { formatWhen } from "./format";
 import { firstName } from "./names";
 import { setBadge } from "./push";
+import { setNextSessionShortcut } from "./intelligence";
+import { workoutSurface, type WorkoutSurfaceSnapshot } from "./intelligence/workout-surface";
 import type { Booking, Person, Session, Venue } from "./types";
 import type { LiveSessionProps } from "@/widgets/live-session";
 import type { NextSessionProps } from "@/widgets/next-session";
@@ -20,6 +22,7 @@ import type { NextSessionProps } from "@/widgets/next-session";
 type Surfaces = {
   next: typeof import("@/widgets/next-session").default;
   live: typeof import("@/widgets/live-session").default;
+  workout: typeof import("@/widgets/active-workout").default;
   after: typeof import("expo-widgets").after;
 };
 
@@ -39,8 +42,11 @@ function load(): Surfaces | null {
       .default;
     const live = (require("@/widgets/live-session") as typeof import("@/widgets/live-session"))
       .default;
+    const workout = (
+      require("@/widgets/active-workout") as typeof import("@/widgets/active-workout")
+    ).default;
     /* eslint-enable @typescript-eslint/no-require-imports */
-    cached = { next, live, after };
+    cached = { next, live, workout, after };
   } catch {
     cached = null;
   }
@@ -106,10 +112,15 @@ function widgetProps(seat: Seat, snap: MineSnapshot): NextSessionProps {
  * "nothing booked") when each one ends, without the app having to be opened.
  */
 export function syncNextSessionWidget(snap: MineSnapshot, now = Date.now()) {
+  const seats = upcomingSeats(snap, now).slice(0, 6);
+  const next = seats[0];
+  void setNextSessionShortcut(
+    next ? `samepace://session/${next.session.id}` : null,
+    next ? +new Date(next.session.startAt) + next.session.durationMin * 60_000 : null,
+  );
   const surfaces = load();
   if (!surfaces) return;
   try {
-    const seats = upcomingSeats(snap, now).slice(0, 6);
     const entries: { date: Date; props: NextSessionProps }[] = [];
     let from = now;
     for (const seat of seats) {
@@ -126,12 +137,16 @@ export function syncNextSessionWidget(snap: MineSnapshot, now = Date.now()) {
 /** Signed out, or the account is gone: the widget says nothing about anyone. */
 export function clearWidgets() {
   setBadge(0);
+  void setNextSessionShortcut(null, null);
+  running.clear();
+  activeWorkout = null;
+  surfaceOwner = null;
   const surfaces = load();
   if (!surfaces) return;
   try {
     surfaces.next.updateSnapshot(EMPTY);
-    for (const activity of surfaces.live.getInstances()) void activity.end("immediate");
-    running.clear();
+    for (const activity of [...surfaces.live.getInstances(), ...surfaces.workout.getInstances()])
+      void activity.end("immediate").catch(() => undefined);
   } catch {
     /* see above */
   }
@@ -139,12 +154,91 @@ export function clearWidgets() {
 
 // ── Live Activity ────────────────────────────────────────────────────────────
 
-type Running = { activity: ReturnType<Surfaces["live"]["start"]>; key: string };
+type Running = { activity: ReturnType<Surfaces["live"]["start"]>; key: string; endedAt?: number };
 const running = new Map<string, Running>();
 let adopted = false;
+let surfaceOwner: string | null = null;
+let activeWorkout: {
+  sessionId: string;
+  activity: ReturnType<Surfaces["workout"]["start"]>;
+  key: string;
+  staleAt: number;
+  ending?: boolean;
+} | null = null;
+
+function ownSurfaces(ownerId: string, surfaces: Surfaces) {
+  if (surfaceOwner === ownerId) return;
+  for (const activity of [...surfaces.live.getInstances(), ...surfaces.workout.getInstances()])
+    void activity.end("immediate").catch(() => undefined);
+  running.clear();
+  activeWorkout = null;
+  surfaceOwner = ownerId;
+  adopted = true;
+}
+
+/** Explicit native readings only. One current workout takes precedence over arrival.
+ * A stale timestamp prevents a stopped Watch connection appearing as live data. */
+export function syncWorkoutLiveActivity(
+  ownerId: string,
+  snapshot: WorkoutSurfaceSnapshot | null,
+  now = Date.now(),
+) {
+  const surfaces = load();
+  if (!surfaces) return;
+  try {
+    ownSurfaces(ownerId, surfaces);
+    const projected = snapshot ? workoutSurface(snapshot, now) : null;
+    if (!projected || !snapshot) {
+      if (activeWorkout) void activeWorkout.activity.end("immediate").catch(() => undefined);
+      activeWorkout = null;
+      return;
+    }
+    for (const { activity } of running.values())
+      void activity.end("immediate").catch(() => undefined);
+    running.clear();
+    if (activeWorkout && activeWorkout.sessionId !== snapshot.sessionId) {
+      void activeWorkout.activity.end("immediate").catch(() => undefined);
+      activeWorkout = null;
+    }
+    const key = JSON.stringify(projected);
+    if (!activeWorkout) {
+      activeWorkout = {
+        sessionId: snapshot.sessionId,
+        key,
+        staleAt: projected.staleAt,
+        activity: surfaces.workout.start(
+          projected.props,
+          "samepace://health",
+          new Date(projected.staleAt),
+        ),
+      };
+    } else if (!activeWorkout.ending && activeWorkout.key !== key) {
+      const current = activeWorkout;
+      void current.activity.update(projected.props, new Date(projected.staleAt)).catch(() => {
+        // Retain the handle until native retirement succeeds, so another
+        // snapshot cannot start a duplicate after a transient update failure.
+        current.ending = true;
+        void current.activity
+          .end("immediate")
+          .then(() => {
+            if (activeWorkout === current) activeWorkout = null;
+          })
+          .catch(() => {
+            current.ending = false;
+            current.key = "";
+          });
+      });
+      current.key = key;
+      current.staleAt = projected.staleAt;
+    }
+  } catch {
+    /* The member or system can deny Live Activities without interrupting a workout. */
+  }
+}
+export type { WorkoutSurfaceSnapshot } from "./intelligence/workout-surface";
 
 /**
- * One Live Activity per seat that's inside its check-in window. Started when the
+ * One current arrival Live Activity inside its check-in window. Started when the
  * window opens (while the app is open), updated as each side checks in, ended a
  * few minutes after both have — or when the window shuts.
  */
@@ -152,23 +246,40 @@ export function syncLiveActivity(snap: MineSnapshot, now = Date.now()) {
   const surfaces = load();
   if (!surfaces) return;
   try {
+    ownSurfaces(snap.meId, surfaces);
+    if (activeWorkout && activeWorkout.staleAt > now) return;
+    if (activeWorkout) {
+      void activeWorkout.activity.end("immediate").catch(() => undefined);
+      activeWorkout = null;
+    }
     // After a relaunch we can't tell which seat an old activity belonged to.
     if (!adopted) {
       adopted = true;
-      for (const stale of surfaces.live.getInstances()) void stale.end("immediate");
+      for (const stale of surfaces.live.getInstances())
+        void stale.end("immediate").catch(() => undefined);
     }
     const sessions = new Map(snap.sessions.map((s) => [s.id, s]));
     const people = new Map(snap.people.map((p) => [p.id, p]));
     const wanted = new Set<string>();
 
-    for (const b of snap.bookings) {
+    const sorted = [...snap.bookings].sort(
+      (a, b) =>
+        +new Date(sessions.get(a.sessionId)?.startAt ?? 0) -
+          +new Date(sessions.get(b.sessionId)?.startAt ?? 0) || a.id.localeCompare(b.id),
+    );
+    for (const b of sorted) {
+      if (wanted.size > 0) break;
+      if (b.hostId !== snap.meId && b.participantId !== snap.meId) continue;
       const s = sessions.get(b.sessionId);
       if (!s) continue;
       const startAt = +new Date(s.startAt);
       const closesAt = startAt + CHECKIN_AFTER_MS;
       const inWindow = now >= startAt - CHECKIN_BEFORE_MS && now <= closesAt;
       const live =
-        (b.status === "confirmed" && inWindow) || (b.status === "completed" && running.has(b.id));
+        (b.status === "confirmed" && inWindow) ||
+        (b.status === "completed" &&
+          running.has(b.id) &&
+          now < (running.get(b.id)?.endedAt ?? Infinity));
       if (!live) continue;
       wanted.add(b.id);
 
@@ -183,13 +294,15 @@ export function syncLiveActivity(snap: MineSnapshot, now = Date.now()) {
         meIn: Boolean(isHost ? b.hostCheckedInAt : b.participantCheckedInAt),
         themIn: Boolean(isHost ? b.participantCheckedInAt : b.hostCheckedInAt),
       };
-      const key = `${props.meIn}:${props.themIn}:${b.status}`;
+      const key = JSON.stringify({ props, status: b.status });
       const current = running.get(b.id);
 
       if (b.status === "completed") {
         if (current && current.key !== key) {
-          void current.activity.end(surfaces.after(new Date(now + 5 * 60_000)), props);
-          running.set(b.id, { ...current, key });
+          void current.activity
+            .end(surfaces.after(new Date(now + 5 * 60_000)), props)
+            .catch(() => undefined);
+          running.set(b.id, { ...current, key, endedAt: now + 5 * 60_000 });
         }
         continue;
       }
@@ -197,14 +310,26 @@ export function syncLiveActivity(snap: MineSnapshot, now = Date.now()) {
         const activity = surfaces.live.start(props, `samepace://live/${b.id}`, new Date(closesAt));
         running.set(b.id, { activity, key });
       } else if (current.key !== key) {
-        void current.activity.update(props, new Date(closesAt));
+        void current.activity.update(props, new Date(closesAt)).catch(() => {
+          void current.activity
+            .end("immediate")
+            .then(() => {
+              // A late rejection must never discard a replacement instance
+              // created after signing out or changing accounts.
+              if (running.get(b.id)?.activity === current.activity) running.delete(b.id);
+            })
+            .catch(() => {
+              const latest = running.get(b.id);
+              if (latest?.activity === current.activity) latest.key = "";
+            });
+        });
         running.set(b.id, { ...current, key });
       }
     }
 
     for (const [bookingId, r] of running) {
       if (wanted.has(bookingId)) continue;
-      void r.activity.end("immediate");
+      void r.activity.end("immediate").catch(() => undefined);
       running.delete(bookingId);
     }
   } catch {

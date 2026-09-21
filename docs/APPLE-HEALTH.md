@@ -1,10 +1,10 @@
 # Apple Health sync
 
-The first implementation imports private workout history and selected Apple Health readings. It is read-only, manually triggered, and disabled unless the API environment sets `HEALTH_SYNC_ENABLED=true`. Jev inference and A2A health sharing are not enabled by connecting Apple Health.
+The import layer reads private workout history and selected Apple Health readings. Manual sync remains available; members can separately enable automatic refresh when the signed-in app is active. The API is disabled unless `HEALTH_SYNC_ENABLED=true`. Jev inference, cloud conversation and A2A health sharing are not enabled by connecting Apple Health. The separate Watch recorder can write its own workouts to Apple Health with permission.
 
 ## Run and integrate
 
-1. Apply `0014_health_sync.sql` using the normal migration process on an isolated development database. Local embedded Postgres applies it automatically.
+1. Apply all migrations through `0028_health_zones.sql` using the normal migration process. Local embedded Postgres applies migrations automatically.
 2. Start the API with `HEALTH_SYNC_ENABLED=true`. The production flag was enabled at the user’s request; physical-device acceptance is still required before a broader rollout.
 3. Rebuild the iOS development client. The local Expo module and `mobile/plugins/with-healthkit.js` add the HealthKit capability and a read-permission description. Expo Go, web, and Android cannot read HealthKit.
 4. Open the mobile route `/health` (`samepace://health`), sign in, choose readings, and tap **Connect Apple Health**. Then tap **Sync now**. The initial window starts 30 days before first connection; later queries keep that exact boundary and apply source changes.
@@ -16,14 +16,14 @@ const [session] = useState(captureApiSession);
 const health = useHealthSync({ ownerId: member.id, session });
 ```
 
-Key the containing component by member ID. Mounting refreshes status only; `connect(types)` is an explicit opt-in to private cloud storage, and `sync()` imports. All requests retain the captured session token. Account changes or cleanup invalidate pending work; an old import cannot adopt another account's token. Do not replace this transport with the mutable global `api()` helper inside a long-running sync.
+The root signed-in health boundary provides the shared controller. `connect(types, automaticSync)` is explicit opt-in to private cloud storage and optional automatic foreground imports; `sync()` remains manual. All requests retain the captured session token. Account changes or cleanup invalidate pending work; an old import cannot adopt another account's token. Do not replace this transport with the mutable global `api()` helper inside a long-running sync.
 
 Useful entry points:
 
 - `shared/health.ts`: source-preserving wire types.
 - `mobile/modules/samepace-healthkit`: native HealthKit bridge and serialization.
 - `mobile/src/lib/health/controller.ts`: sync lifecycle, retry, and cancellation.
-- `mobile/src/hooks/use-health-sync.ts`: React binding; no background imports.
+- `mobile/src/hooks/use-health-sync.ts`: shared React boundary, foreground automatic refresh and transient Watch mirroring.
 - `mobile/src/lib/health/api.ts`: typed private API client, including paginated export.
 - `mobile/src/app/health.tsx`: working connection, sync, history, and deletion screen.
 - `src/lib/health`: validation, persistence, calculations, and request bounds.
@@ -35,6 +35,8 @@ Useful entry points:
 | `workout` | Activity, source active duration in seconds, start/end time, optional source distance in meters and active energy in kcal |
 | `heart_rate`, `resting_heart_rate` | Beats per minute |
 | `heart_rate_variability` | HealthKit SDNN, milliseconds |
+| `heart_rate_variability_rmssd` | HealthKit RMSSD, milliseconds; iOS 27+; never mixed with SDNN |
+| `cycling_power` | Source cycling-power samples, watts |
 | `sleep` | Source interval and stage: in bed, unspecified sleep, awake, core, deep, or REM |
 | `steps` | Source step count |
 | `distance` | Walking/running distance samples, meters |
@@ -44,7 +46,9 @@ Workouts are required; other reading types are individually selected. Workout to
 
 The app cannot determine whether the member denied read access. A completed authorization request means only that the request finished. Empty query results can mean no matching records or no access. See [Apple's authorization guidance](https://developer.apple.com/documentation/healthkit/hkauthorizationstatus).
 
-Saved HealthKit records are not a live heart-rate stream. No observer/background delivery, automatic foreground sync, watch recorder, or writeback is implemented. Source changes become visible on a later manual sync. The native bridge follows [anchored queries](https://developer.apple.com/documentation/healthkit/hkanchoredobjectquery) and the [local Expo module architecture](https://docs.expo.dev/modules/get-started/).
+Saved HealthKit records are not a live heart-rate stream. Native observers acknowledge background notifications and persist only selected type names and a change counter. Automatic import resumes in the signed-in foreground; suspended notifications do not upload using a persisted credential. Existing connections default to manual sync. The native bridge follows [anchored queries](https://developer.apple.com/documentation/healthkit/hkanchoredobjectquery) and the [local Expo module architecture](https://docs.expo.dev/modules/get-started/).
+
+On iOS 27, imported workouts can carry source heart-rate and cycling-power zone groups with units, thresholds, provenance and durations. A zone's reading type must also be selected; withdrawing it scrubs embedded zone data. No age-derived thresholds or invented zone totals are substituted. The [Watch recorder](../mobile/watch/README.md) provides a separate live capture/mirroring path and saves completed workouts to Apple Health for ordinary anchored import.
 
 ## Private API
 
@@ -53,7 +57,7 @@ All paths are under `/api/v1`, require the normal signed-in member session, retu
 | Method and path | Request / result |
 | --- | --- |
 | `GET /health/connection` | `{ connection: HealthConnection | null }` |
-| `POST /health/connection` | `{ deviceId, types }` → `{ connection }`; explicit connection/update |
+| `POST /health/connection` | `{ deviceId, types, automaticSync? }` → `{ connection }`; explicit connection/update; automatic sync defaults false |
 | `DELETE /health/connection` | `{ ok: true }`; removes imported records, tombstones, connection, and cursors |
 | `POST /health/sync` | `HealthSyncInput` → `{ connection }` with acknowledged cursors |
 | `GET /health/workouts?limit=20&cursor=…` | `{ workouts, nextCursor }`; max 50, newest first |
@@ -79,7 +83,7 @@ Code computes elapsed time, active-duration pace for running/walking/hiking, and
 
 All **458 tests** pass, including 46 new tests for health persistence/validation, sync lifecycle, captured sessions, and private-cache invalidation. Web and mobile typechecks pass, web/mobile lint passes (two existing web warnings), the web development build passes, and mobile export includes 23 routes. Local HTTP smoke coverage exercises the real sign-in/API boundary, disabled-feature responses, summary values, cursor conflicts, deletion/purge, and the rejection of A2A credentials.
 
-The unsigned iOS simulator build and real-framework serialization checks pass. These do not prove behavior with a member's health store. Before rollout, test a physical iPhone with:
+The initial unsigned iOS simulator build and real-framework serialization checks passed. The expanded intelligence/Watch build adds new acceptance requirements; see [the device checklist](INTELLIGENCE-ACCEPTANCE.md). Compilation does not prove behavior with a member's health store. Before rollout, test a physical iPhone with:
 
 - All/some/no read permissions; later permission changes; an empty Health store.
 - Real workouts plus heart-rate, HRV, sleep, and other selected samples; check source units against Apple Health.
@@ -87,4 +91,4 @@ The unsigned iOS simulator build and real-framework serialization checks pass. T
 - Source additions/deletions, two recording sources, a locked phone, account switching, and a second iPhone.
 - Remove workout, remove a type, disconnect/purge, reconnect, and account deletion.
 
-Redesigned navigation, persistent correction overlays, manual set logging, native sharing of complete paginated exports, operational counts, and a separately consented Jev pilot are now implemented. Remaining acceptance includes actual iPhone source changes, locked-device behavior, multiple devices, permissions, and battery behavior. Background sync and broader daily/context summaries remain future work. See the [vision roadmap](./VISION-ROADMAP.md).
+Redesigned navigation, correction overlays, manual set logging, paginated exports, operational counts and a separately consented Jev pilot are implemented. Automatic foreground refresh and native background change observation are now implemented; unattended background cloud uploads are not. Removing imported readings also clears private cloud chat that used their workout summaries. Remaining acceptance includes actual source changes, locked-device behavior, multiple devices, permissions and battery. See the [vision roadmap](./VISION-ROADMAP.md).

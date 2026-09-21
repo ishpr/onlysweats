@@ -1,4 +1,5 @@
 import { API_URL } from "./config";
+import { fetch as streamingFetch } from "expo/fetch";
 import { createSessionTransport, type ApiSession, type SessionRequest } from "./session-transport";
 
 export type { ApiSession } from "./session-transport";
@@ -67,6 +68,48 @@ export function captureApiSession(): ApiSession | null {
         onUnauthorized?.();
       }
       return parse<T>(response);
+    },
+    stream: async (savedToken, path, init, onChunk) => {
+      const response = await streamingFetch(`${API_URL}/api/v1${path}`, {
+        method: init.method ?? "POST",
+        headers: {
+          accept: "application/x-ndjson",
+          "content-type": "application/json",
+          authorization: `Bearer ${savedToken}`,
+        },
+        body: init.json === undefined ? undefined : JSON.stringify(init.json),
+        signal: init.signal,
+      });
+      if (response.status === 401 && version === sessionVersion && !init.signal?.aborted)
+        onUnauthorized?.();
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          code?: string;
+        } | null;
+        throw new ApiError(
+          response.status,
+          friendly(response.status, body?.error ?? body?.message),
+          body?.code,
+        );
+      }
+      if (!response.headers.get("content-type")?.includes("application/x-ndjson") || !response.body)
+        throw new ApiError(502, "The assistant response could not be read. Try again.");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      try {
+        while (true) {
+          const next = await reader.read();
+          if (next.done) break;
+          onChunk(decoder.decode(next.value, { stream: true }));
+        }
+        const tail = decoder.decode();
+        if (tail) onChunk(tail);
+      } finally {
+        await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
+      }
     },
   });
 }
