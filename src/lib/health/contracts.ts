@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { HealthDataType, HealthRecord, HealthSyncInput } from "../../../shared/health.ts";
 
-export const HEALTH_TYPES = ["workout", "heart_rate", "resting_heart_rate", "heart_rate_variability", "sleep", "steps", "distance", "active_energy"] as const satisfies readonly HealthDataType[];
+export const HEALTH_TYPES = ["workout", "heart_rate", "resting_heart_rate", "heart_rate_variability", "sleep", "steps", "distance", "active_energy", "blood_glucose"] as const satisfies readonly HealthDataType[];
 export const healthType = z.enum(HEALTH_TYPES);
 // Canonical UUID casing prevents a source record from bypassing a tombstone.
 export const sourceId = z.uuid().transform((value) => value.toLowerCase());
@@ -27,6 +27,7 @@ export const healthRecord = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("steps"), value: nonnegative.int(), unit: z.literal("count") }).strict(),
   z.object({ ...base, type: z.literal("distance"), value: nonnegative, unit: z.literal("m") }).strict(),
   z.object({ ...base, type: z.literal("active_energy"), value: nonnegative, unit: z.literal("kcal") }).strict(),
+  z.object({ ...base, type: z.literal("blood_glucose"), value: nonnegative.positive(), unit: z.literal("mg/dL") }).strict(),
   z.object({ ...base, type: z.literal("sleep"), stage: z.enum(["in_bed", "asleep_unspecified", "awake", "core", "deep", "rem"]) }).strict(),
 ]).superRefine((record, ctx) => {
   const elapsed = Date.parse(record.endAt) - Date.parse(record.startAt);

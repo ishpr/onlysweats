@@ -112,6 +112,7 @@ describe("private health connection and import", () => {
       { ...base, externalId: randomUUID(), type: "steps", value: 400, unit: "count" },
       { ...base, externalId: randomUUID(), type: "distance", value: 320.25, unit: "m" },
       { ...base, externalId: randomUUID(), type: "active_energy", value: 70.2, unit: "kcal" },
+      { ...base, externalId: randomUUID(), type: "blood_glucose", value: 98, unit: "mg/dL" },
       { ...base, externalId: randomUUID(), type: "sleep", stage: "deep" },
     ];
     for (const record of records) await health.sync(sql, id, page(connection, record.type, { records: [record] }), now);

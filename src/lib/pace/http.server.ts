@@ -20,6 +20,7 @@ import * as coordination from "../agents/coordination.server";
 import * as discovery from "../agents/discovery.server";
 import { delegationInput } from "../agents/contracts";
 import * as health from "../health/service.server";
+import { today as healthToday } from "../health/today.server";
 import { HealthError, pageInput } from "../health/contracts";
 import { healthEnabled, isHealthPath, readHealthBody } from "../health/http.server";
 import {
@@ -553,6 +554,11 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
   ],
   [
     "GET",
+    "/health/today",
+    ({ sql, userId, query }) => healthToday(sql, userId, Object.fromEntries(query)),
+  ],
+  [
+    "GET",
     "/health/export",
     ({ sql, userId, query }) =>
       health.exportRecords(sql, userId, pageInput(200).parse(Object.fromEntries(query))),
@@ -841,7 +847,12 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
   [
     "PATCH",
     "/me",
-    ({ sql, userId, body }) => svc.updateProfile(sql, userId, profileBody.parse(body)),
+    // The same shape as `GET /me`: the app replaces its copy of the profile with this.
+    async ({ sql, userId, user, body }) => ({
+      ...(await svc.updateProfile(sql, userId, profileBody.parse(body))),
+      isAdmin: safety.isAdmin(user),
+      verification: await verification.getVerification(sql, userId),
+    }),
   ],
   ["GET", "/venues", async ({ sql }) => ({ venues: await svc.listVenues(sql) })],
 
