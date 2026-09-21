@@ -25,6 +25,8 @@ import { useMe } from "@/lib/queries";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { AnimatedSplash } from "@/components/animated-splash";
 import { AppTermsProvider, useAppTermsAccepted } from "@/components/app-terms-gate";
+import { ToastProvider } from "@/components/toast";
+import { GlobalSheetsProvider } from "@/lib/global-sheets";
 import { loadAppearance } from "@/lib/appearance";
 import { haptic } from "@/lib/haptics";
 import { onNotificationOpened, syncPush } from "@/lib/push";
@@ -166,7 +168,12 @@ function Routes() {
       <StatusBar style={dark ? "light" : "dark"} />
       <AppTermsProvider signedIn={signedIn}>
         <AppServices>
-          <ProtectedRoutes signedIn={signedIn} />
+          {/* App-wide chrome that screens ask for rather than own. */}
+          <ToastProvider>
+            <GlobalSheetsProvider>
+              <ProtectedRoutes signedIn={signedIn} />
+            </GlobalSheetsProvider>
+          </ToastProvider>
         </AppServices>
       </AppTermsProvider>
       {splash}
@@ -262,6 +269,10 @@ function ProtectedRoutes({ signedIn }: { signedIn: boolean }) {
       </Stack.Protected>
       <Stack.Protected guard={signedIn}>
         <Stack.Screen name="delete-account" options={{ title: "Delete account" }} />
+        <Stack.Screen
+          name="dev-kit"
+          options={{ headerShown: false, presentation: "fullScreenModal" }}
+        />
       </Stack.Protected>
       <Stack.Protected guard={!signedIn}>
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
