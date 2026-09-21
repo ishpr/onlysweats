@@ -21,6 +21,7 @@ import {
 import { unregisterPush } from "./push";
 import { clearWidgets } from "./widgets";
 import { signOutOfGoogle, type SocialResult } from "./social";
+import { clearWorkoutRecovery } from "./workout-plans/recovery";
 
 const TOKEN_KEY = "pace.session-token";
 
@@ -54,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setApiToken(null);
     setSignedIn(false);
     queryClient.clear();
+    await clearWorkoutRecovery().catch(() => undefined);
     await store.clear().catch(() => undefined);
   }, [queryClient]);
 
@@ -78,6 +80,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthState>(() => {
     const accept = async (token: string) => {
+      setApiToken(null);
+      await clearWorkoutRecovery().catch(() => undefined);
       setApiToken(token);
       await store.set(token);
       setSignedIn(true);
