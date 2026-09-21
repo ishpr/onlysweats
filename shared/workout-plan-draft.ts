@@ -3,7 +3,8 @@ import type { AIWorkoutPlanDraft, WorkoutPlanContent } from "./workout-plans.ts"
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const fields = (value: Record<string, unknown>, keys: readonly string[]) =>
-  Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+  Object.keys(value).length === keys.length &&
+  keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
 const text = (value: unknown, max: number, required = false): value is string =>
   typeof value === "string" && value.length <= max && (!required || value.trim().length > 0);
 const integer = (value: unknown, min: number, max: number): value is number =>
