@@ -3,9 +3,10 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
 import { usePrivateAction } from "@/hooks/use-private-action";
-import { Alert, StyleSheet, Switch, View } from "react-native";
+import { StyleSheet, Switch, View } from "react-native";
 
-import { Button, Card, Chip, Field, Notice, Row, Screen, T } from "@/components/ui";
+import { RouteSheet } from "@/components/route-sheet";
+import { Button, Card, Chip, Field, Notice, Row, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import type { ReportReason } from "@/lib/types";
@@ -39,53 +40,104 @@ function Report({ session }: PrivateMemberProps) {
   const [detail, setDetail] = useState("");
   const [alsoBlock, setAlsoBlock] = useState(true);
   const [sent, setSent] = useState(false);
+  const [blocking, setBlocking] = useState(false);
 
-  const blockOnly = () =>
-    Alert.alert(
-      `Block ${name}?`,
-      "You won’t see each other’s sessions, and your agents cannot contact each other. Any sessions you have together are cancelled at no cost to you. They aren’t told.",
-      [
-        { text: "Not now", style: "cancel" },
-        {
-          text: "Block",
-          style: "destructive",
-          onPress: () =>
-            void action.run(
-              (signal) =>
-                session.request("/blocks", {
-                  method: "POST",
-                  json: { memberId: params.memberId },
-                  signal,
-                }),
-              async () => {
-                await client.invalidateQueries();
-                router.back();
-              },
-            ),
-        },
-      ],
+  const block = () =>
+    void action.run(
+      (signal) =>
+        session.request("/blocks", { method: "POST", json: { memberId: params.memberId }, signal }),
+      async () => {
+        await client.invalidateQueries();
+        router.back();
+      },
     );
+
+  const send = () => {
+    if (!reason) return;
+    void action.run(
+      (signal) =>
+        session.request("/reports", {
+          method: "POST",
+          signal,
+          json: {
+            reportedId: params.memberId,
+            reason,
+            detail: detail.trim() || undefined,
+            sessionId: params.sessionId || undefined,
+            bookingId: params.bookingId || undefined,
+            negotiationId: params.negotiationId || undefined,
+            alsoBlock,
+          },
+        }),
+      async () => {
+        setSent(true);
+        await client.invalidateQueries();
+      },
+    );
+  };
 
   if (sent) {
     return (
-      <Screen contentStyle={styles.done}>
-        <T variant="title">Report sent.</T>
+      <RouteSheet title="Report sent">
         <T color="textSecondary">
           A person at SamePace reads every report, usually within a day.
           {alsoBlock ? ` ${name} is blocked — you won’t see each other again.` : ""} If you’re in
           danger right now, call 911.
         </T>
-        <Button label="Done" onPress={() => router.back()} />
-      </Screen>
+      </RouteSheet>
+    );
+  }
+
+  // Blocking without a report is its own short decision, asked in the same sheet.
+  if (blocking) {
+    return (
+      <RouteSheet
+        title={`Block ${name}?`}
+        footer={
+          <>
+            <Button variant="danger" label="Block" loading={action.busy} onPress={block} />
+            <Button
+              variant="ghost"
+              label="Back"
+              disabled={action.busy}
+              onPress={() => setBlocking(false)}
+            />
+          </>
+        }
+      >
+        <T color="textSecondary">
+          You won’t see each other’s sessions, and your assistants can’t contact each other. Any
+          sessions you have together are cancelled at no cost to you. They aren’t told.
+        </T>
+        {action.error && <Notice tone="danger">{action.error}</Notice>}
+      </RouteSheet>
     );
   }
 
   return (
-    <Screen>
-      <T color="textSecondary">
-        Reports go to a person at SamePace, not to {name}. Say what happened in your own words.
-      </T>
-
+    <RouteSheet
+      title="Report or block"
+      subtitle={`Reports go to a person at SamePace, not to ${name}.`}
+      startFull
+      dirty={reason !== null || detail.trim().length > 0}
+      footer={
+        <>
+          <Button
+            variant="danger"
+            label="Send report"
+            disabled={!reason || action.busy}
+            loading={action.busy}
+            onPress={send}
+          />
+          <Button
+            variant="ghost"
+            label={`Block ${name} without reporting`}
+            disabled={action.busy}
+            onPress={() => setBlocking(true)}
+          />
+        </>
+      }
+    >
       <Card>
         <T variant="label">What happened?</T>
         <View style={styles.reasons}>
@@ -130,42 +182,7 @@ function Report({ session }: PrivateMemberProps) {
       </Card>
 
       {action.error && <Notice tone="danger">{action.error}</Notice>}
-      <Button
-        variant="danger"
-        label="Send report"
-        disabled={!reason || action.busy}
-        loading={action.busy}
-        onPress={() => {
-          if (!reason) return;
-          void action.run(
-            (signal) =>
-              session.request("/reports", {
-                method: "POST",
-                signal,
-                json: {
-                  reportedId: params.memberId,
-                  reason,
-                  detail: detail.trim() || undefined,
-                  sessionId: params.sessionId || undefined,
-                  bookingId: params.bookingId || undefined,
-                  negotiationId: params.negotiationId || undefined,
-                  alsoBlock,
-                },
-              }),
-            async () => {
-              setSent(true);
-              await client.invalidateQueries();
-            },
-          );
-        }}
-      />
-      <Button
-        variant="ghost"
-        label={`Block ${name} without reporting`}
-        disabled={action.busy}
-        onPress={blockOnly}
-      />
-    </Screen>
+    </RouteSheet>
   );
 }
 
@@ -173,5 +190,4 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   reasons: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.one },
   detail: { minHeight: 96, textAlignVertical: "top" },
-  done: { flexGrow: 1, justifyContent: "center", gap: Spacing.two },
 });

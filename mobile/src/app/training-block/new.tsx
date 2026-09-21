@@ -8,7 +8,8 @@ import {
   GoalPicker,
   goalReady,
 } from "@/components/goal-picker";
-import { Button, Card, Notice, Screen, StateView, T } from "@/components/ui";
+import { RouteSheet } from "@/components/route-sheet";
+import { Button, Card, Notice, StateView, T } from "@/components/ui";
 import { formatDate } from "@/lib/format";
 import { useMakeTrainingBlock, useMine, useNextTrainingBlock } from "@/lib/queries";
 
@@ -34,13 +35,13 @@ export default function NewTrainingBlock() {
 
   if (!slot) {
     return (
-      <Screen edges={["bottom"]}>
+      <RouteSheet title="Train for a goal">
         <StateView
           loading={mine.isPending}
           error={mine.error}
           empty="That weekly session has ended."
         />
-      </Screen>
+      </RouteSheet>
     );
   }
 
@@ -56,14 +57,24 @@ export default function NewTrainingBlock() {
   const error = make.error ?? next.error;
 
   return (
-    <Screen edges={["bottom"]}>
-      <T variant="title">{previous ? "What’s next?" : "Give it a finish line."}</T>
-      <T color="textSecondary">
-        {previous
-          ? `${previous.goalLabel} is done. Same people, same weekly sessions — pick the next goal and its date.`
-          : `${slot.title} keeps running every week — until the date you pick. You’ll see the sessions you’ve kept out of the ones you had.`}
-      </T>
-
+    <RouteSheet
+      title={previous ? "What’s next?" : "Train for a goal"}
+      subtitle={
+        previous
+          ? `${previous.goalLabel} is done. Same people, same weekly sessions.`
+          : `${slot.title} keeps running every week — until the date you pick.`
+      }
+      startFull
+      footer={
+        <Button
+          variant="accent"
+          label="Start training for it"
+          loading={busy}
+          disabled={!goalReady(goal)}
+          onPress={start}
+        />
+      }
+    >
       <GoalPicker activity={slot.activity} value={goal} onChange={setGoal} />
 
       <Card>
@@ -75,13 +86,6 @@ export default function NewTrainingBlock() {
       </Card>
 
       {error && <Notice tone="danger">{error.message}</Notice>}
-      <Button
-        variant="accent"
-        label="Start training for it"
-        loading={busy}
-        disabled={!goalReady(goal)}
-        onPress={start}
-      />
-    </Screen>
+    </RouteSheet>
   );
 }

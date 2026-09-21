@@ -26,6 +26,7 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import { AnimatedSplash } from "@/components/animated-splash";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AppTermsProvider, useAppTermsAccepted } from "@/components/app-terms-gate";
+import { routeSheetOptions } from "@/components/route-sheet";
 import { ToastProvider } from "@/components/toast";
 import { GlobalSheetsProvider } from "@/lib/global-sheets";
 import { loadAppearance } from "@/lib/appearance";
@@ -231,18 +232,8 @@ function ProtectedRoutes({ signedIn }: { signedIn: boolean }) {
         <Stack.Screen name="billing" options={{ title: "Membership & fees" }} />
         <Stack.Screen name="billing-return" options={{ headerShown: false }} />
         <Stack.Screen name="training-block/[id]" options={{ title: "Goal" }} />
-        <Stack.Screen
-          name="training-block/new"
-          options={{ title: "Train for a goal", presentation: "modal" }}
-        />
-        <Stack.Screen
-          name="report"
-          options={{
-            title: "Report or block",
-            presentation: "modal",
-            headerLeft: () => <CloseButton />,
-          }}
-        />
+        <Stack.Screen name="training-block/new" options={routeSheetOptions} />
+        <Stack.Screen name="report" options={routeSheetOptions} />
         <Stack.Screen name="blocked" options={{ title: "Blocked members" }} />
         <Stack.Screen name="activity" options={{ title: "Notifications" }} />
         <Stack.Screen name="today" options={{ title: "Today" }} />

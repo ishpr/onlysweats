@@ -68,6 +68,8 @@ export type SheetProps = {
   onDiscardRequest?: () => void;
   /** Must be answered: no Close button, no gesture, no Back. Its buttons are the only exit. */
   locked?: boolean;
+  /** After the closing animation. A route that *is* a sheet goes back here, not in `onClose`. */
+  onClosed?: () => void;
   /** What VoiceOver returns to when the sheet closes — the control that opened it. */
   returnFocusTo?: RefObject<View | null>;
 };
@@ -84,6 +86,7 @@ export function Sheet({
   dirty = false,
   onDiscardRequest,
   locked = false,
+  onClosed,
   returnFocusTo,
 }: SheetProps) {
   const theme = useTheme();
@@ -136,7 +139,10 @@ export function Sheet({
   // Stay mounted through the closing animation.
   const [mounted, setMounted] = useState(visible);
   if (visible && !mounted) setMounted(true);
-  const unmount = () => setMounted(false);
+  const unmount = () => {
+    setMounted(false);
+    onClosed?.();
+  };
 
   const settle = (to: number, done?: () => void) => {
     "worklet";
