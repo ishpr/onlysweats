@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Sql } from "../db.ts";
-import type { SleepRecord, WorkoutRecord } from "../../../shared/health.ts";
+import type { HealthSource, SleepRecord, WorkoutRecord } from "../../../shared/health.ts";
 import type { DayPoint, DaySnapshot, TodaySummary, Week } from "../../../shared/today.ts";
 import { HealthError } from "./contracts.ts";
 
@@ -11,12 +11,16 @@ const DAYS = 7;
 const NIGHT_OFFSET = 6 * HOUR;
 
 /** The member's local midnight. The server has no time zone for them, so the app says. */
-export const todayInput = z.object({
-  dayStart: z.iso.datetime({ offset: true }).transform((value) => Date.parse(value)),
-}).strict();
+export const todayInput = z
+  .object({
+    dayStart: z.iso.datetime({ offset: true }).transform((value) => Date.parse(value)),
+  })
+  .strict();
 
-const mean = (values: number[]) => values.length === 0 ? null : values.reduce((a, b) => a + b, 0) / values.length;
-const round = (value: number | null, digits = 0) => value === null ? null : Number(value.toFixed(digits));
+const mean = (values: number[]) =>
+  values.length === 0 ? null : values.reduce((a, b) => a + b, 0) / values.length;
+const round = (value: number | null, digits = 0) =>
+  value === null ? null : Number(value.toFixed(digits));
 
 /** Minutes covered by a set of intervals, counting overlapping sources once. */
 function unionMinutes(spans: [number, number][]): number {
@@ -36,9 +40,15 @@ function unionMinutes(spans: [number, number][]): number {
  * the single source that recorded the most that day (a watch and a phone both count
  * the same walk). Series are bucketed here so raw samples never leave the API.
  */
-export async function today(sql: Sql, userId: string, input: unknown, now = Date.now()): Promise<TodaySummary> {
+export async function today(
+  sql: Sql,
+  userId: string,
+  input: unknown,
+  now = Date.now(),
+): Promise<TodaySummary> {
   const { dayStart } = todayInput.parse(input);
-  if (dayStart > now + 60_000 || dayStart < now - 36 * HOUR) throw new HealthError(400, "dayStart must be today’s local midnight.");
+  if (dayStart > now + 60_000 || dayStart < now - 36 * HOUR)
+    throw new HealthError(400, "dayStart must be today’s local midnight.");
   const weekStart = dayStart - (DAYS - 1) * DAY;
   const weekIso = new Date(weekStart).toISOString();
   const dayIso = new Date(dayStart).toISOString();
@@ -69,6 +79,27 @@ export async function today(sql: Sql, userId: string, input: unknown, now = Date
     where user_id = ${userId} and type in ('resting_heart_rate', 'heart_rate_variability') and record is not null
       and record->>'startAt' >= ${weekIso}
     group by 1, 2`;
+  // One source across the RMSSD week prevents overlapping apps from being pooled
+  // and makes its baseline comparable to its latest daily sample mean. Choosing
+  // by sample count is only a deterministic display policy, not a quality score.
+  const rmssd = await sql<{ day: number; value: number; source: HealthSource }>`
+    with samples as (
+      select record, floor((extract(epoch from (record->>'startAt')::timestamptz) - ${weekEpoch}) / 86400)::int as day
+      from health_records
+      where user_id = ${userId} and type = 'heart_rate_variability_rmssd' and record is not null
+        and record->>'startAt' >= ${weekIso} and record->>'startAt' <= ${new Date(now).toISOString()}
+    ), selected_source as (
+      select record->'source'->>'bundleId' as bundle_id,
+        max(record->'source'->>'name') as source_name
+      from samples where day >= 0 and day < ${DAYS}
+      group by 1 order by count(*) desc, record->'source'->>'bundleId' asc limit 1
+    )
+    select samples.day, avg((record->>'value')::float8) as value,
+      jsonb_build_object('bundleId', selected_source.bundle_id, 'name', selected_source.source_name) as source
+    from samples join selected_source on record->'source'->>'bundleId' = selected_source.bundle_id
+    where samples.day >= 0 and samples.day < ${DAYS}
+    group by samples.day, selected_source.bundle_id, selected_source.source_name
+    order by samples.day`;
   const slots = await sql<{ type: string; slot: number; value: number; low: number; high: number }>`
     select type, floor((extract(epoch from (record->>'startAt')::timestamptz) - ${dayEpoch}) / 1800)::int as slot,
       avg((record->>'value')::float8) as value, min((record->>'value')::float8) as low, max((record->>'value')::float8) as high
@@ -79,15 +110,30 @@ export async function today(sql: Sql, userId: string, input: unknown, now = Date
     select record from health_records
     where user_id = ${userId} and type = 'sleep' and record is not null and record->>'endAt' >= ${nightsIso}`;
 
-  const week = (rows: { type: string; day: number }[], type: string, pick: (row: never) => number, digits = 0): Week => {
+  const week = (
+    rows: { type: string; day: number }[],
+    type: string,
+    pick: (row: never) => number,
+    digits = 0,
+  ): Week => {
     const out: Week = Array.from({ length: DAYS }, () => null);
-    for (const row of rows) if (row.type === type && row.day >= 0 && row.day < DAYS) out[row.day] = round(pick(row as never), digits);
+    for (const row of rows)
+      if (row.type === type && row.day >= 0 && row.day < DAYS)
+        out[row.day] = round(pick(row as never), digits);
     return out;
   };
   const stepsWeek = week(totals, "steps", (row: { total: number }) => Number(row.total));
   const moveKcalWeek = week(totals, "active_energy", (row: { total: number }) => Number(row.total));
-  const restingHrWeek = week(averages, "resting_heart_rate", (row: { value: number }) => Number(row.value));
-  const hrvWeek = week(averages, "heart_rate_variability", (row: { value: number }) => Number(row.value));
+  const restingHrWeek = week(averages, "resting_heart_rate", (row: { value: number }) =>
+    Number(row.value),
+  );
+  const hrvWeek = week(averages, "heart_rate_variability", (row: { value: number }) =>
+    Number(row.value),
+  );
+
+  const hrvRmssdWeek: Week = Array.from({ length: DAYS }, () => null);
+  for (const row of rmssd) hrvRmssdWeek[row.day] = round(Number(row.value));
+  const hrvRmssdSource = rmssd[0]?.source ?? null;
 
   // Night n ends on day n: the 24 hours from 6 pm the evening before.
   const nights: Record<string, [number, number][]>[] = Array.from({ length: DAYS }, () => ({}));
@@ -100,7 +146,9 @@ export async function today(sql: Sql, userId: string, input: unknown, now = Date
     (nights[night][record.stage] ??= []).push([from, to]);
   }
   const asleep = (night: Record<string, [number, number][]>) =>
-    Object.entries(night).filter(([stage]) => stage !== "awake").flatMap(([, spans]) => spans);
+    Object.entries(night)
+      .filter(([stage]) => stage !== "awake")
+      .flatMap(([, spans]) => spans);
   const sleepWeek: Week = nights.map((night) => {
     const minutes = unionMinutes(asleep(night));
     return minutes > 0 ? Math.round(minutes) : null;
@@ -120,30 +168,60 @@ export async function today(sql: Sql, userId: string, input: unknown, now = Date
     const earlier = values.slice(0, at).filter((value): value is number => value !== null);
     return earlier.length >= 3 ? mean(earlier) : null;
   };
-  const points = (type: string, digits: number): DayPoint[] => slots.filter((row) => row.type === type && row.slot >= 0 && row.slot < 48)
-    .map((row) => ({ minute: row.slot * 30, value: round(Number(row.value), digits)!, low: round(Number(row.low), digits)!, high: round(Number(row.high), digits)! }));
+  const points = (type: string, digits: number): DayPoint[] =>
+    slots
+      .filter((row) => row.type === type && row.slot >= 0 && row.slot < 48)
+      .map((row) => ({
+        minute: row.slot * 30,
+        value: round(Number(row.value), digits)!,
+        low: round(Number(row.low), digits)!,
+        high: round(Number(row.high), digits)!,
+      }));
 
   const snapshot: DaySnapshot = {
-    workouts: workouts.filter(({ record }) => Date.parse(record.endAt) >= dayStart).map(({ external_id, record }) => ({
-      id: external_id, kind: record.activity, minutes: Math.round(record.durationSeconds / 60), meters: record.distanceMeters,
-    })),
+    workouts: workouts
+      .filter(({ record }) => Date.parse(record.endAt) >= dayStart)
+      .map(({ external_id, record }) => ({
+        id: external_id,
+        kind: record.activity,
+        minutes: Math.round(record.durationSeconds / 60),
+        meters: record.distanceMeters,
+      })),
     steps: stepsWeek[DAYS - 1],
     sleepMin: sleepWeek[lastNight],
-    sleepBaseMin: round(mean(sleepWeek.slice(0, lastNight).filter((value): value is number => value !== null).slice(-7)) ?? null),
+    sleepBaseMin: round(
+      mean(
+        sleepWeek
+          .slice(0, lastNight)
+          .filter((value): value is number => value !== null)
+          .slice(-7),
+      ) ?? null,
+    ),
     restingHr: latest(restingHrWeek),
     restingHrBase: round(base(restingHrWeek), 1),
     hrvMs: latest(hrvWeek),
     hrvBase: round(base(hrvWeek), 1),
+    hrvRmssdMs: latest(hrvRmssdWeek),
+    hrvRmssdBase: round(base(hrvRmssdWeek), 1),
+    hrvRmssdSource,
     weekWorkouts: workouts.length,
   };
   return {
     snapshot,
     trends: {
-      sleepWeek, restingHrWeek, hrvWeek, stepsWeek, moveKcalWeek,
-      sleepStages: staged ? { deep: stage("deep"), core: stage("core"), rem: stage("rem"), awake: stage("awake") } : null,
+      sleepWeek,
+      restingHrWeek,
+      hrvWeek,
+      hrvRmssdWeek,
+      stepsWeek,
+      moveKcalWeek,
+      sleepStages: staged
+        ? { deep: stage("deep"), core: stage("core"), rem: stage("rem"), awake: stage("awake") }
+        : null,
       heartToday: points("heart_rate", 0),
       glucoseToday: points("blood_glucose", 0),
     },
-    syncedAt: connection.last_synced_at === null ? null : new Date(connection.last_synced_at).toISOString(),
+    syncedAt:
+      connection.last_synced_at === null ? null : new Date(connection.last_synced_at).toISOString(),
   };
 }

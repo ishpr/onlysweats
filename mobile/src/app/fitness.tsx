@@ -1,8 +1,12 @@
 import { useState } from "react";
 import { View } from "react-native";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ClipboardCheck } from "lucide-react-native";
+import { ActionCard } from "@/components/assistant-kit";
+import { FitnessSummary, LogCard } from "@/components/fitness-kit";
 import { FitnessPilotPermissions, FitnessPilotResult } from "@/components/fitness-pilot";
+import { SectionTitle } from "@/components/list";
 import type {
   FitnessPilotConsent,
   FitnessLoggingSession,
@@ -10,6 +14,8 @@ import type {
 } from "../../../shared/fitness-outcomes";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
 import { Button, Card, Chip, Field, Notice, Row, Screen, StateView, T } from "@/components/ui";
+import { takeFitnessDraft, type FitnessDraftHandoff } from "@/lib/assistant/draft-handoff";
+import { useNow } from "@/hooks/use-now";
 import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
 import { useRefreshOnFocus } from "@/lib/queries";
@@ -33,6 +39,10 @@ export default function FitnessRoute() {
 
 function Fitness({ member, session }: PrivateMemberProps) {
   useRefreshOnFocus();
+  const params = useLocalSearchParams<{ draftId?: string }>();
+  const [importedDraft] = useState(() =>
+    typeof params.draftId === "string" ? takeFitnessDraft(params.draftId, member.id) : null,
+  );
   const router = useRouter();
   const client = useQueryClient();
   const action = usePrivateAction(session);
@@ -42,6 +52,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
   const [removeId, setRemoveId] = useState<string | null>(null);
   const [outcomeId, setOutcomeId] = useState<string | null>(null);
   const [showAiPermissions, setShowAiPermissions] = useState(false);
+  const now = useNow(60_000);
   const key = ["private-fitness", member.id];
   const consent = useQuery({
     queryKey: [...key, "consent"],
@@ -80,80 +91,15 @@ function Fitness({ member, session }: PrivateMemberProps) {
   return (
     <Screen onRefresh={() => void refresh()} refreshing={logs.isRefetching}>
       <Stack.Screen options={{ title: "Fitness log" }} />
-      <T variant="heading">Your training, in your words</T>
-      <T color="textSecondary">
-        Log the exercise and sets you completed. Your entries stay private and separate from Apple
-        Health measurements.
-      </T>
-      <Button label="Apple Health workouts" variant="soft" onPress={() => router.push("/health")} />
-      <Card>
-        <T variant="heading">Optional AI assistance</T>
-        {(consent.isPending || consent.error) && (
-          <StateView
-            loading={consent.isPending}
-            error={consent.error}
-            onRetry={() => void consent.refetch()}
-          />
-        )}
-        {consent.data && (
-          <>
-            <T variant="label">
-              {consent.data.consent.enabled
-                ? "AI assistance is on"
-                : "AI assistance is off"}
-            </T>
-            {!consent.data.consent.providerAvailable && (
-              <Notice>
-                AI assistance isn’t available yet. Logging by hand works without it.
-              </Notice>
-            )}
-            <Button
-              label={showAiPermissions ? "Hide AI permissions" : "Review AI permissions"}
-              variant="soft"
-              onPress={() => setShowAiPermissions((current) => !current)}
-            />
-            {showAiPermissions && (
-              <>
-                <T variant="caption" color="textSecondary">
-                  {FITNESS_AI_CONSENT_NOTICE}
-                </T>
-                <Button
-                  label={
-                    consent.data.consent.enabled
-                      ? "Turn off AI and remove interpretations"
-                      : "Allow AI assistance (TypeSafe)"
-                  }
-                  variant="soft"
-                  disabled={action.busy}
-                  onPress={() =>
-                    void action.run(
-                      (signal) =>
-                        session.request("/fitness/consent", {
-                          method: "PUT",
-                          json: { enabled: !consent.data!.consent.enabled },
-                          signal,
-                        }),
-                      refresh,
-                    )
-                  }
-                />
-              </>
-            )}
-          </>
-        )}
-      </Card>
-      {action.error && <Notice tone="danger">{action.error}</Notice>}
-      {pilot.data && (
-        <FitnessPilotPermissions
-          consent={pilot.data.consent}
-          aiEnabled={Boolean(consent.data?.consent.enabled && !consent.error)}
-          session={session}
-          onChanged={refresh}
-        />
-      )}
-      {pilot.error && (
+      <FitnessSummary
+        logs={logs.data?.logs ?? []}
+        now={now}
+        onHealth={() => router.push("/health")}
+      />
+      {params.draftId && !importedDraft && (
         <Notice>
-          The optional timing study isn’t available right now. You can keep logging exercises.
+          This local draft is no longer available. Enter your workout below, or return to the
+          assistant to prepare it again.
         </Notice>
       )}
       <LogEditor
@@ -162,6 +108,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
         consent={consent.error ? undefined : consent.data?.consent}
         pilotConsent={pilot.error ? undefined : pilot.data?.consent}
         initial={editing}
+        importedDraft={!editing && formVersion === 0 ? importedDraft : null}
         disabled={action.busy}
         onSaved={saved}
         onCancel={() => {
@@ -169,7 +116,8 @@ function Fitness({ member, session }: PrivateMemberProps) {
           setFormVersion((value) => value + 1);
         }}
       />
-      <T variant="heading">Saved exercises</T>
+      {action.error && <Notice tone="danger">{action.error}</Notice>}
+      <SectionTitle>Saved exercises</SectionTitle>
       {(logs.isPending || logs.error) && (
         <StateView
           loading={logs.isPending}
@@ -181,31 +129,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
         <Notice>No exercises saved yet. Start with one exercise above.</Notice>
       )}
       {logs.data?.logs.map((log) => (
-        <Card key={log.id}>
-          <T variant="heading">
-            {EXERCISE_CATALOGUE.find((exercise) => exercise.id === log.exerciseId)?.name ??
-              "Exercise"}
-          </T>
-          <T variant="caption" color="textSecondary">
-            Entered by you · {new Date(log.startedAt).toLocaleString()}
-          </T>
-          {log.sets.map((set, index) => (
-            <T key={index}>
-              Set {index + 1}: {set.reps} reps ·{" "}
-              {set.unit === "bodyweight"
-                ? "Bodyweight"
-                : set.weight === null
-                  ? "Weight not entered"
-                  : `${set.weight} ${set.unit}`}
-            </T>
-          ))}
-          <T variant="caption" color="textSecondary">
-            {log.totalRepetitions} total reps
-            {log.totalVolumeKg !== null
-              ? ` · ${log.totalVolumeKg.toFixed(1)} kg of external load × reps`
-              : " · Load total unavailable"}
-          </T>
-          {log.note ? <T>{log.note}</T> : null}
+        <LogCard key={log.id} log={log}>
           {log.measurementSessionId &&
             pilot.data?.consent.enabled &&
             !pilot.error &&
@@ -260,7 +184,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
               <Button label="Keep exercise" variant="ghost" onPress={() => setRemoveId(null)} />
             </>
           )}
-        </Card>
+        </LogCard>
       ))}
       {logs.data?.nextCursor && (
         <Button
@@ -291,6 +215,72 @@ function Fitness({ member, session }: PrivateMemberProps) {
           }
         />
       </Card>
+      <SectionTitle>Assistance and privacy</SectionTitle>
+      <Card>
+        <T variant="heading">Optional AI assistance</T>
+        {(consent.isPending || consent.error) && (
+          <StateView
+            loading={consent.isPending}
+            error={consent.error}
+            onRetry={() => void consent.refetch()}
+          />
+        )}
+        {consent.data && (
+          <>
+            <T variant="label">
+              {consent.data.consent.enabled ? "AI assistance is on" : "AI assistance is off"}
+            </T>
+            {!consent.data.consent.providerAvailable && (
+              <Notice>AI assistance isn’t available yet. Logging by hand works without it.</Notice>
+            )}
+            <Button
+              label={showAiPermissions ? "Hide AI permissions" : "Review AI permissions"}
+              variant="soft"
+              onPress={() => setShowAiPermissions((current) => !current)}
+            />
+            {showAiPermissions && (
+              <>
+                <T variant="caption" color="textSecondary">
+                  {FITNESS_AI_CONSENT_NOTICE}
+                </T>
+                <Button
+                  label={
+                    consent.data.consent.enabled
+                      ? "Turn off AI and remove interpretations"
+                      : "Allow AI assistance (TypeSafe)"
+                  }
+                  variant="soft"
+                  disabled={action.busy}
+                  onPress={() =>
+                    void action.run(
+                      (signal) =>
+                        session.request("/fitness/consent", {
+                          method: "PUT",
+                          json: { enabled: !consent.data!.consent.enabled },
+                          signal,
+                        }),
+                      refresh,
+                    )
+                  }
+                />
+              </>
+            )}
+          </>
+        )}
+      </Card>
+      {pilot.data && (
+        <FitnessPilotPermissions
+          consent={pilot.data.consent}
+          aiEnabled={Boolean(consent.data?.consent.enabled && !consent.error)}
+          session={session}
+          onChanged={refresh}
+        />
+      )}
+      {pilot.error && (
+        <Notice>
+          The optional timing study isn’t available right now. You can keep logging exercises.
+        </Notice>
+      )}
     </Screen>
   );
 }
@@ -303,6 +293,7 @@ function LogEditor({
   consent,
   pilotConsent,
   initial,
+  importedDraft,
   disabled,
   onSaved,
   onCancel,
@@ -311,21 +302,34 @@ function LogEditor({
   consent?: FitnessConsent;
   pilotConsent?: FitnessPilotConsent;
   initial: StrengthLog | null;
+  importedDraft?: FitnessDraftHandoff | null;
   disabled: boolean;
   onSaved: (measurementId?: string) => Promise<void>;
   onCancel: () => void;
 }) {
   const action = usePrivateAction(session);
-  const [exerciseId, setExercise] = useState<ExerciseId | null>(initial?.exerciseId ?? null);
-  const [startedAt, setStartedAt] = useState(() => localDateTime(initial?.startedAt));
-  const [note, setNote] = useState(initial?.note ?? "");
+  const [exerciseId, setExercise] = useState<ExerciseId | null>(
+    initial?.exerciseId ?? (importedDraft ? draftExerciseId(importedDraft.exerciseName) : null),
+  );
+  const [startedAt, setStartedAt] = useState(() =>
+    importedDraft ? "" : localDateTime(initial?.startedAt),
+  );
+  const [note, setNote] = useState(initial?.note ?? importedDraft?.note ?? "");
+  const [completionConfirmed, setCompletionConfirmed] = useState(!importedDraft);
   const [sets, setSets] = useState<SetFields[]>(
     () =>
       initial?.sets.map((set) => ({
         reps: String(set.reps),
         weight: set.weight === null ? "" : String(set.weight),
         unit: set.unit,
-      })) ?? [emptySet()],
+      })) ??
+      (importedDraft
+        ? Array.from({ length: importedDraft.sets ?? 0 }, () => ({
+            reps: importedDraft.reps === null ? "" : String(importedDraft.reps),
+            weight: importedDraft.weight === null ? "" : String(importedDraft.weight),
+            unit: importedDraft.unit,
+          }))
+        : [emptySet()]),
   );
   const [measurement, setMeasurement] = useState<{
     session: FitnessLoggingSession;
@@ -344,6 +348,8 @@ function LogEditor({
   const save = () =>
     action.run(
       async (signal) => {
+        if (!completionConfirmed)
+          throw new Error("Confirm that you completed these sets before saving.");
         if (!exerciseId) throw new Error("Choose the exercise you completed.");
         if (exerciseId === "other" && !note.trim())
           throw new Error("Describe the exercise in your note.");
@@ -395,6 +401,29 @@ function LogEditor({
   return (
     <Card>
       <T variant="heading">{initial ? "Edit your exercise" : "Log an exercise"}</T>
+      {importedDraft && (
+        <ActionCard
+          icon={ClipboardCheck}
+          title={
+            importedDraft.intent === "planned"
+              ? "Imported from your plan"
+              : importedDraft.intent === "completed"
+                ? "Imported from your workout description"
+                : "Review this imported draft"
+          }
+          facts={[
+            ...(importedDraft.sets === null ? [] : [`${importedDraft.sets} sets`]),
+            ...(importedDraft.reps === null ? [] : [`${importedDraft.reps} reps per set`]),
+            completionConfirmed ? "Completion confirmed" : "Completion not yet confirmed",
+          ]}
+          note="Check the sets you actually did and enter when you trained. Nothing is saved until you save the log."
+          primary={{
+            label: completionConfirmed ? "Undo completion confirmation" : "I completed these sets",
+            onPress: () => setCompletionConfirmed((value) => !value),
+          }}
+          busy={busy}
+        />
+      )}
       {pilotConsent?.enabled && !initial && (
         <>
           <T variant="caption" color="textSecondary">
@@ -572,7 +601,7 @@ function LogEditor({
       {action.error && <Notice tone="danger">{action.error}</Notice>}
       <Button
         label={initial ? "Save changes" : "Save exercise"}
-        disabled={busy}
+        disabled={busy || !completionConfirmed}
         loading={action.busy}
         onPress={() => void save()}
       />
@@ -583,5 +612,16 @@ function LogEditor({
         onPress={onCancel}
       />
     </Card>
+  );
+}
+
+function draftExerciseId(name: string): ExerciseId | null {
+  const normalized = name.trim().toLowerCase().replace(/[-_]/g, " ").replace(/\s+/g, " ");
+  return (
+    EXERCISE_CATALOGUE.find(
+      (item) =>
+        item.id.replace(/_/g, " ") === normalized ||
+        item.name.toLowerCase().replace(/-/g, " ") === normalized,
+    )?.id ?? null
   );
 }

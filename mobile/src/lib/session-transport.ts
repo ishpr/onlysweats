@@ -6,6 +6,7 @@ export type SessionRequest = {
 
 export type ApiSession = {
   request<T>(path: string, init?: SessionRequest): Promise<T>;
+  stream(path: string, init: SessionRequest, onChunk: (chunk: string) => void): Promise<void>;
   isCurrent(): boolean;
 };
 
@@ -15,11 +16,34 @@ export function createSessionTransport(deps: {
   version: number;
   currentVersion: () => number;
   send: <T>(token: string, path: string, init: SessionRequest) => Promise<T>;
+  stream?: (
+    token: string,
+    path: string,
+    init: SessionRequest,
+    onChunk: (chunk: string) => void,
+  ) => Promise<void>;
   stale: () => Error;
 }): ApiSession {
   const isCurrent = () => deps.currentVersion() === deps.version;
   return {
     isCurrent,
+    async stream(path, init, onChunk) {
+      const assertCurrent = () => {
+        if (!isCurrent() || init.signal?.aborted) throw deps.stale();
+      };
+      assertCurrent();
+      if (!deps.stream) throw new Error("Streaming is unavailable. Update the app and try again.");
+      try {
+        await deps.stream(deps.token, path, init, (chunk) => {
+          assertCurrent();
+          onChunk(chunk);
+        });
+        assertCurrent();
+      } catch (error) {
+        assertCurrent();
+        throw error;
+      }
+    },
     async request<T>(path: string, init: SessionRequest = {}): Promise<T> {
       if (!isCurrent() || init.signal?.aborted) throw deps.stale();
       try {

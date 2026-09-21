@@ -8,12 +8,23 @@
  */
 module.exports = ({ config }) => {
   const iosUrlScheme = process.env.GOOGLE_IOS_URL_SCHEME;
+  // Only the dedicated device-phone profile sets this false. Other builds keep
+  // the companion; a phone-only CNG build omits its target and signing record.
+  const includeWatch = process.env.SAMEPACE_INCLUDE_WATCH !== "false";
   return {
     ...config,
     plugins: [
       ...(config.plugins ?? []),
+      ["expo-build-properties", { ios: { enableSceneSupport: true } }],
       "./plugins/with-healthkit",
+      "./plugins/with-intelligence",
+      ...(includeWatch ? ["./plugins/with-watch"] : []),
       "expo-sharing",
+      ["expo-image-picker", {
+        photosPermission: "Choose a workout plan photo to turn into a private, editable draft on this iPhone.",
+        cameraPermission: "Photograph a workout plan to review its exercises before saving a log.",
+        microphonePermission: false,
+      }],
       ...(iosUrlScheme ? [["@react-native-google-signin/google-signin", { iosUrlScheme }]] : []),
     ],
   };

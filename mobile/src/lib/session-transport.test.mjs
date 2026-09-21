@@ -7,11 +7,15 @@ test("an in-flight health request uses its captured token and discards results a
   let finish;
   const calls = [];
   const session = createSessionTransport({
-    token: "first-member", version: 1, currentVersion: () => version,
+    token: "first-member",
+    version: 1,
+    currentVersion: () => version,
     stale: () => new Error("stale"),
     send: (token, path) => {
       calls.push({ token, path });
-      return new Promise((resolve) => { finish = resolve; });
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
     },
   });
   const pending = session.request("/health/sync");
@@ -28,9 +32,16 @@ test("a canceled request never starts and cancellation hides an already-running 
   let finish;
   let calls = 0;
   const session = createSessionTransport({
-    token: "member", version: 1, currentVersion: () => 1,
+    token: "member",
+    version: 1,
+    currentVersion: () => 1,
     stale: () => new Error("stale"),
-    send: () => { calls += 1; return new Promise((resolve) => { finish = resolve; }); },
+    send: () => {
+      calls += 1;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
   });
   const pending = session.request("/health/sync", { signal: controller.signal });
   controller.abort();
@@ -43,10 +54,72 @@ test("a canceled request never starts and cancellation hides an already-running 
 test("current-session failures remain actionable and successful requests retain their response", async () => {
   const failure = new Error("offline");
   const session = createSessionTransport({
-    token: "member", version: 3, currentVersion: () => 3,
+    token: "member",
+    version: 3,
+    currentVersion: () => 3,
     stale: () => new Error("stale"),
-    send: async (_, path) => { if (path === "/fail") throw failure; return { ok: true }; },
+    send: async (_, path) => {
+      if (path === "/fail") throw failure;
+      return { ok: true };
+    },
   });
   await assert.rejects(session.request("/fail"), (error) => error === failure);
   assert.deepEqual(await session.request("/ok"), { ok: true });
+});
+
+test("stream uses only captured credentials and fences chunks after an account change", async () => {
+  let version = 1;
+  const received = [];
+  let publish, finish;
+  const session = createSessionTransport({
+    token: "first-member",
+    version: 1,
+    currentVersion: () => version,
+    stale: () => new Error("stale"),
+    send: async () => ({}),
+    stream: async (token, path, init, onChunk) => {
+      assert.equal(token, "first-member");
+      assert.equal(path, "/assistant/chat");
+      publish = onChunk;
+      await new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  const pending = session.stream("/assistant/chat", {}, (chunk) => received.push(chunk));
+  publish("first");
+  version = 2;
+  assert.throws(() => publish("private late chunk"), /stale/);
+  finish();
+  await assert.rejects(pending, /stale/);
+  await assert.rejects(
+    session.stream("/assistant/chat", {}, () => {}),
+    /stale/,
+  );
+  assert.deepEqual(received, ["first"]);
+});
+
+test("cancelled streams cannot publish even when the network ignores its abort signal", async () => {
+  const controller = new AbortController();
+  let publish, finish;
+  const session = createSessionTransport({
+    token: "member",
+    version: 1,
+    currentVersion: () => 1,
+    stale: () => new Error("stale"),
+    send: async () => ({}),
+    stream: async (_, __, ___, chunk) => {
+      publish = chunk;
+      await new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  const pending = session.stream("/assistant/chat", { signal: controller.signal }, () =>
+    assert.fail(),
+  );
+  controller.abort();
+  assert.throws(() => publish("late"), /stale/);
+  finish();
+  await assert.rejects(pending, /stale/);
 });

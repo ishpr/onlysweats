@@ -14,12 +14,14 @@ import {
 import { DarkTheme, DefaultTheme, type Href, Stack, ThemeProvider, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AppState, Platform, Pressable, Text } from "react-native";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
-import { ApiError } from "@/lib/api";
+import { ApiError, captureApiSession } from "@/lib/api";
+import { HealthSyncBoundary } from "@/hooks/use-health-sync";
+import { useMe } from "@/lib/queries";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { AnimatedSplash } from "@/components/animated-splash";
 import { loadAppearance } from "@/lib/appearance";
@@ -61,9 +63,26 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <Routes />
+        <AppServices>
+          <Routes />
+        </AppServices>
       </AuthProvider>
     </QueryClientProvider>
+  );
+}
+
+function AppServices({ children }: { children: ReactNode }) {
+  const { signedIn } = useAuth();
+  return signedIn ? <SignedInHealthServices>{children}</SignedInHealthServices> : children;
+}
+
+function SignedInHealthServices({ children }: { children: ReactNode }) {
+  const me = useMe();
+  const [session] = useState(captureApiSession);
+  return (
+    <HealthSyncBoundary ownerId={me.data?.id ?? null} session={session}>
+      {children}
+    </HealthSyncBoundary>
   );
 }
 

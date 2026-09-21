@@ -181,27 +181,12 @@ const arc = (c: number, r: number, from: number, to: number) => {
   return `M${a.x.toFixed(2)},${a.y.toFixed(2)} A${r},${r} 0 ${to - from > 180 ? 1 : 0} 1 ${b.x.toFixed(2)},${b.y.toFixed(2)}`;
 };
 
-/**
- * The day, as a three-part gauge: easy fills one part, steady two, ready all three.
- * It is a picture of the headline beside it, not a number — there is no score to chase.
- */
-export function DayDial({
-  level,
-  size = 112,
-  children,
-}: {
-  /** 0 easy · 1 steady · 2 ready · null unknown */
-  level: 0 | 1 | 2 | null;
-  size?: number;
-  children?: React.ReactNode;
-}) {
+/** Decorative frame for recorded history. It never fills or encodes readiness. */
+export function DayDial({ size = 112, children }: { size?: number; children?: React.ReactNode }) {
   const theme = useTheme();
   const stroke = 11;
   const c = size / 2;
   const r = c - stroke / 2 - 1;
-  // A gauge that fills: calm blue on an easy day, the brand green otherwise. Never red —
-  // no part of this dial is a warning.
-  const lit = level === 0 ? theme.stand : theme.accent;
   // 240° sweep, open at the bottom, split in three; the gaps allow for the round caps.
   const parts: [number, number][] = [
     [-120, -52],
@@ -219,7 +204,7 @@ export function DayDial({
           <Path
             key={i}
             d={arc(c, r, from, to)}
-            stroke={level !== null && i <= level ? lit : withAlpha(theme.text, 0.08)}
+            stroke={withAlpha(theme.text, 0.08)}
             strokeWidth={stroke}
             strokeLinecap="round"
             fill="none"

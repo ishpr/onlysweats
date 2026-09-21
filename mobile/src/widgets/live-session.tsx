@@ -33,16 +33,19 @@ const LiveSession = (props: LiveSessionProps, env: LiveActivityEnvironment) => {
   const accent = env.isLuminanceReduced ? "#F5F5F7" : "#30D158";
   const blue = env.isLuminanceReduced ? "#F5F5F7" : "#64D2FF";
   const done = props.meIn && props.themIn;
+  const stale = env.isStale === true;
   const started = Date.now() >= props.startAt;
   // Count down to the start, then to the moment check-in closes.
   const target = new Date(started ? props.closesAt : props.startAt);
-  const headline = done
-    ? "Both checked in"
-    : props.meIn
-      ? `Waiting for ${props.other}`
-      : started
-        ? "Check in before it closes"
-        : "Check-in is open";
+  const headline = stale
+    ? "Open SamePace for current status"
+    : done
+      ? "Both checked in"
+      : props.meIn
+        ? `Waiting for ${props.other}`
+        : started
+          ? "Check in before it closes"
+          : "Check-in is open";
 
   const timer = (size: number) => (
     <Text
@@ -77,7 +80,7 @@ const LiveSession = (props: LiveSessionProps, env: LiveActivityEnvironment) => {
             {headline.toUpperCase()}
           </Text>
           <Spacer />
-          {!done && timer(15)}
+          {!done && !stale && timer(15)}
         </HStack>
         <Text
           modifiers={[font({ size: 17, weight: "semibold" }), foregroundStyle(text), lineLimit(1)]}
@@ -97,13 +100,14 @@ const LiveSession = (props: LiveSessionProps, env: LiveActivityEnvironment) => {
     compactLeading: (
       <Image systemName={done ? "checkmark.circle.fill" : "figure.run"} size={14} color={accent} />
     ),
-    compactTrailing: done ? (
-      <Text modifiers={[font({ size: 13, weight: "semibold" }), foregroundStyle(accent)]}>
-        Done
-      </Text>
-    ) : (
-      timer(13)
-    ),
+    compactTrailing:
+      done || stale ? (
+        <Text modifiers={[font({ size: 13, weight: "semibold" }), foregroundStyle(accent)]}>
+          {stale ? "Open" : "Arrived"}
+        </Text>
+      ) : (
+        timer(13)
+      ),
     minimal: (
       <Image systemName={done ? "checkmark.circle.fill" : "figure.run"} size={13} color={accent} />
     ),
@@ -115,9 +119,17 @@ const LiveSession = (props: LiveSessionProps, env: LiveActivityEnvironment) => {
     ),
     expandedTrailing: (
       <VStack alignment="trailing" spacing={0} modifiers={[padding({ trailing: 6, top: 4 })]}>
-        {done ? <Image systemName="checkmark.circle.fill" size={22} color={accent} /> : timer(20)}
+        {done || stale ? (
+          <Image
+            systemName={stale ? "arrow.clockwise" : "checkmark.circle.fill"}
+            size={22}
+            color={accent}
+          />
+        ) : (
+          timer(20)
+        )}
         <Text modifiers={[font({ size: 11 }), foregroundStyle(muted)]}>
-          {done ? "done" : started ? "to check in" : "to start"}
+          {stale ? "refresh" : done ? "checked in" : started ? "to check in" : "to start"}
         </Text>
       </VStack>
     ),

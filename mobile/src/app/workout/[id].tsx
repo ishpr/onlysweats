@@ -2,8 +2,22 @@ import { useState } from "react";
 import { View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
+import { StageBar } from "@/components/charts";
+import { Spacing } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
-import { Button, Card, Chip, Field, Notice, Screen, StateView, T } from "@/components/ui";
+import { WorkoutLocalRecap } from "@/components/workout-local-recap";
+import {
+  Button,
+  Card,
+  Chip,
+  Field,
+  Notice,
+  Screen,
+  StateView,
+  T,
+  withAlpha,
+} from "@/components/ui";
 import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
 import { useRefreshOnFocus } from "@/lib/queries";
@@ -62,6 +76,20 @@ function Workout({ member, session }: PrivateMemberProps) {
       {query.data && !query.error && (
         <>
           <WorkoutFacts workout={query.data.workout} correction={correction.data?.correction} />
+          <WorkoutLocalRecap
+            key={JSON.stringify([query.data.workout, correction.data?.correction ?? null])}
+            session={session}
+            summary={{
+              activity: query.data.workout.record.activity,
+              durationSeconds: query.data.workout.record.durationSeconds,
+              distanceMeters: query.data.workout.record.distanceMeters,
+              averageHeartRateBpm: query.data.workout.heartRate.sampleMeanBpm,
+              activeEnergyKcal: query.data.workout.record.activeEnergyKilocalories,
+              memberNote: correction.error
+                ? undefined
+                : (correction.data?.correction?.note ?? undefined),
+            }}
+          />
           {(correction.isPending || correction.error) && (
             <StateView
               loading={correction.isPending}
@@ -98,6 +126,14 @@ function WorkoutFacts({
   workout: PrivateWorkout;
   correction?: WorkoutCorrection | null;
 }) {
+  const theme = useTheme();
+  const zoneColors = [
+    theme.stand,
+    withAlpha(theme.stand, 0.65),
+    theme.exercise,
+    theme.accent,
+    withAlpha(theme.move, 0.65),
+  ];
   const pace =
     workout.paceSecondsPerKilometer === null ? null : Math.round(workout.paceSecondsPerKilometer);
   return (
@@ -139,6 +175,61 @@ function WorkoutFacts({
         {workout.heartRate.sampleCount} readings from the workout’s recording source. The average is
         calculated across samples, not over time. This is recorded history, not a live pulse.
       </T>
+      {workout.record.zones?.map((group) => (
+        <View key={group.metric} style={{ gap: Spacing.one }}>
+          <T variant="label">
+            {group.metric === "heart_rate" ? "Heart-rate" : "Cycling-power"} zones
+          </T>
+          <T variant="caption" color="textSecondary">
+            Recorded thresholds ·{" "}
+            {group.source === "system"
+              ? "Apple Health system"
+              : group.source === "user"
+                ? "Your Health settings"
+                : "Recording app"}
+          </T>
+          {group.zones.some(
+            (zone) => typeof zone.durationSeconds === "number" && zone.durationSeconds > 0,
+          ) && (
+            <>
+              <StageBar
+                stages={group.zones.flatMap((zone) =>
+                  typeof zone.durationSeconds === "number" &&
+                  Number.isFinite(zone.durationSeconds) &&
+                  zone.durationSeconds > 0
+                    ? [
+                        {
+                          label: `Zone ${zone.index + 1} · ${(zone.durationSeconds / 60).toFixed(1)} min`,
+                          minutes: zone.durationSeconds / 60,
+                          color: zoneColors[Math.min(zone.index, zoneColors.length - 1)],
+                        },
+                      ]
+                    : [],
+                )}
+              />
+              {group.zones.some((zone) => zone.durationSeconds == null) && (
+                <T variant="caption" color="textSecondary">
+                  Only zones with recorded durations are shown in the bar.
+                </T>
+              )}
+            </>
+          )}
+          {group.zones.map((zone) => (
+            <T key={zone.index}>
+              Zone {zone.index + 1}: {zone.minimum ?? "below"}–{zone.maximum ?? "and above"}{" "}
+              {group.unit} ·{" "}
+              {zone.durationSeconds === null
+                ? "duration unavailable"
+                : `${(zone.durationSeconds / 60).toFixed(1)} min`}
+            </T>
+          ))}
+        </View>
+      ))}
+      {!workout.record.zones?.length && (
+        <T variant="caption" color="textSecondary">
+          Source-reported workout zones unavailable. We do not estimate missing zones.
+        </T>
+      )}
       {correction && (
         <>
           <T variant="label">Your correction</T>

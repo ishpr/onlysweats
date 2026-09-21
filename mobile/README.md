@@ -33,7 +33,7 @@ npx eas build --profile development --platform ios
 ```
 
 For a physical iPhone, use the `device` profile instead. It includes the native
-HealthKit reader and export sharing, uses the live SamePace API, and preserves
+HealthKit import, local Apple intelligence, Shortcuts, Watch recording and export sharing, uses the live SamePace API, and preserves
 Expo live reload. See [the release checklist](../docs/RELEASE-CHECKLIST.md).
 
 Then `npx expo start` opens the dev build; `npx expo start --go` still opens Expo Go.
@@ -152,13 +152,14 @@ Training-block progress is attendance-based, with no weight goal. Optional priva
 
 ## Apple Health
 
-You → Apple Health opens `/health`: read-only Apple Health access, manual sync of workouts and selected readings, private history, export, removal, and disconnect. It requires the rebuilt iOS client and `HEALTH_SYNC_ENABLED=true` on the API. The flag is configured in production and preview; actual iPhone permissions and source changes still require acceptance.
+You → Apple Health opens `/health`: Apple Health import, manual or explicitly enabled automatic foreground sync, private history, export, removal and disconnect. It requires the rebuilt iOS client and `HEALTH_SYNC_ENABLED=true` on the API. Actual iPhone permissions and source changes still require acceptance. The companion Watch recorder saves its own workouts with separate write permission.
 
 See [the integration guide](../docs/APPLE-HEALTH.md) for supported data, privacy boundaries, and device checks. Android/web/Expo Go cannot read HealthKit. `/workout/[id]` preserves corrections separately from source facts. `/fitness` provides manual logs and separately consented editable Jev suggestions; the provider key stays on the server. `/assistant` shares only entered planning preferences through mutually consented conversations, with separate human booking approval. Raw health records are never shared with delegated agents.
 
-## Not done
+## Private assistant
 
-Membership billing and fee collection (the server only keeps a ledger), gym
-matching, a map, fee disputes. Invite links open
-`https://samepace.app/invite/<code>`, which hands off to the app; universal links
-(no hand-off page) still need the associated-domains files.
+`/assistant` separates private on-device/cloud conversation from planning and approvals. Local photo/text drafts open the editable exercise log; nothing is automatically completed or saved. Cloud conversation and workout-summary sharing require separate consent, and provider keys remain server-side. A new native binary is required for local intelligence, Shortcuts, background HealthKit observation and Watch recording. See [intelligence architecture](../docs/INTELLIGENCE.md) and [physical acceptance](../docs/INTELLIGENCE-ACCEPTANCE.md).
+
+## Remaining acceptance
+
+See the maintained [vision roadmap](../docs/VISION-ROADMAP.md) for provider, physical-device, store and operating acceptance. Implemented payment, verification and link software must not be confused with live enforcement or completed device testing.

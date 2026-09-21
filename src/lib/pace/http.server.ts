@@ -31,9 +31,11 @@ import {
 import * as fitness from "../fitness/service.server";
 import * as outcomes from "../fitness/outcomes.server";
 import * as billing from "../billing/service.server";
+import * as conversation from "../conversation/service.server";
 import { FitnessError, fitnessPageInput } from "../fitness/contracts";
 
 type Ctx = {
+  request: Request;
   sql: Sql;
   userId: string;
   /** The verified sign-in identity — what the admin gate checks. */
@@ -216,6 +218,9 @@ const admin =
 
 /** What a suspended member can still reach: read why, and delete the account. */
 const OPEN_WHEN_SUSPENDED = new Set([
+  "GET /assistant/chat",
+  "PUT /assistant/settings",
+  "DELETE /assistant/chat",
   "GET /me",
   "DELETE /me",
   "POST /devices",
@@ -255,6 +260,10 @@ const OPEN_WHEN_SUSPENDED = new Set([
 ]);
 
 const routes: [method: string, pattern: string, handler: Handler][] = [
+  ["GET", "/assistant/chat", ({ sql, userId }) => conversation.getHistory(sql, userId)],
+  ["PUT", "/assistant/settings", ({ sql, userId, body }) => conversation.setSettings(sql, userId, body)],
+  ["DELETE", "/assistant/chat", ({ sql, userId }) => conversation.clearHistory(sql, userId)],
+  ["POST", "/assistant/chat", ({ sql, userId, body, request }) => conversation.chatResponse(sql, userId, body, request.signal)],
   [
     "POST",
     "/billing/refresh",
@@ -1136,7 +1145,8 @@ export async function handleApi(request: Request): Promise<Response> {
   const healthRequest = isHealthPath(path);
   const fitnessRequest = path === "/fitness" || path.startsWith("/fitness/");
   const agentRequest = path === "/agents" || path.startsWith("/agents/");
-  const privateFitnessRequest = healthRequest || fitnessRequest;
+  const conversationRequest = path === "/assistant" || path.startsWith("/assistant/");
+  const privateFitnessRequest = healthRequest || fitnessRequest || conversationRequest;
   const sensitiveRequest =
     privateFitnessRequest ||
     agentRequest ||
@@ -1204,7 +1214,9 @@ export async function handleApi(request: Request): Promise<Response> {
     }
 
     let body: unknown = undefined;
-    if (sensitiveRequest && request.method !== "GET") {
+    if (conversationRequest && ["POST", "PUT"].includes(request.method)) {
+      body = await conversation.readChatBody(request);
+    } else if (sensitiveRequest && request.method !== "GET") {
       body = await readHealthBody(request);
     } else if (request.method !== "GET" && request.headers.get("content-length") !== "0") {
       const text = await request.text();
@@ -1217,6 +1229,7 @@ export async function handleApi(request: Request): Promise<Response> {
       }
     }
     const data = await found.handler({
+      request,
       sql,
       userId: session.user.id,
       user: {
@@ -1231,8 +1244,10 @@ export async function handleApi(request: Request): Promise<Response> {
     if (!privateFitnessRequest && request.method !== "GET") {
       await notify.deliverDue(sql).catch((err) => console.error("[push]", err));
     }
+    if (data instanceof Response) { responseStatus = data.status; return data; }
     return respond(data);
   } catch (err) {
+    if (err instanceof conversation.ChatError) return respond({ error: err.message }, err.status);
     if (err instanceof FitnessError) return respond({ error: err.message }, err.status);
     if (err instanceof HealthError) return respond({ error: err.message }, err.status);
     if (err instanceof svc.PaceError) {

@@ -7,6 +7,7 @@ import { defaultAbility } from "@/lib/ability";
 import type { ApiSession } from "@/lib/api";
 import { localDateTime, parseLocalDateTime } from "@/lib/local-datetime";
 import { ACTIVITIES, type Activity, type MemberAbilities, type Venue } from "@/lib/types";
+import type { ChatPreferenceDraft } from "../../../shared/conversation";
 import type { AssistantPreferences, AssistantPreferencesInput } from "../../../shared/assistant";
 
 export function AssistantPreferencesEditor({
@@ -14,21 +15,27 @@ export function AssistantPreferencesEditor({
   initial,
   venues,
   abilities,
+  draft,
   onSaved,
 }: {
   session: ApiSession;
   initial: AssistantPreferences;
   venues: Venue[];
   abilities: MemberAbilities;
+  draft?: ChatPreferenceDraft;
   onSaved: () => Promise<unknown>;
 }) {
   const action = usePrivateAction(session);
   const [enabled, setEnabled] = useState(initial.enabled);
-  const [activity, setActivity] = useState(initial.activity);
-  const [ability, setAbility] = useState(initial.ability);
-  const [duration, setDuration] = useState(String(initial.durationMin));
+  const [activity, setActivity] = useState(draft?.activity ?? initial.activity);
+  const [ability, setAbility] = useState(
+    draft?.activity && draft.activity !== initial.activity
+      ? defaultAbility(draft.activity, abilities)
+      : initial.ability,
+  );
+  const [duration, setDuration] = useState(String(draft?.durationMin ?? initial.durationMin));
   const [venueIds, setVenues] = useState(initial.venueIds);
-  const [intent, setIntent] = useState(initial.approvedIntent);
+  const [intent, setIntent] = useState(draft?.approvedIntent ?? initial.approvedIntent);
   const [windows, setWindows] = useState(() =>
     initial.availability.map((window) => ({
       startAt: localDateTime(window.startAt),
@@ -78,6 +85,12 @@ export function AssistantPreferencesEditor({
   return (
     <Card>
       <T variant="heading">Preferences you choose to share</T>
+      {draft && (
+        <Notice>
+          These are assistant suggestions. Check the activity, ability, duration and note before
+          saving. Sharing stays under your control; nothing has been sent to another member.
+        </Notice>
+      )}
       <T variant="caption" color="textSecondary">
         Share these entered preferences with buddies and their assistants in conversations you both
         join. Your Apple Health data and exercise log stay private.

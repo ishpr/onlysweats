@@ -320,3 +320,61 @@ test("workouts must be selected before a permission prompt or cloud opt-in", asy
   assert.equal(f.calls.length, 0);
   assert.equal(f.promptCount, 0);
 });
+
+
+test("automatic resume requires saved opt-in and never requests permission", async () => {
+  const manual = fixture();
+  await manual.controller.resumeAutomatic();
+  assert.equal(manual.reads.length, 0);
+  const automatic = fixture({ connection: { ...initialConnection(), automaticSync: true } });
+  await automatic.controller.resumeAutomatic();
+  assert.equal(automatic.reads.length, 1);
+  assert.equal(automatic.promptCount, 0);
+  assert.equal(automatic.calls.filter((call) => call.path === "/health/connection" && call.method === "POST").length, 0);
+});
+
+test("automatic resume and nested zone selection remain bound to captured consent", async () => {
+  const f = fixture({ connection: { ...initialConnection(["workout", "heart_rate"]), automaticSync: true } });
+  await f.controller.resumeAutomatic();
+  assert.deepEqual(f.reads[0].zoneTypes, ["heart_rate"]);
+  f.switchAccount();
+  const previous = f.reads.length;
+  await f.controller.resumeAutomatic();
+  assert.equal(f.reads.length, previous);
+});
+
+
+test("automatic resume rechecks the fresh connection when consent changes after refresh", async () => {
+  let reads = 0;
+  const f = fixture({
+    connection: { ...initialConnection(), automaticSync: true },
+    request: async (path, init, server) => {
+      if (path === "/health/connection" && !init.method && ++reads === 2) {
+        server.connection = { ...server.connection, generation: "revoked", automaticSync: false };
+      }
+    },
+  });
+  await f.controller.resumeAutomatic();
+  assert.equal(f.reads.length, 0);
+  assert.equal(f.controller.getSnapshot().connection.automaticSync, false);
+  assert.equal(f.calls.filter((call) => call.path === "/health/sync").length, 0);
+});
+
+test("automatic sync never follows a disabled connection after a cursor conflict", async () => {
+  let writes = 0;
+  const f = fixture({
+    connection: { ...initialConnection(), automaticSync: true },
+    request: async (path, init, server) => {
+      if (path === "/health/sync") {
+        writes += 1;
+        server.connection = { ...server.connection, generation: "revoked", automaticSync: false };
+        throw apiError(409);
+      }
+    },
+  });
+  await f.controller.resumeAutomatic();
+  assert.equal(writes, 1);
+  assert.equal(f.reads.length, 1);
+  assert.equal(f.controller.getSnapshot().error, null);
+  assert.equal(f.controller.getSnapshot().connection.automaticSync, false);
+});
