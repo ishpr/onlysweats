@@ -32,4 +32,6 @@ The Mac was still locked when device testing was retried. A single fresh synthet
 
 The release guides now point to [iPhone build e01757e4](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/e01757e4-d659-442b-861a-dd611db94636), which includes native plan generation. This follow-up uses compatible JavaScript and the same client.
 
+Later same-day follow-up: the Mac was unlocked and the physical iPhone 17 Pro Max connected on iOS 27. Refreshing Device Hub's stale mirrored stream showed imported Health data and the current home screen. The user confirmed Apple sign-in after the native Origin/cookie fix in [PR #33](https://github.com/ishpr/onlysweats/pull/33). These checks resolve the earlier connection/sign-in blockers; full hardware and shared-workout acceptance, including on-device draft generation, remains pending. See the updated [functional handoff](../FUNCTIONAL-HANDOFF.md). No Gateway credit purchase or cloud feature activation occurred.
+
 Release PR: [#32](https://github.com/ishpr/onlysweats/pull/32). Verified code source: `556a875c591d41ca783e899ecc9e06d552b107f6`; the subsequent evidence update changes documentation only.
