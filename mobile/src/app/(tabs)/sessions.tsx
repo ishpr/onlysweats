@@ -5,11 +5,12 @@ import { ScrollView, StyleSheet, View } from "react-native";
 
 import { SessionCard } from "@/components/session-card";
 import { Enter } from "@/components/motion";
+import { TrainingBlockCard } from "@/components/training-block-card";
 import { Chip, EmptyState, Screen, StateView, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { clusterHour } from "@/lib/format";
 import { byId } from "@/lib/lookup";
-import { useRefreshOnFocus, useSessions, useVenues } from "@/lib/queries";
+import { usePublicTrainingBlocks, useRefreshOnFocus, useSessions, useVenues } from "@/lib/queries";
 import type { Session } from "@/lib/types";
 import { AppHeader } from "@/components/brand";
 
@@ -33,6 +34,7 @@ export default function Sessions() {
   const router = useRouter();
   const [filter, setFilter] = useState("all");
   const open = useSessions();
+  const blocks = usePublicTrainingBlocks();
   const venues = byId(useVenues().data);
   const test = FILTERS.find((f) => f.id === filter)!.test;
   // By default, hide only what I KNOW is the wrong level; unknown levels stay.
@@ -40,11 +42,13 @@ export default function Sessions() {
   const inWindow = (open.data?.sessions ?? []).filter(test);
   const list = allLevels ? inWindow : inWindow.filter((s) => s.fitsMe !== false);
   const hidden = inWindow.length - list.length;
+  // Same rule as sessions: hide only what I know is the wrong level.
+  const trainingBlocks = (blocks.data ?? []).filter((b) => allLevels || b.fitsMe !== false);
 
   return (
     <Screen
       header={<AppHeader />}
-      onRefresh={() => void open.refetch()}
+      onRefresh={() => void Promise.all([open.refetch(), blocks.refetch()])}
       refreshing={open.isRefetching}
     >
       <View>
@@ -75,6 +79,24 @@ export default function Sessions() {
           selected={allLevels}
           onPress={() => setAllLevels(!allLevels)}
         />
+      )}
+
+      {trainingBlocks.length > 0 && (
+        <View style={styles.section}>
+          <T variant="heading">Training blocks</T>
+          <T variant="caption" color="textSecondary">
+            Every week until a date. Joining one is joining all of its sessions.
+          </T>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filters}
+          >
+            {trainingBlocks.map((b) => (
+              <TrainingBlockCard key={b.id} block={b} venues={venues} />
+            ))}
+          </ScrollView>
+        </View>
       )}
 
       {open.isPending || open.error ? (
@@ -110,4 +132,5 @@ export default function Sessions() {
 
 const styles = StyleSheet.create({
   filters: { gap: Spacing.one, paddingRight: Spacing.three },
+  section: { gap: Spacing.one },
 });

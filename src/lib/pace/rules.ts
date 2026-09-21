@@ -124,10 +124,48 @@ export function abilityFits(
   }
 }
 
+// ── Words ────────────────────────────────────────────────────────────────────
+
+/**
+ * PRD v0.3 §8: what a member writes stays about the workout. The list is the
+ * PRD's, matched as whole words — "singletrack" passes, "single" doesn't — minus
+ * "match" and "date": "match my pace" and "race date" are what people write here,
+ * and the `date_framing` report covers the other meaning. One list to tune.
+ */
+export const BANNED_WORDS = [
+  "tinder",
+  "swipe",
+  "spark",
+  "gym crush",
+  "crush",
+  "single",
+  "cute",
+  "chemistry",
+  "vibe",
+] as const;
+
+const BANNED = new RegExp(
+  `(?<![\\p{L}\\p{N}])(${BANNED_WORDS.map((w) => w.replace(" ", "\\s+")).join("|")})(?![\\p{L}\\p{N}])`,
+  "iu",
+);
+
+/** Workout terms that contain a banned word and mean nothing of the sort. */
+const WORKOUT_TERMS = /single[-\s](leg|arm)/giu;
+
+/** Checks every piece of text a member typed; names the word so they can fix it. */
+export function cleanText(...texts: (string | null | undefined)[]): RuleResult {
+  for (const text of texts) {
+    const hit = text ? BANNED.exec(text.replace(WORKOUT_TERMS, "")) : null;
+    if (hit) return no(`Keep it about the workout — “${hit[1].toLowerCase()}” can’t go in a listing.`);
+  }
+  return ok;
+}
+
 // ── Posting + joining ────────────────────────────────────────────────────────
 
 export type PostInput = {
   title: string;
+  detail?: string;
   activity: Activity;
   ability: Ability | null | undefined;
   startAt: number;
@@ -146,6 +184,8 @@ export function canPost(
   now: number,
 ): RuleResult {
   if (!input.title.trim()) return no("Give it a title.");
+  const words = cleanText(input.title, input.detail);
+  if (!words.ok) return words;
   if (input.startAt < now + MIN_LEAD_TIME_MS) return no("Pick a start at least 30 minutes out.");
   if (!Number.isInteger(input.capacity) || input.capacity < 2 || input.capacity > 4) {
     return no("Sessions stay between 2 and 4 people.");
@@ -389,6 +429,8 @@ export function validBlock(input: BlockInput): RuleResult {
   const fits = GOAL_ACTIVITIES[input.goalKind];
   if (fits && !fits.includes(input.activity)) return no("That goal doesn’t go with this activity.");
   const name = input.eventName?.trim() ?? "";
+  const words = cleanText(name);
+  if (!words.ok) return words;
   if (input.goalKind === "consistency" && name) return no("A consistency goal doesn’t take an event name.");
   if (input.goalKind === "event_other" && !name) return no("Name the event.");
   if (name.length > 60) return no("Keep the event name short.");
@@ -463,3 +505,46 @@ export function plannedAndKept(
 
 export const blockFinished = (p: { planned: number; kept: number }) =>
   p.planned > 0 && p.kept * 100 >= p.planned * BLOCK_FINISH_PCT;
+
+/** Too late to join once fewer than four weeks remain — the shortest a block can be. */
+export const BLOCK_JOIN_MIN_DAYS = BLOCK_MIN_WEEKS * 7;
+/** A posted block nobody has joined by now is called off. */
+export const FORMING_GRACE_DAYS = 14;
+/** A posted block's first sessions start inside this many days. */
+export const BLOCK_FIRST_WEEK_DAYS = 14;
+
+export type BlockFacts = {
+  status: "forming" | "active" | "closing" | "ended";
+  visibility: Visibility;
+  womenOnly: boolean;
+  capacity: number;
+  goalDate: string;
+};
+
+/** A block still takes new regulars: running, a seat open, four weeks or more to go. */
+export const blockJoinable = (block: BlockFacts, members: number, today: string) =>
+  (block.status === "forming" || block.status === "active") &&
+  members < block.capacity &&
+  daysBetween(today, block.goalDate) >= BLOCK_JOIN_MIN_DAYS;
+
+/** Joining a block is joining every slot in it, as a regular. */
+export function canJoinBlock(
+  block: BlockFacts,
+  me: { gender: Gender; frozenUntil: number | null },
+  facts: { members: number; isMember: boolean },
+  now: number,
+): RuleResult {
+  if (facts.isMember) return no("You’re already in.");
+  if (block.status !== "forming" && block.status !== "active") {
+    return no("This training block has finished.");
+  }
+  if (daysBetween(clusterDate(now), block.goalDate) < BLOCK_JOIN_MIN_DAYS) {
+    return no("Fewer than four weeks are left — too late to join this one.");
+  }
+  if (block.womenOnly && me.gender !== "woman") return no("This training block is women-only.");
+  if (frozen(me.frozenUntil, block.visibility, now)) {
+    return no("Public sessions are paused for 14 days after two no-shows.");
+  }
+  if (facts.members >= block.capacity) return no("It’s full.");
+  return ok;
+}

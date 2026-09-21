@@ -5,6 +5,7 @@ import { useCallback, useRef } from "react";
 import { api } from "./api";
 import type {
   AppNotification,
+  BlockSlotInput,
   Booking,
   ChatMessage,
   Gender,
@@ -13,6 +14,7 @@ import type {
   Me,
   NotifyPrefs,
   Person,
+  PostBlockInput,
   PostSessionInput,
   RatingInput,
   ReportInput,
@@ -42,6 +44,7 @@ export const keys = {
   blocks: ["blocks"] as const,
   notifications: ["notifications"] as const,
   trainingBlock: (id: string) => ["training-block", id] as const,
+  publicTrainingBlocks: ["training-blocks"] as const,
 };
 
 export const useMe = () => useQuery({ queryKey: keys.me, queryFn: () => api<Me>("/me") });
@@ -69,10 +72,12 @@ export const useSession = (id: string, invite?: string) =>
       ),
   });
 
+/** An invite link opens an unlisted session — or an unlisted training block. */
+type Invite = { session: Session; people: Person[] } | { trainingBlockId: string };
 export const useInvite = (code: string) =>
   useQuery({
     queryKey: keys.invite(code),
-    queryFn: () => api<{ session: Session; people: Person[] }>(`/invites/${code}`),
+    queryFn: () => api<Invite>(`/invites/${code}`),
     retry: false,
   });
 
@@ -121,6 +126,7 @@ function useRefreshAll() {
       qc.invalidateQueries({ queryKey: ["sessions"] }),
       qc.invalidateQueries({ queryKey: ["session"] }),
       qc.invalidateQueries({ queryKey: ["training-block"] }),
+      qc.invalidateQueries({ queryKey: keys.publicTrainingBlocks }),
       qc.invalidateQueries({ queryKey: keys.me }),
     ]);
 }
@@ -218,11 +224,88 @@ export function useRepeatWeekly() {
   });
 }
 
-export const useTrainingBlock = (id: string) =>
+/** `invite` unlocks an unlisted block for someone who arrived by link. */
+export const useTrainingBlock = (id: string, invite?: string, enabled = true) =>
   useQuery({
+    enabled,
     queryKey: keys.trainingBlock(id),
-    queryFn: () => api<{ block: TrainingBlock; people: Person[] }>(`/training-blocks/${id}`),
+    queryFn: () =>
+      api<{ block: TrainingBlock; people: Person[] }>(
+        `/training-blocks/${id}${invite ? `?invite=${encodeURIComponent(invite)}` : ""}`,
+      ),
   });
+
+/** Blocks with a regular seat open. No faces, no member ids. */
+export const usePublicTrainingBlocks = () =>
+  useQuery({
+    queryKey: keys.publicTrainingBlocks,
+    queryFn: async () => (await api<{ blocks: TrainingBlock[] }>("/training-blocks")).blocks,
+  });
+
+export function usePostTrainingBlock() {
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: async (input: PostBlockInput) =>
+      (await api<{ block: TrainingBlock }>("/training-blocks", { method: "POST", json: input }))
+        .block,
+    onSuccess: refresh,
+  });
+}
+
+export function useAddBlockSlot() {
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: async (v: { blockId: string; slot: BlockSlotInput }) =>
+      (
+        await api<{ block: TrainingBlock }>(`/training-blocks/${v.blockId}/slots`, {
+          method: "POST",
+          json: v.slot,
+        })
+      ).block,
+    onSuccess: refresh,
+  });
+}
+
+/** Joining a block takes a seat on every slot in it — or files a request. */
+export function useJoinTrainingBlock() {
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: async (v: { blockId: string; inviteCode?: string }) =>
+      (
+        await api<{ block: TrainingBlock }>(`/training-blocks/${v.blockId}/join`, {
+          method: "POST",
+          json: { inviteCode: v.inviteCode },
+        })
+      ).block,
+    onSuccess: refresh,
+  });
+}
+
+export function useResolveBlockRequest() {
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: (v: { blockId: string; memberId: string; action: "approve" | "decline" }) =>
+      api(`/training-blocks/${v.blockId}/requests/${encodeURIComponent(v.memberId)}/${v.action}`, {
+        method: "POST",
+      }),
+    onSuccess: refresh,
+  });
+}
+
+/** "Start one like it": a full block, again, for the next group. */
+export function useCloneTrainingBlock() {
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: async (v: { blockId: string; inviteCode?: string }) =>
+      (
+        await api<{ block: TrainingBlock }>(`/training-blocks/${v.blockId}/clone`, {
+          method: "POST",
+          json: { inviteCode: v.inviteCode },
+        })
+      ).block,
+    onSuccess: refresh,
+  });
+}
 
 /** "Make this a training block": a standing slot gets a goal and a date. */
 export function useMakeTrainingBlock() {

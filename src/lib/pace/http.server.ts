@@ -88,6 +88,16 @@ const blockSlotBody = postSessionBody
   })
   .extend({ ability });
 
+const postBlockBody = blockGoalBody.extend({
+  activity: ACTIVITY,
+  capacity: z.number().int().min(2).max(4),
+  visibility: z.enum(["public", "unlisted"]),
+  joinMode: z.enum(["instant", "approve"]),
+  womenOnly: z.boolean().default(false),
+  slots: z.array(blockSlotBody).min(1).max(4),
+});
+const inviteBody = z.object({ inviteCode: z.string().optional() });
+
 const paceRange = z
   .object({ paceMinSec: z.number().min(240).max(1200), paceMaxSec: z.number().min(240).max(1200) })
   .refine((v) => v.paceMaxSec >= v.paceMinSec, "pace range is upside down");
@@ -303,8 +313,34 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
   ["POST", "/series/:id/training-block", async ({ sql, userId, params, body }) => ({
     block: await blocks.blockFromSeries(sql, userId, params.id, blockGoalBody.parse(body)),
   })],
-  ["GET", "/training-blocks/:id", ({ sql, userId, params }) =>
-    blocks.getTrainingBlock(sql, userId, params.id)],
+  // Discovery, for blocks: public, a regular seat open, four weeks or more to go.
+  ["GET", "/training-blocks", async ({ sql, userId }) => ({
+    blocks: await blocks.listPublicTrainingBlocks(sql, userId),
+  })],
+  ["POST", "/training-blocks", async ({ sql, userId, body }) => ({
+    block: await blocks.postTrainingBlock(
+      sql,
+      userId,
+      postBlockBody.parse(body) as blocks.PostBlockInput,
+    ),
+  })],
+  ["GET", "/training-blocks/:id", ({ sql, userId, params, query }) =>
+    blocks.getTrainingBlock(sql, userId, params.id, {
+      inviteCode: query.get("invite") ?? undefined,
+    })],
+  // Joining takes every slot in the block. It is only ever asked for here.
+  ["POST", "/training-blocks/:id/join", async ({ sql, userId, params, body }) => ({
+    block: await blocks.joinTrainingBlock(sql, userId, params.id, inviteBody.parse(body ?? {})),
+  })],
+  ["POST", "/training-blocks/:id/requests/:memberId/approve", async ({ sql, userId, params }) => ({
+    block: await blocks.resolveBlockRequest(sql, userId, params.id, params.memberId, "approve"),
+  })],
+  ["POST", "/training-blocks/:id/requests/:memberId/decline", async ({ sql, userId, params }) => ({
+    block: await blocks.resolveBlockRequest(sql, userId, params.id, params.memberId, "decline"),
+  })],
+  ["POST", "/training-blocks/:id/clone", async ({ sql, userId, params, body }) => ({
+    block: await blocks.cloneTrainingBlock(sql, userId, params.id, inviteBody.parse(body ?? {})),
+  })],
   ["POST", "/training-blocks/:id/slots", async ({ sql, userId, params, body }) => ({
     block: await blocks.addBlockSlot(sql, userId, params.id, blockSlotBody.parse(body)),
   })],
