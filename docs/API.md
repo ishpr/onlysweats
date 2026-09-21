@@ -16,7 +16,8 @@ The client never decides seats, check-in or fees.
   `src/lib/pace/training-blocks.server.ts`, schema in `migrations/0002_pace.sql`,
   `0004_safety.sql`, `0007_training_blocks.sql`, `0008_training_block_requests.sql`,
   `0009_goal_credits.sql`, `0010_admin_training_blocks.sql`,
-  `0011_session_attendance.sql`, `0012_delivery_retries.sql`, and `0013_agent_negotiations.sql`.
+  `0011_session_attendance.sql`, `0012_delivery_retries.sql`, `0013_agent_negotiations.sql`,
+  and `0014_health_sync.sql`.
   ("pace" stays the code shorthand; the product name is SamePace.)
 
 ## Auth
@@ -235,6 +236,15 @@ haven't set one for that activity (nothing is hidden from me then).
 - Unlisted sessions — absent from `/sessions`; `404` without the link or a seat.
 - Women-only sessions — absent from `/sessions` for members they aren't open to.
 - There is no people search, member directory or "members near you" endpoint.
+
+## Private Apple Health import
+
+The authenticated `/health/connection`, `/health/sync`, `/health/workouts`,
+`/health/workouts/:id`, and `/health/export` endpoints store owner-only source
+records. They are available only when `HEALTH_SYNC_ENABLED=true`; agent
+delegation tokens cannot access them. See [Apple Health](./APPLE-HEALTH.md) for
+methods, contracts, pagination, consent, deletion, and native setup. Private
+exercise records do not change attendance, training-block progress, or fees.
 
 ## Settlement
 

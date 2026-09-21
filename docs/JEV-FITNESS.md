@@ -1,6 +1,6 @@
 # Jev for SamePace fitness tracking
 
-Status: implementation design, researched September 20, 2026. The TypeSafe skill is installed for Codex in this repository. No TypeSafe runtime SDK, inference calls, wearable integration, or health-data collection has been added by this change. Track delivery in the [vision roadmap](./VISION-ROADMAP.md).
+Status: Jev implementation design, researched September 20, 2026. The TypeSafe skill is installed. The first [Apple Health import](./APPLE-HEALTH.md) is implemented behind a default-off flag, with physical-device acceptance pending. No TypeSafe runtime SDK or inference calls have been added. Track delivery in the [vision roadmap](./VISION-ROADMAP.md).
 
 ## Product direction
 
@@ -21,9 +21,9 @@ The recommended sequence is **real workout import plus an editable interpretatio
 | Mobile Live Session | Uses foreground location to confirm arrival. It is not a workout recorder. |
 | Mobile Activity and rings | Show notifications and attendance/reputation, respectively. |
 
-There are no HealthKit, Health Connect, heart-rate sensor, or watch-workout integrations in the current mobile configuration. Replace or explicitly label prototype health claims before exposing a real tracking feature. Never import these synthetic records into a member's real health history.
+The new native HealthKit reader, private API, and standalone mobile `/health` screen import real source records when explicitly enabled and connected. The web prototype described above is separate and unchanged. Replace or explicitly label its simulated health claims before a wider tracking rollout; never import those synthetic records into real history. Health Connect, live sensors, and a watch recorder remain pending.
 
-A completed social booking means both people checked in. It does not establish that they exercised for the scheduled duration. Introduce a separate private workout record, optionally linked to the social booking.
+A completed social booking means both people checked in. It does not establish that they exercised for the scheduled duration. Private imported workouts now live in a separate domain; optional links to social bookings remain future work.
 
 ## The three layers
 
@@ -76,20 +76,20 @@ Health-store synchronization and observer callbacks are not guaranteed live sens
 
 ## First implementation boundary
 
-Proposed modules, not files already implemented:
+The health import layer now exists; inference-specific modules below remain proposed:
 
 | Module | Responsibility |
 | --- | --- |
-| `mobile/src/lib/workouts/` | Source adapters, device permissions, import cursor, recording lifecycle, and local persistence. |
-| `src/lib/workouts/contracts.ts` | Workout record, measurement provenance, explicit user goal, bounded snapshot, and assessment result. |
-| `src/lib/workouts/summary.ts` | Pure, tested calculations; missing/stale data behavior; duplicate and out-of-order sample handling. |
+| `mobile/modules/samepace-healthkit` and `mobile/src/lib/health/` — implemented | Native source reader, explicit permissions, manual sync lifecycle, and account-bound transport. Anchors persist on the server; raw health records are not stored locally. |
+| `shared/health.ts` and `src/lib/health/contracts.ts` — implemented | Source records, units, provenance, connection generation, and strict import contracts. Goal, snapshot, and assessment contracts remain pending. |
+| `src/lib/health/summary.ts` — implemented | Tested elapsed time, source active-duration pace, and source-bound heart-rate sample statistics. |
 | `src/lib/workouts/questions.ts` | Versioned TypeSafe questions with explicit unknown/none outcomes and concrete criteria. |
 | `src/lib/workouts/assessment.server.ts` | Server-only TypeSafe adapter; input allowlist, limits, timeout, validated answers, and fallback. No booking permissions. |
-| Private workout API and screen | Owner-only records, deletions/corrections, measured facts, and clearly labeled interpretations. Separate from arrival verification. |
+| Private workout API and screen — first slice implemented | Owner-only records, source deletions/tombstones, removal, disconnect/purge, paginated export API, and measured facts. Corrections, export UI, manual logging, and interpretations remain pending. |
 
 Use the existing authenticated API transport, but place health authorization and data access in a separate workout domain. A source record needs at least `source`, `externalId`, `sourceRevision`, start/end timestamps, activity, and provenance for each optional metric. Deduplicate imports by source identity; process source deletions rather than reintroducing them from an older cache.
 
-The assessment result should include `workoutId`, `snapshotRevision`, `questionVersion`, `model`, `assessedAt`, typed answers, and an explicit `available | insufficient_data | provider_unavailable` outcome. Reject a result if the recording or user correction has advanced its source revision. Never apply a result from a different workout or member.
+The assessment result should include `workoutId`, `snapshotRevision`, `questionVersion`, `model`, `assessedAt`, typed answers, and an explicit `available | insufficient_data | provider_unavailable` outcome. Fingerprint the entire authorized input snapshot, including readings, freshness, and connection/consent generation. The existing workout `revision` covers only its source object: late heart-rate samples or removed permissions can change a summary independently. Reject results after any relevant snapshot change. Never apply a result from a different workout or member.
 
 Use `@typesafe-ai/sdk` on the server, with `TypeSafeClient.systemOne({ state, questions, model })`; the [JavaScript SDK](https://docs.typesafe.ai/sdk/javascript) reads `TYPESAFE_API_KEY`. Pin an evaluated model version and record the actual returned model. The documentation currently lists `jev-1.13.0`; recheck before implementation. Set an explicit latency/retry budget, disable body logging, and batch independent questions against the same compact state. No live model accuracy or latency has been measured for SamePace yet.
 

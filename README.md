@@ -10,7 +10,7 @@ A workout buddy who shows up. A member posts the workout they're doing anyway �
 - **Level is required.** Every session carries an ability — a pace range, a speed range, gym experience, hike difficulty. Members set their own level per activity and see what fits.
 - **Check-in.** Both people inside 150 m of the pin, 20 minutes before to 25 minutes after the start, or a four-digit code where GPS is weak.
 - **Standing slots.** "Same time next week" turns a completed session into a weekly slot with a streak. A regular who skips a week opens a substitute seat and keeps their place.
-- **Training blocks.** "Give it a finish line" aims one to four standing slots at a goal and a date, 4 to 20 weeks out — a marathon, a first 10k, twelve weeks of showing up. Progress is the sessions you kept out of the ones you had, counted from check-ins and seen only by you. When a block ends, the people who finished can say who helped them stick to it; a profile shows that as a count. No stars, no weight goal, and nothing about the workout is logged.
+- **Training blocks.** "Give it a finish line" aims one to four standing slots at a goal and a date, 4 to 20 weeks out — a marathon, a first 10k, twelve weeks of showing up. Progress is the sessions you kept out of the ones you had, counted from check-ins and seen only by you. When a block ends, the people who finished can say who helped them stick to it; a profile shows that as a count. No stars or weight goal. Training-block progress is attendance-based and stays separate from optional private Apple Health imports.
 - **Push.** Seat and approval notices, reminders an hour out and when check-in opens, next week's occurrence, and substitute offers when a regular skips. Each kind can be switched off; safety and account notices always send.
 - **Sessions, not faces.** No people search, no member directory, no "about me", no photos on session cards. Chat is scoped to a booking and closes a day after the session. Women-only sessions are enforced by the server.
 - **Reputation.** Five yes/no answers after a completed session: showed up, on time, matched the listing, respectful, would join again. A track record is counts and rates the server worked out — never stars, never free text.
@@ -20,7 +20,7 @@ The v0.3 PRD is the spec: <https://claude.ai/code/artifact/dc7b8843-caec-496b-9b
 
 ## Layout
 
-The [vision roadmap](docs/VISION-ROADMAP.md) tracks remaining release work, Apple Health sync, Jev-assisted fitness logging, and member-facing A2A coordination. The [A2A foundation](docs/A2A.md) is implemented behind a default-off flag; Apple Health and Jev runtime integration remain pending.
+The [vision roadmap](docs/VISION-ROADMAP.md) tracks remaining release work, fitness logging, and member-facing agent coordination. The [A2A foundation](docs/A2A.md) and [Apple Health import](docs/APPLE-HEALTH.md) are implemented behind separate default-off flags. Apple Health physical-device acceptance and Jev runtime integration remain pending.
 
 | Path | What it is |
 | --- | --- |

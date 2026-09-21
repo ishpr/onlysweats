@@ -1,5 +1,5 @@
 /**
- * Extends app.json with the one piece that depends on a Google Cloud value.
+ * Registers the local HealthKit plugin and optional Google sign-in configuration.
  *
  * Google Sign-In on iOS needs a URL scheme baked into the native build: the iOS
  * OAuth client id, reversed (com.googleusercontent.apps.<id>). Set
@@ -12,6 +12,7 @@ module.exports = ({ config }) => {
     ...config,
     plugins: [
       ...(config.plugins ?? []),
+      './plugins/with-healthkit',
       ...(iosUrlScheme ? [["@react-native-google-signin/google-signin", { iosUrlScheme }]] : []),
     ],
   };
