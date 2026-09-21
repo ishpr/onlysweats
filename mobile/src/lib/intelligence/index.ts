@@ -2,12 +2,14 @@ export {
   getIntelligenceCapability,
   draftText,
   draftPhoto,
+  draftWorkoutPlan,
   respond,
   summarizeWorkout,
   cancelAllIntelligence,
   setNextSessionShortcut,
 } from "../../../modules/samepace-intelligence";
-export { intelligenceReason, LOCAL_AI_NOTICE } from "./types";
+export { intelligenceReason, LOCAL_AI_NOTICE, LOCAL_PLAN_NOTICE } from "./types";
+export { planContentFromAIDraft } from "../../../../shared/workout-plan-draft";
 export {
   getPrivateCloudCapability,
   respondWithPrivateCloud,
@@ -22,5 +24,6 @@ export type {
   WorkoutRecapInput,
   LocalDraftResult,
   LocalTextResult,
+  LocalWorkoutPlanResult,
   LocalFailure,
 } from "./types";

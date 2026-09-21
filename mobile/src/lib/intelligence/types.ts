@@ -1,3 +1,5 @@
+import type { AIWorkoutPlanDraft } from "../../../../shared/workout-plans.ts";
+
 /** Local suggestions only: these are not sensor readings, saved logs, or approvals. */
 export type WorkoutDraft = {
   source: "text" | "photo";
@@ -22,6 +24,8 @@ export type IntelligenceCapability = {
   available: boolean;
   reason: string | null;
   photoTextRecognition: boolean;
+  /** False on an older native build, independently of model readiness. */
+  planDrafting: boolean;
   execution: "on_device";
 };
 export type IntelligenceHistory = { role: "user" | "assistant"; text: string };
@@ -56,6 +60,15 @@ export type LocalTextResult =
       modelUsed: boolean;
       execution: "on_device";
     };
+export type LocalWorkoutPlanResult =
+  | LocalFailure
+  | {
+      status: "available";
+      draft: AIWorkoutPlanDraft;
+      requiresReview: true;
+      modelUsed: true;
+      execution: "on_device";
+    };
 export type IntelligenceOptions = {
   signal?: AbortSignal;
   requestId?: string;
@@ -65,6 +78,9 @@ export type IntelligenceOptions = {
 
 export const LOCAL_AI_NOTICE =
   "Apple's on-device model processes only what you submit here. Photos are read on this device and are not uploaded. Suggestions may be wrong: review every field. Nothing is saved, shared, or booked until you choose an explicit app action.";
+
+export const LOCAL_PLAN_NOTICE =
+  "Only the description you submit is processed by Apple's model on this device. It suggests a future workout, not completed activity or a personalized health assessment. Review the exercises, sets, targets and instructions before saving. No plan is saved or shared automatically.";
 
 export function intelligenceReason(reason: string | null | undefined): string {
   switch (reason) {
@@ -78,6 +94,10 @@ export function intelligenceReason(reason: string | null | undefined): string {
       return "Local language assistance needs iOS 26 or newer on a supported device.";
     case "native_module_missing":
       return "This build does not include local intelligence yet. Install the new iPhone build.";
+    case "plan_build_required":
+      return "Install the newer iPhone build to draft a whole workout with Apple Intelligence. You can still build the plan by hand.";
+    case "plan_not_applicable":
+      return "Describe the activity, equipment and workout you want to plan. This assistant cannot design a medical or rehabilitation program.";
     case "unsupported_platform":
       return "Local Apple intelligence is available on supported iPhones.";
     case "no_text":
