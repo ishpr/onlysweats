@@ -14,7 +14,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { PressScale } from "@/components/motion";
-import { Avatar, Button, Chip, EmptyState, Notice, Row, StateView, T } from "@/components/ui";
+import {
+  Avatar,
+  Backdrop,
+  Button,
+  Chip,
+  EmptyState,
+  Notice,
+  Row,
+  StateView,
+  T,
+} from "@/components/ui";
 import { Fonts, HitTarget, Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
@@ -110,6 +120,7 @@ export default function Chat() {
       edges={["bottom"]}
       style={[styles.fill, { backgroundColor: theme.background, paddingTop: headerHeight }]}
     >
+      <Backdrop />
       <KeyboardAvoidingView
         style={styles.fill}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -222,7 +233,7 @@ export default function Chat() {
                 style={[
                   styles.input,
                   {
-                    backgroundColor: theme.backgroundElement,
+                    backgroundColor: theme.field,
                     color: theme.text,
                     borderColor: theme.border,
                   },

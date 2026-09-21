@@ -88,7 +88,7 @@ export function T({
  * A soft wash of the two brand colours behind every screen. It is what makes the
  * glass read as glass: a see-through card over a flat page is just a card.
  */
-function Backdrop() {
+export function Backdrop() {
   const theme = useTheme();
   const light = useColorScheme() === "light";
   return (
@@ -152,7 +152,9 @@ export function Screen({
   // Headers are glass on iOS (see app/_layout), so the page runs underneath them:
   // content starts below the header, the colour wash carries on behind it.
   const headerHeight = use(HeaderHeightContext) ?? 0;
-  const underHeader = Platform.OS === "ios" && !edges.includes("top") ? headerHeight : 0;
+  // A scroll view is inset for a glass header by iOS itself; only a fixed page needs
+  // the room made by hand.
+  const underHeader = Platform.OS === "ios" && !scroll && !edges.includes("top") ? headerHeight : 0;
   const [footerHeight, setFooterHeight] = useState(0);
   const lastY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((e) => {
@@ -292,8 +294,11 @@ export function Button({
     ghost: { bg: "transparent", fg: theme.text },
     danger: { bg: theme.danger, fg: theme.onDanger },
   };
-  const { bg, fg } = palette[variant];
   const off = disabled || loading;
+  // Switched off means quiet, whatever the variant: a disabled "Delete" must not look armed.
+  const { bg, fg } = disabled
+    ? { bg: variant === "ghost" ? "transparent" : theme.backgroundSelected, fg: theme.textFaint }
+    : palette[variant];
   return (
     <PressScale
       accessibilityRole="button"
@@ -304,7 +309,7 @@ export function Button({
       style={[styles.button, { backgroundColor: bg }, style]}
       {...rest}
     >
-      <View style={off ? styles.dim : undefined}>
+      <View style={loading && !disabled ? styles.dim : undefined}>
         {loading ? (
           <ActivityIndicator color={fg} />
         ) : (
