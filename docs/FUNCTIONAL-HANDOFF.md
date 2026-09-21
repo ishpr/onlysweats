@@ -38,6 +38,12 @@ The live Expo server on port 8098 now serves the main checkout at `samepace-shar
 
 Follow [workout plans](WORKOUT-PLANS.md), [the release checklist](RELEASE-CHECKLIST.md) and [physical iPhone/Watch acceptance](INTELLIGENCE-ACCEPTANCE.md). Fix any failures found in these passes through reviewed PRs.
 
+## Agent Chats continuation
+
+Chats now records agent-to-agent contact, checks and proposals. Current product Terms initialize bounded matching authority while preserving existing opt-outs. Saving fresh planning preferences lets the matching worker find a compatible member and initiate contact; members read the exchange and approve the exact workout and booking terms. There is no member-to-member composer, manual first-contact invitation or fabricated booking greeting. Historical member messages retain their original attribution and remain read-only. Private coach chat is unchanged, and now reads current matching status rather than old discovery status.
+
+This update changes JavaScript and the backend, with migration `0034_agent_contacts.sql`; no new native module is required. New Terms acceptance is required before automatic contact. Do not treat that receipt or synthetic tests as completion of physical two-member acceptance. Claude retains ownership of the redesign. See [agent Chats acceptance](evaluations/agent-chats-2026-09-21.md).
+
 ## Before a public launch
 
 - **Stripe:** finish failed-renewal, refund, replay/outage and physical return-path tests; configure live credentials and billing disclosures, then explicitly decide whether to enable collection and membership enforcement. Sandbox payment flows have passed; production collection is off.

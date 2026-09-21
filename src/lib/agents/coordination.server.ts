@@ -6,6 +6,7 @@ import type { Sql } from "../db.ts";
 import { PaceError } from "../pace/service.server.ts";
 import { enqueue } from "../pace/notify.server.ts";
 import { getPreferences, suggestPlans } from "./assistant.server.ts";
+import { agentContactMessage, agentContactRoomReason } from "./contact.server.ts";
 import {
   eligible,
   getNegotiation,
@@ -147,8 +148,27 @@ async function coordinationView(
   }
   const [latest] = await sql<Run>`select * from agent_coordination_runs
     where negotiation_id = ${room.id} order by created_at desc, updated_at desc, id desc limit 1`;
+  let automaticReason: string | null = null;
+  if (room.host_contact_revision != null) {
+    const [latestRefresh] = await sql<{ action: string }>`select data->>'action' as action
+      from agent_negotiation_events where negotiation_id = ${room.id} and revision = ${room.revision}
+      and kind = 'agent_message' and data->>'action' in ('preferences_changed', 'planning_limited')
+      order by sequence desc limit 1`;
+    automaticReason =
+      latestRefresh?.action === "planning_limited"
+        ? "The automatic planning limit for this conversation has been reached. Your updated preferences are saved; no new workout was booked."
+        : latest?.status === "awaiting_review" &&
+            latest.proposal_revision === room.revision &&
+            room.plan
+          ? "A fresh proposal is ready. Both people must review and approve it before booking."
+          : latest && ["no_match", "expired", "cancelled"].includes(latest.status)
+            ? latest.reason
+            : null;
+  }
   const reason =
     roomReason(room, now) ??
+    (await agentContactRoomReason(sql, room, now)) ??
+    automaticReason ??
     (latest && active(latest.status)
       ? "Your assistants are comparing options. You can stop planning at any time."
       : views.filter((p) => p.valid).length === 2
@@ -189,8 +209,8 @@ export async function setCoordinationPermission(
         where negotiation_id = ${roomId} and status in ('queued', 'negotiating')`;
       return;
     }
-    const room = await getNegotiation(tx, userId, roomId, true, true);
-    const reason = roomReason(room, now);
+    const room = await getNegotiation(tx, userId, roomId, true, true, now);
+    const reason = roomReason(room, now) ?? (await agentContactRoomReason(tx, room, now));
     if (reason) throw new PaceError(409, reason);
     const prefs = await getPreferences(tx, userId);
     if (!fresh(prefs, now))
@@ -234,7 +254,8 @@ export async function setCoordinationPermission(
 }
 
 /** Durable enqueue is separate so a crashed request is recoverable by the sweep.
- * This does not execute proposals. Only the member HTTP start route calls it. */
+ * This does not execute proposals. Member requests or the Terms-authorized contact
+ * transaction enqueue it; both paths retain the same revision and authority gates. */
 export async function enqueueCoordination(
   sql: Sql,
   userId: string,
@@ -244,7 +265,7 @@ export async function enqueueCoordination(
 ): Promise<string> {
   const input = startInput.parse(body);
   return sql.transaction(async (tx) => {
-    const room = await getNegotiation(tx, userId, roomId, true, true);
+    const room = await getNegotiation(tx, userId, roomId, true, true, now);
     const [prior] = await tx<Run>`select * from agent_coordination_runs
       where negotiation_id = ${roomId} and request_id = ${input.requestId}`;
     if (prior) {
@@ -252,7 +273,7 @@ export async function enqueueCoordination(
         throw new PaceError(409, "That request ID belongs to another planning request.");
       return prior.id;
     }
-    const reason = roomReason(room, now);
+    const reason = roomReason(room, now) ?? (await agentContactRoomReason(tx, room, now));
     if (reason) throw new PaceError(409, reason);
     if (room.revision !== input.expectedRevision)
       throw new PaceError(409, "The proposal changed. Review it before starting.");
@@ -280,7 +301,9 @@ export async function enqueueCoordination(
       );
     const id = randomUUID();
     const deadline = Math.min(
-      now + RUN_LIFETIME,
+      // Automatic contacts start immediately, but must survive a request crash
+      // around the ten-minute cron boundary and one missed recovery sweep.
+      now + (room.host_contact_revision == null ? RUN_LIFETIME : 3 * RUN_LIFETIME),
       +new Date(host!.expires_at),
       +new Date(partner!.expires_at),
     );
@@ -370,7 +393,7 @@ export async function advanceCoordination(
       );
     let room: Negotiation;
     try {
-      room = await getNegotiation(tx, reference.host_id, reference.id, true);
+      room = await getNegotiation(tx, reference.host_id, reference.id, true, false, now);
     } catch (err) {
       if (!(err instanceof PaceError && err.status === 404)) throw err;
       return stop(
@@ -381,7 +404,7 @@ export async function advanceCoordination(
         now,
       );
     }
-    const reason = roomReason(room, now, false);
+    const reason = roomReason(room, now, false) ?? (await agentContactRoomReason(tx, room, now));
     if (reason || room.revision !== run.proposal_revision)
       return stop(
         tx,
@@ -474,7 +497,7 @@ export async function advanceCoordination(
             category: "sessions",
             title: "Your assistants found a workout",
             body: "Both of you need to review the proposal and booking terms. Nothing has been booked.",
-            url: `/assistant?negotiationId=${room.id}`,
+            url: `/agent-chat/${room.id}`,
             dedupeKey: `agent-run:${run.id}:${member}:review`,
           },
           now,
@@ -490,6 +513,23 @@ export async function advanceCoordination(
         createdAt: iso(now),
       },
     ];
+    // Proposal commands have their own durable events. A matching response without
+    // a counteroffer and the final review handoff must be equally visible to both
+    // members, without manufacturing a human message or a second proposal.
+    if (
+      room.host_contact_revision != null &&
+      (action === "checked_preferences" || action === "ready_for_review")
+    ) {
+      await agentContactMessage(
+        tx,
+        { ...room, revision: nextRevision },
+        actor,
+        `${run.id}:${run.steps_used}:response`,
+        action,
+        actor === room.host_id ? hp.revision : pp.revision,
+        now,
+      );
+    }
     const [next] = await tx<Run>`update agent_coordination_runs set status = ${nextStatus},
       steps_used = steps_used + 1, steps = ${JSON.stringify(steps)}::jsonb,
       proposal_revision = ${nextRevision}, updated_at = ${iso(now)} where id = ${run.id} returning *`;

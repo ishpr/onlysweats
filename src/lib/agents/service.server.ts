@@ -6,6 +6,8 @@ import { getBooking, PaceError } from "../pace/service.server.ts";
 import { MIN_LEAD_TIME_MS, validAbility } from "../pace/rules.ts";
 import { enqueue } from "../pace/notify.server.ts";
 import { delegationInput, proposalCommand, type WorkoutPlan } from "./contracts.ts";
+import { agentContactRoomReason } from "./contact.server.ts";
+import { APP_TERMS_VERSION } from "../../../shared/app-terms.ts";
 
 const iso = (n: number) => new Date(n).toISOString();
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -22,6 +24,8 @@ export type Negotiation = {
   member_names?: Record<string, string>;
   host_consented: boolean;
   participant_consented: boolean;
+  host_contact_revision?: number | null;
+  participant_contact_revision?: number | null;
   state: "open" | "approved" | "cancelled";
   revision: number;
   plan: WorkoutPlan | null;
@@ -39,7 +43,14 @@ export type NegotiationEvent = {
   profile_id: string;
   message_id: string;
   command_hash: string;
-  kind: "consent" | "proposal" | "confirmation" | "cancel" | "booking_approval" | "booked";
+  kind:
+    | "consent"
+    | "proposal"
+    | "confirmation"
+    | "cancel"
+    | "booking_approval"
+    | "booked"
+    | "agent_message";
   revision: number;
   data: Record<string, unknown>;
   created_at: Date;
@@ -164,6 +175,7 @@ export async function getNegotiation(
   roomId: string,
   agent = false,
   lock = false,
+  now = Date.now(),
 ) {
   let [r] = await sql.query<Negotiation>(
     "select * from agent_negotiations where id = $1 and (host_id = $2 or participant_id = $2)",
@@ -178,6 +190,8 @@ export async function getNegotiation(
   if (agent && (!r.host_consented || !r.participant_consented)) {
     throw new PaceError(404, "Conversation unavailable.");
   }
+  if (agent && (await agentContactRoomReason(sql, r, now, false)))
+    throw new PaceError(404, "Conversation unavailable.");
   return {
     ...r,
     // Human invitations need recognizable names before consent. A delegated
@@ -266,6 +280,21 @@ export async function listAgentNegotiations(
       join profiles h on h.id = n.host_id and h.deleted_at is null and h.suspended_at is null
       join profiles p on p.id = n.participant_id and p.deleted_at is null and p.suspended_at is null
       where (n.host_id = $1 or n.participant_id = $1) and n.host_consented and n.participant_consented
+        and (n.host_contact_revision is null or (
+          select count(*) from agent_contact_authorities a
+          join agent_preferences ap on ap.profile_id = a.profile_id
+          left join agent_discovery_consents d on d.profile_id = a.profile_id
+          where ((a.profile_id = n.host_id and a.revision = n.host_contact_revision)
+            or (a.profile_id = n.participant_id and a.revision = n.participant_contact_revision))
+            and a.enabled and a.terms_version = $8
+            and exists(select 1 from app_terms_acceptances ta where ta.user_id = a.profile_id and ta.version = $8)
+            and ap.preferences->>'enabled' = 'true' and ap.updated_at <= $2
+            and ap.updated_at > $2::timestamptz - interval '7 days'
+            and not (coalesce(d.updated_at > coalesce(a.legacy_discovery_updated_at, '-infinity'::timestamptz), false)
+              and d.enabled = false)
+            and (not (case when d.updated_at > coalesce(a.legacy_discovery_updated_at, '-infinity'::timestamptz)
+              then d.women_only else a.women_only end) or (h.gender = 'woman' and p.gender = 'woman'))
+          ) = 2)
         and not exists (select 1 from blocks b
           where (b.blocker_id = n.host_id and b.blocked_id = n.participant_id)
              or (b.blocker_id = n.participant_id and b.blocked_id = n.host_id))
@@ -286,6 +315,7 @@ export async function listAgentNegotiations(
       input.statusTimestampAfter ?? null,
       input.pageSize,
       input.offset,
+      APP_TERMS_VERSION,
     ],
   );
   return {
@@ -337,7 +367,7 @@ async function notifyOther(
       category: "sessions",
       title,
       body,
-      url: `/assistant?negotiationId=${r.id}`,
+      url: `/agent-chat/${r.id}`,
       dedupeKey: `assistant:${r.id}:${kind}:${r.revision}:${userId}`,
     },
     now,
@@ -463,7 +493,9 @@ async function proposeAs(
   z.string().min(1).max(100).parse(messageId);
   const digest = hash(JSON.stringify(command));
   return sql.transaction(async (tx) => {
-    const r = await getNegotiation(tx, userId, roomId, true, true);
+    const r = await getNegotiation(tx, userId, roomId, true, true, now);
+    const contactReason = await agentContactRoomReason(tx, r, now);
+    if (contactReason) throw new PaceError(409, contactReason);
     if (actor && actor !== "coordinator") await assertActiveDelegate(tx, actor, now);
     const [prior] = await tx<{
       command_hash: string;
@@ -497,6 +529,32 @@ async function proposeAs(
       {
         plan: command.plan,
         agentLabel: actor === "coordinator" ? "SamePace assistant" : actor ? actor.label : "Member",
+        actorKind: actor ? "agent" : "member",
+        source:
+          actor === "coordinator"
+            ? r.host_contact_revision != null
+              ? "agent_contact"
+              : "first_party_agent"
+            : actor
+              ? "delegated_agent"
+              : "member",
+        ...(actor === "coordinator" && r.host_contact_revision != null
+          ? {
+              authorityRevision:
+                userId === r.host_id ? r.host_contact_revision : r.participant_contact_revision,
+              preferenceRevision: (
+                await tx<{ preference_revision: number }>`select preference_revision
+            from agent_coordination_permissions where negotiation_id = ${roomId} and profile_id = ${userId}`
+              )[0]?.preference_revision,
+              message: {
+                messageId,
+                taskId: roomId,
+                contextId: roomId,
+                role: "ROLE_AGENT",
+                parts: [{ data: command, mediaType: "application/json" }],
+              },
+            }
+          : {}),
         requiresHumanConfirmation: true,
       },
       now,
@@ -575,7 +633,7 @@ export async function cancelNegotiation(
 ) {
   return sql.transaction(async (tx) => {
     const r = agent
-      ? await getNegotiation(tx, userId, roomId, true, true)
+      ? await getNegotiation(tx, userId, roomId, true, true, now)
       : await withdrawalRoom(tx, userId, roomId, true);
     if (agent) {
       if (agent.profileId !== userId) throw new PaceError(404, "Conversation unavailable.");
@@ -588,8 +646,23 @@ export async function cancelNegotiation(
     await tx`update agent_negotiations set state = 'cancelled', confirmations = '[]'::jsonb,
       booking_approvals = '[]'::jsonb,
       updated_at = ${iso(now)} where id = ${roomId}`;
-    await event(tx, r, userId, id(), "cancel", { booked: false }, now);
-    return agent ? getNegotiation(tx, userId, roomId, true) : withdrawalRoom(tx, userId, roomId);
+    await event(
+      tx,
+      r,
+      userId,
+      id(),
+      "cancel",
+      {
+        booked: false,
+        actorKind: agent ? "agent" : "member",
+        source: agent ? "delegated_agent" : "member",
+        agentLabel: agent ? agent.label : "Member",
+      },
+      now,
+    );
+    return agent
+      ? getNegotiation(tx, userId, roomId, true, false, now)
+      : withdrawalRoom(tx, userId, roomId);
   });
 }
 

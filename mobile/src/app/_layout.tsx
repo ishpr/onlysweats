@@ -197,7 +197,8 @@ function ProtectedRoutes({ signedIn }: { signedIn: boolean }) {
       <Stack.Protected guard={signedIn && termsAccepted}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
-        <Stack.Screen name="thread/[id]" options={{ title: "Chat" }} />
+        <Stack.Screen name="thread/[id]" options={{ title: "Session history" }} />
+        <Stack.Screen name="agent-chat/[id]" options={{ title: "Agent conversation" }} />
         <Stack.Screen
           name="live/[id]"
           options={{

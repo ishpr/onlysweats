@@ -7,6 +7,7 @@ import { makeDb } from "../pace/test-db.ts";
 import { fixtureMember } from "../workout-plans/fixtures.ts";
 import { getConsent, setConsent } from "../fitness/service.server.ts";
 import { deleteAccount } from "../pace/safety.server.ts";
+import { getAgentMatching, setAgentMatching } from "../agents/contact.server.ts";
 import { APP_TERMS_VERSION } from "../../../shared/app-terms.ts";
 import { CHAT_NOTICE_VERSION } from "../../../shared/conversation.ts";
 import { FITNESS_AI_NOTICE_VERSION } from "../../../shared/fitness.ts";
@@ -77,6 +78,10 @@ describe("product terms acceptance initializes coaching without undoing privacy 
     assert.equal((await sql`select * from app_terms_acceptances where user_id=${id}`).length, 0);
     assert.equal((await sql`select * from assistant_chat_settings where user_id=${id}`).length, 0);
     assert.equal((await sql`select * from fitness_consents where user_id=${id}`).length, 0);
+    assert.equal(
+      (await sql`select * from agent_contact_authorities where profile_id=${id}`).length,
+      0,
+    );
     await assert.rejects(
       getAppTerms(sql, id),
       (error) => error instanceof ChatError && error.status === 401,
@@ -93,6 +98,10 @@ describe("product terms acceptance initializes coaching without undoing privacy 
     });
     assert.equal((await sql`select * from assistant_chat_settings where user_id=${id}`).length, 0);
     assert.equal((await sql`select * from fitness_consents where user_id=${id}`).length, 0);
+    assert.equal(
+      (await sql`select * from agent_contact_authorities where profile_id=${id}`).length,
+      0,
+    );
     const accepted = await acceptAppTerms(sql, id, body);
     assert.equal(accepted.accepted, true);
     assert.equal(accepted.ownerId, id);
@@ -176,6 +185,21 @@ describe("product terms acceptance initializes coaching without undoing privacy 
     assert.equal(history.settings.manualWorkoutContextEnabled, false);
   });
 
+  it("initializes matching with the receipt, preserves pauses on replay, and deletes its authority", async () => {
+    const id = await fixtureMember(sql);
+    await acceptAppTerms(sql, id, body);
+    assert.equal((await getAgentMatching(sql, id)).enabled, true);
+    assert.equal((await getAgentMatching(sql, id)).ready, false);
+    await setAgentMatching(sql, id, { enabled: false });
+    await acceptAppTerms(sql, id, body);
+    assert.equal((await getAgentMatching(sql, id)).enabled, false);
+    await deleteAccount(sql, id);
+    assert.equal(
+      (await sql`select 1 from agent_contact_authorities where profile_id=${id}`).length,
+      0,
+    );
+  });
+
   it("rejects old versions, owner injection and nonexistent owners before acceptance", async () => {
     const id = await fixtureMember(sql);
     for (const value of [
@@ -211,5 +235,9 @@ describe("product terms acceptance initializes coaching without undoing privacy 
     assert.equal((await getAppTerms(sql, id)).accepted, false);
     assert.equal((await sql`select * from assistant_chat_settings where user_id=${id}`).length, 0);
     assert.equal((await sql`select * from fitness_consents where user_id=${id}`).length, 0);
+    assert.equal(
+      (await sql`select * from agent_contact_authorities where profile_id=${id}`).length,
+      0,
+    );
   });
 });

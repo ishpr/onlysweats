@@ -27,7 +27,8 @@ function Privacy() {
               Your location is read only when you tap Check in, and the coordinates are not stored.
             </li>
             <li>
-              Nobody can search for you. People see you only on a session you posted or joined.
+              There is no people search. Compatible members may see your first name and planning
+              information when your agents arrange a workout.
             </li>
           </ul>
         </Section>
@@ -65,9 +66,11 @@ function Privacy() {
               about is never told who.
             </li>
             <li>
-              <strong>Messages.</strong> Chat is tied to a single booking and closes a day after the
-              session. We keep the messages so a report can be reviewed; a person at {SITE.name}{" "}
-              reads a thread only when a report points at it.
+              <strong>Agent conversations.</strong> Chats records agents’ planning exchanges,
+              proposals, member approvals and booking results. Both matched members can read the
+              conversation. Earlier member-written messages remain read-only with their original
+              attribution. We retain history needed to review reports; a person at {SITE.name} reads
+              a reported thread when reviewing that report.
             </li>
             <li>
               <strong>Reliability.</strong> Strikes, fees and credits recorded on your account under
@@ -180,24 +183,28 @@ function Privacy() {
 
         <Section title="Workout assistants">
           <p>
-            Assistants can coordinate with a workout partner only after both people opt into the
-            conversation. Enabling shared planning preferences makes your entered availability,
-            activity choices, and approved preference visible in those conversations. Imported
-            health records are never included. You can disable preference sharing, withdraw
-            conversation consent, or revoke a delegated credential. Both people must separately
-            approve the same plan and booking terms before a session is created. Agents cannot
-            perform those human approvals.
+            Agent matching is included in the current Terms. After you save planning preferences,
+            your agent compares activity, ability, public venues and available times with other
+            eligible members’ preferences. It can initiate contact and exchange bounded workout
+            proposals with a compatible member’s agent. The matched member and their agent can see
+            your first name and entered planning information. Chats shows the recorded exchanges,
+            including which actions came from agents and which approvals came from people. It does
+            not offer member-to-member message composition.
           </p>
           <p>
-            Meeting a new partner requires a separate discovery choice that expires after seven
-            days. SamePace compares your entered activity, ability, public venues and available
-            times with other opted-in members. Compatible members can see your name and activity and
-            invite you to plan. If you choose “women only”, you are shown only to women and only
-            shown women. A two-strike pause, or a verification you haven’t done once that is
-            required, keeps you out of discovery until it’s sorted. Exact availability and notes
-            stay private until you both join the conversation. Editing your preferences pauses
-            discovery until you enable it again. Each person separately authorizes any bounded
-            assistant planning run; that permission expires and never authorizes booking or payment.
+            Private coach conversations, imported health records and private workout results are
+            excluded from matching. Blocks, account restrictions, required verification and
+            women-only preferences apply before contact. Matching is bounded by contact limits,
+            freshness checks and expiring planning runs. Both people must separately approve the
+            exact plan and booking terms before a session is created. Agents cannot approve for you
+            or authorize payments.
+          </p>
+          <p>
+            You can pause matching, disable planning preference sharing, withdraw from a
+            conversation or revoke a delegated credential. These choices stop future authorized
+            exchanges; they cannot retract information already seen by a matched member. Existing
+            privacy opt-outs remain respected when you accept updated Terms. Earlier discovery
+            permissions alone do not enable this automatic contact behavior.
           </p>
         </Section>
 
@@ -223,9 +230,9 @@ function Privacy() {
               <strong>Other members</strong> see your first name, initials, levels and track record
               (sessions completed, on-time rate, would-join-again rate, training blocks finished,
               how many people say you helped them finish one, member since) — and only on a session
-              you posted or joined, or a training block you’re in. If you opt into new-partner
-              discovery, compatible opted-in members also see your name and activity. There is no
-              member directory and no people search.
+              you posted or joined, or a training block you’re in. During agent matching, compatible
+              matched members also see your first name and entered planning information as described
+              above. There is no member directory and no people search.
             </li>
             <li>
               <strong>Your progress in a training block</strong> is yours alone. The others in it

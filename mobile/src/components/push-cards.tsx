@@ -12,9 +12,9 @@ const KINDS: { key: keyof NotifyPrefs; label: string; hint: string }[] = [
   {
     key: "sessions",
     label: "Sessions",
-    hint: "Someone joins, asks to join or leaves, or a session is cancelled.",
+    hint: "Agent planning updates, join requests and session changes.",
   },
-  { key: "messages", label: "Messages", hint: "A new message in one of your chats." },
+  { key: "messages", label: "Earlier conversations", hint: "Alerts from earlier member conversations." },
   { key: "reminders", label: "Reminders", hint: "An hour before, and when check-in opens." },
   {
     key: "substitutes",
@@ -48,7 +48,7 @@ export function NotificationSettings({ me }: { me: Me }) {
       {push.status === "undetermined" && (
         <>
           <T variant="caption" color="textSecondary">
-            Off on this phone. Turn them on to hear when someone joins or messages you.
+            Off on this phone. Turn them on for planning updates and session reminders.
           </T>
           <Button
             label="Turn on notifications"
@@ -125,7 +125,7 @@ export function PushPrompt() {
     <Card>
       <T variant="label">Know the moment someone joins</T>
       <T variant="caption" color="textSecondary">
-        We’ll tell you when someone joins your session, messages you, or a session is cancelled —
+        We’ll tell you when your agents have a planning update or your session changes —
         plus a reminder an hour before. No marketing, ever.
       </T>
       <Row>

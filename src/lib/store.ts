@@ -42,7 +42,6 @@ export type PaceState = {
   checkIn: (bookingId: string, method: CheckinMethod) => void;
   submitCode: (bookingId: string, code: string) => { ok: boolean; error?: string };
   setDistance: (m: number) => void;
-  sendMessage: (bookingId: string, text: string) => void;
   submitRating: (rating: Omit<Rating, "id">) => void;
   connectHealth: (on: boolean) => void;
   setPref: (patch: Partial<PacePrefs>) => void;
@@ -155,28 +154,8 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
           ratedByParticipant: false,
           ratedByHost: false,
         };
-        const msgs: ChatMessage[] = instant
-          ? [
-              {
-                id: uid("m"),
-                bookingId: booking.id,
-                fromId: session.hostId,
-                text: "You’re in. Exact pin is on the listing. See you there.",
-                createdAt: new Date().toISOString(),
-              },
-            ]
-          : [
-              {
-                id: uid("m"),
-                bookingId: booking.id,
-                fromId: session.hostId,
-                text: "Request received. I’ll confirm if the seat still fits.",
-                createdAt: new Date().toISOString(),
-              },
-            ];
         set({
           bookings: [...bookings, booking],
-          messages: [...get().messages, ...msgs],
         });
         return { ok: true, bookingId: booking.id };
       },
@@ -324,22 +303,6 @@ export const usePaceStore = create<PaceState>()((set, get) => ({
         if (code.trim() !== session.code) return { ok: false, error: "Code doesn’t match." };
         get().checkIn(bookingId, "code");
         return { ok: true };
-      },
-      sendMessage: (bookingId, text) => {
-        const trimmed = text.trim();
-        if (!trimmed) return;
-        set({
-          messages: [
-            ...get().messages,
-            {
-              id: uid("m"),
-              bookingId,
-              fromId: ME_ID,
-              text: trimmed,
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        });
       },
       submitRating: (rating) => {
         set({

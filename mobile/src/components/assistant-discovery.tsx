@@ -1,58 +1,72 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { Button, Card, Chip, Notice, StateView, T } from "@/components/ui";
 import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
-import { ACTIVITIES } from "@/lib/types";
-import type { AssistantNegotiation, AssistantPreferences } from "../../../shared/assistant";
-import { DISCOVERY_NOTICE, type MemberDiscovery } from "../../../shared/discovery";
+import type { AssistantPreferences } from "../../../shared/assistant";
+import type { AgentMatching, AgentMatchingInput } from "../../../shared/agent-matching";
 
+/** Matching status and privacy controls, not a separate AI activation step. */
 export function AssistantDiscovery({
   ownerId,
   session,
   preferences,
-  onInvited,
 }: {
   ownerId: string;
   session: ApiSession;
   preferences: AssistantPreferences | null;
-  onInvited: (room: AssistantNegotiation) => Promise<void>;
 }) {
-  const action = usePrivateAction(session);
-  const router = useRouter();
-  const [expanded, setExpanded] = useState(false);
-  const [womenOnly, setWomenOnly] = useState(false);
-  const discovery = useQuery({
-    queryKey: ["private-assistant", ownerId, "discovery", preferences?.revision],
+  const action = usePrivateAction(session),
+    router = useRouter(),
+    client = useQueryClient();
+  const key = ["private-assistant", ownerId];
+  const matching = useQuery({
+    queryKey: [...key, "matching"],
     gcTime: 0,
     retry: false,
+    refetchInterval: 15000,
     queryFn: ({ signal }) =>
-      session.request<{ discovery: MemberDiscovery }>("/agents/discovery", { signal }),
+      session.request<{ matching: AgentMatching }>("/agents/matching", { signal }),
   });
-  const value = discovery.error ? null : discovery.data?.discovery;
+  const value = matching.error ? null : matching.data?.matching;
   const refresh = async () => {
-    await discovery.refetch();
+    await client.invalidateQueries({ queryKey: key });
   };
+  const update = (input: AgentMatchingInput) =>
+    void action.run(
+      (signal) => session.request("/agents/matching", { method: "PUT", json: input, signal }),
+      refresh,
+    );
   return (
     <Card>
-      <T variant="heading">Meet a new workout buddy</T>
+      <T variant="heading">Workout matching</T>
       <T variant="caption" color="textSecondary">
-        Opt in to find members whose entered workout preferences fit yours. Inviting someone opens a
-        planning request; they choose whether to join.
+        Using the workout level, times and public meeting places you entered, your agent contacts
+        compatible members’ agents and works out a proposal. You both approve before booking.
       </T>
-      {(discovery.isPending || discovery.error) && (
+      {(matching.isPending || matching.error) && (
         <StateView
-          loading={discovery.isPending}
-          error={discovery.error}
-          onRetry={() => void refresh()}
+          loading={matching.isPending}
+          error={matching.error}
+          onRetry={() => void matching.refetch()}
         />
       )}
       {value && (
         <>
+          <T variant="label">
+            {!value.enabled
+              ? "Matching paused"
+              : value.ready
+                ? "Matching is on"
+                : "Planning preferences need attention"}
+          </T>
           {value.reason && <Notice>{value.reason}</Notice>}
-          {/* Meeting someone new is a public meeting: the same checks as a public session. */}
-          {value.needs && (
+          {value.lastCheckedAt && (
+            <T variant="caption" color="textSecondary">
+              Last checked {new Date(value.lastCheckedAt).toLocaleString()}.
+            </T>
+          )}
+          {(value.needs === "verify_member" || value.needs === "verify_government_id") && (
             <Button
               variant="accent"
               label={value.needs === "verify_government_id" ? "Verify your ID" : "Verify it’s you"}
@@ -66,126 +80,46 @@ export function AssistantDiscovery({
               }
             />
           )}
-          {value.enabled && value.womenOnly && (
-            <T variant="caption" color="textSecondary">
-              Women only: you’re shown only to women, and only shown women.
-            </T>
-          )}
-          {value.enabled && value.expiresAt && (
-            <T variant="caption" color="textSecondary">
-              Discovery is on until {new Date(value.expiresAt).toLocaleString()}.
-            </T>
-          )}
-          {!value.enabled && (
+          <Button
+            variant="soft"
+            label="Review my times and preferences"
+            onPress={() => router.push("/assistant?planning=1")}
+          />
+          {value.canChooseWomenOnly && (
             <>
-              <Button
-                label={expanded ? "Hide discovery permissions" : "Review discovery permissions"}
-                variant="soft"
-                onPress={() => setExpanded((value) => !value)}
+              <Chip
+                label={value.womenOnly ? "✓ Women only" : "Women only"}
+                selected={value.womenOnly}
+                disabled={action.busy}
+                onPress={() => update({ enabled: value.enabled, womenOnly: !value.womenOnly })}
               />
-              {expanded && (
-                <>
-                  <T variant="caption" color="textSecondary">
-                    {DISCOVERY_NOTICE}
-                  </T>
-                  {!preferences?.enabled && (
-                    <Notice>First save and share your entered planning preferences above.</Notice>
-                  )}
-                  {value.canChooseWomenOnly && (
-                    <>
-                      <Chip
-                        label={womenOnly ? "✓ Women only" : "Women only"}
-                        selected={womenOnly}
-                        onPress={() => setWomenOnly(!womenOnly)}
-                      />
-                      <T variant="caption" color="textSecondary">
-                        You’re shown only to women, and only shown women. Like a women-only session,
-                        it asks for a government ID check once verification is on.
-                      </T>
-                    </>
-                  )}
-                  <Button
-                    label="Allow buddy discovery for 7 days"
-                    disabled={action.busy || !preferences?.enabled || !value.eligible}
-                    onPress={() =>
-                      void action.run(
-                        (signal) =>
-                          session.request("/agents/discovery", {
-                            method: "PUT",
-                            json: {
-                              enabled: true,
-                              preferenceRevision: preferences?.revision,
-                              womenOnly: value.canChooseWomenOnly && womenOnly,
-                            },
-                            signal,
-                          }),
-                        refresh,
-                      )
-                    }
-                  />
-                </>
-              )}
+              <T variant="caption" color="textSecondary">
+                Match only with women. The same verification requirements as a women-only public
+                session apply.
+              </T>
             </>
           )}
-          {value.enabled && value.candidates.length === 0 && (
-            <Notice>
-              No compatible opted-in buddies are available right now. You can change your entered
-              times or venues and enable discovery again.
-            </Notice>
+          <Button
+            variant="ghost"
+            label={value.enabled ? "Pause matching" : "Resume matching"}
+            disabled={action.busy}
+            onPress={() => update({ enabled: !value.enabled })}
+          />
+          {value.enabled && value.ready && preferences?.enabled && (
+            <Button
+              variant="ghost"
+              label="Check for matches now"
+              loading={action.busy}
+              onPress={() =>
+                void action.run(
+                  (signal) =>
+                    session.request("/agents/matching/check", { method: "POST", json: {}, signal }),
+                  refresh,
+                )
+              }
+            />
           )}
-          {value.candidates.map((candidate) => (
-            <Card key={candidate.memberId}>
-              <T variant="label">{candidate.name}</T>
-              <T variant="caption" color="textSecondary">
-                {ACTIVITIES[candidate.activity].label} · {candidate.sharedVenueCount} shared public
-                meeting {candidate.sharedVenueCount === 1 ? "place" : "places"}
-              </T>
-              <Button
-                label={`Invite ${candidate.name} to plan`}
-                variant="soft"
-                disabled={action.busy || !value.enabled || !value.eligible || !preferences?.enabled}
-                onPress={() =>
-                  void action.run(
-                    (signal) =>
-                      session.request<{ negotiation: AssistantNegotiation }>(
-                        "/agents/discovery/invitations",
-                        {
-                          method: "POST",
-                          json: {
-                            memberId: candidate.memberId,
-                            preferenceRevision: preferences?.revision,
-                          },
-                          signal,
-                        },
-                      ),
-                    async ({ negotiation }) => {
-                      await onInvited(negotiation);
-                      await refresh();
-                    },
-                  )
-                }
-              />
-            </Card>
-          ))}
         </>
-      )}
-      {(value?.enabled || discovery.error) && (
-        <Button
-          variant="ghost"
-          label="Turn off buddy discovery"
-          disabled={action.busy}
-          onPress={() =>
-            void action.run(
-              (signal) =>
-                session.request("/agents/discovery", {
-                  method: "PUT",
-                  json: { enabled: false },
-                  signal,
-                }),
-              refresh,
-            )
-          }
-        />
       )}
       {action.error && <Notice tone="danger">{action.error}</Notice>}
     </Card>

@@ -163,10 +163,17 @@ export async function setDiscovery(sql: Sql, userId: string, input: unknown, now
       on conflict (profile_id) do update set enabled = excluded.enabled, preference_revision = excluded.preference_revision,
         expires_at = excluded.expires_at, updated_at = excluded.updated_at, women_only = excluded.women_only`;
     if (!body.enabled) {
-      // Joined conversations retain their separate consent. Unanswered invitations end.
+      // Legacy joined conversations retain their separate consent. Product-authorized
+      // automatic rooms also end, so this existing privacy control still withdraws them.
       await tx`update agent_negotiations set state = 'cancelled', confirmations = '[]'::jsonb, updated_at = ${iso(now)}
-        where booking_id is null and state = 'open' and (host_id = ${userId} or participant_id = ${userId})
-        and not (host_consented and participant_consented)`;
+        where booking_id is null and result_booking_id is null and state <> 'cancelled'
+        and (host_id = ${userId} or participant_id = ${userId})
+        and (not (host_consented and participant_consented) or host_contact_revision is not null)`;
+      await tx`update agent_coordination_runs set status = 'cancelled',
+        reason = 'Agent matching was paused.', updated_at = ${iso(now)}
+        where status in ('queued','negotiating') and negotiation_id in
+          (select id from agent_negotiations where host_contact_revision is not null
+           and (host_id = ${userId} or participant_id = ${userId}))`;
     }
   });
   return getDiscovery(sql, userId, now);

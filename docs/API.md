@@ -516,6 +516,19 @@ Discovery compares a bounded pool of 30 candidates, rotated hourly. Both members
 - Gym sessions matched on `gym_id`, `route_url` in the app.
 - Background checks — see _Verification_ for scope.
 
+## Agent Chats and automatic matching
+
+Chats now lists `/agents/negotiations` and opens `/agent-chat/:id`. Its timeline contains recorded agent contact/check/proposal actions and separately attributed human approvals. No member-to-member composer is offered. `POST /bookings/:id/messages` checks participant access and returns `409 agent_chat_only`; GET retains original historical messages. `POST /agents/discovery/invitations` and member `POST /agents/negotiations/:id/proposal` also return `409 agent_chat_only`. These supersede the legacy invitation/proposal contracts above. A2A delegated proposals remain supported.
+
+| Route | Contract |
+| --- | --- |
+| `GET /agents/matching` | `{matching: AgentMatching}`; status only, no contact side effect. |
+| `PUT /agents/matching` | `{enabled:boolean,womenOnly?:boolean}` → `{matching}`; pause/resume/audience control, preserves booking history. |
+| `POST /agents/matching/check` | `{}` → `{matching}`; bounded, rate-limited contact scan. |
+| `PUT /agents/preferences` | Existing preference contract, then attempts bounded continuation of existing automatic rooms and a contact scan; changed plans clear prior approvals, and a worker failure leaves the successful save intact for cron recovery. |
+
+Accepting `samepace-2026-09-21-agent-chats` Terms initializes matching authority atomically with the receipt. Prior disabled discovery or preference choices remain respected. Legacy discovery grants alone do not authorize contacts. The ten-minute cron scans due members and resumes agent runs before delivering notifications, only while `A2A_ENABLED=true`. See [A2A.md](A2A.md) for quotas, revocation, provenance and approval boundaries. Current tests use synthetic accounts; do not infer real-member adoption or delivery from fixture results.
+
 ## Structured workout plans
 
 All paths below are under `/api/v1`. Member authentication, owner isolation, bounded private JSON handling and no-store responses apply. Delegated A2A credentials confer no access.

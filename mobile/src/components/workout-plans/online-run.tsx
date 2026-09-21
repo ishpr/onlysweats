@@ -335,6 +335,8 @@ function RunEditor({
       {!ended && rest && (
         <RestTimer
           key={rest.key}
+          scope={`rest:${member.id}:${run.id}:${rest.key}`}
+          onSkip={() => setRest(null)}
           seconds={rest.seconds}
           disabled={blocked}
           isCurrent={session.isCurrent}
@@ -380,6 +382,7 @@ function RunEditor({
                     {!ended && set.durationSeconds !== null && (
                       <ExerciseTimer
                         key={`${member.id}:${run.id}:${run.revision}:${set.id}`}
+                        scope={`exercise:${member.id}:${run.id}:${run.revision}:${set.id}`}
                         targetSeconds={set.durationSeconds}
                         autoStart={active.timerRevision === run.revision}
                         disabled={blocked}

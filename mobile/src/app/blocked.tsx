@@ -33,14 +33,14 @@ export default function Blocked() {
   return (
     <Screen onRefresh={() => void blocks.refetch()} refreshing={blocks.isRefetching}>
       <T color="textSecondary">
-        You and a blocked member don’t see each other’s sessions and can’t message. They aren’t
+        You and a blocked member don’t see each other’s sessions, and your agents won’t connect. They aren’t
         told.
       </T>
       {blocks.data.length === 0 && (
         <EmptyState
           icon={ShieldCheck}
           title="Nobody blocked"
-          body="To block someone, open their session or your chat with them and choose Report or block."
+          body="To block someone, open their session and choose Report or block."
         />
       )}
       {blocks.data.map((p) => (

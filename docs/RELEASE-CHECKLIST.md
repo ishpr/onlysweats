@@ -4,7 +4,7 @@ SamePace includes Apple Health imports, private exercise logs, reviewed Jev assi
 
 ## Install and connect
 
-Install the signed physical-iPhone [build e01757e4](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/e01757e4-d659-442b-861a-dd611db94636). This `device-phone` client includes native workout-plan generation, HealthKit/background delivery, App Shortcuts and widgets. It excludes the unprovisioned Watch app and unentitled PCC integration. Earlier client 8594a56c lacks native workout-plan generation.
+Install the signed physical-iPhone [build 279cd6e8](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/279cd6e8-01eb-4f63-a1bd-2ca453555125). This `device-phone` client includes native workout-plan generation, HealthKit/background delivery, App Shortcuts and widgets. It excludes the unprovisioned Watch app and unentitled PCC integration. This release also includes the inclusive HealthKit import-boundary fix. Existing anchors are not automatically backfilled. Earlier client 8594a56c lacks native workout-plan generation.
 
 Connect the installed development client to the intended release checkout's Metro server with `EXPO_PUBLIC_API_URL=https://samepace.app`. Compatible JavaScript changes continue through Expo; a server running in another checkout serves that checkout's code. For the current handoff, the release server uses port 8098. Remove `EXPO_PUBLIC_DEV_TOKEN` and disable dotenv loading for the physical-phone server. Do not use a simulator's synthetic session on a real member's phone.
 
@@ -26,6 +26,8 @@ Use the dated evidence for the current implementation: [intelligence checks](eva
 The [weekly activity follow-up and goal audit](evaluations/fitness-summary-release-2026-09-21.md) record the subsequent totals fix and remaining external acceptance.
 
 The [recovery and coach-entry follow-up](evaluations/recovery-and-entry-2026-09-21.md) records physical Terms acceptance, combined restart/payment recovery tests and rendered coaching access with matching disabled or unavailable.
+
+The [workout reliability evaluation](evaluations/2026-09-21-workout-reliability.md) records durable timer recovery, offline save/reconnect, real database checks and the A2A-to-shared-workout flow. Physical process-kill/data-protection behavior, real HealthKit permission/source changes and a genuine two-member workout remain acceptance checks.
 
 For code changes, run relevant tests, root/mobile types and lint, web build and mobile export. Exercise database races on an explicitly disposable PostgreSQL database. `scripts/check-workout-plans-http.mjs` runs the structured-workout flow against its own loopback server and in-memory database, creates synthetic members and deletes them afterward. Its passing result does not prove the physical interface works.
 

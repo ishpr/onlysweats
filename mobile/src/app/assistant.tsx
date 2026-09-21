@@ -1,8 +1,6 @@
 import { use, useState } from "react";
-import { View } from "react-native";
 import { ClipboardList, Link2, PauseCircle } from "lucide-react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import * as Crypto from "expo-crypto";
+import { Redirect, Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PrivateAssistantChat } from "@/components/assistant-chat";
 import type { ChatPreferenceDraft } from "../../../shared/conversation";
@@ -12,44 +10,36 @@ import { AppHeader } from "@/components/brand";
 import { ComposerDock } from "@/components/composer-dock";
 import { AssistantPlacement } from "@/lib/assistant-placement";
 import { AssistantHero, assistantStatus } from "@/components/assistant-hero";
-import { Approvals, PlanCard, PlanTrack, TimelineItem } from "@/components/assistant-plan";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
-import { ReportLink } from "@/components/report-link";
-import { AssistantCoordinationPanel } from "@/components/assistant-coordination";
 import { AssistantCredentials } from "@/components/assistant-credentials";
 import { AssistantPreferencesEditor } from "@/components/assistant-preferences";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
 import { Button, Card, Notice, Screen, StateView, T } from "@/components/ui";
 import { usePrivateAction } from "@/hooks/use-private-action";
-import { ApiError, type ApiSession } from "@/lib/api";
-import { formatUsd, formatWhen } from "@/lib/format";
+import { ApiError } from "@/lib/api";
 import { useRefreshOnFocus } from "@/lib/queries";
 import { ACTIVITIES, type Booking, type Person, type Session, type Venue } from "@/lib/types";
-import type { MemberDiscovery } from "../../../shared/discovery";
-import type {
-  AssistantBookingReview,
-  AssistantCandidates,
-  AssistantHistoryEvent,
-  AssistantNegotiation,
-  AssistantPlan,
-  AssistantPreferences,
-} from "../../../shared/assistant";
+import type { AgentMatching } from "../../../shared/agent-matching";
+import type { AssistantNegotiation, AssistantPreferences } from "../../../shared/assistant";
 
 type Mine = { bookings: Booking[]; sessions: Session[]; people: Person[] };
 
 export default function AssistantRoute() {
+  const { negotiationId } = useLocalSearchParams<{ negotiationId?: string }>();
+  if (typeof negotiationId === "string" && negotiationId)
+    return <Redirect href={{ pathname: "/agent-chat/[id]", params: { id: negotiationId } }} />;
   return <PrivateMember component={Assistant} />;
 }
 
 function Assistant({ member, session }: PrivateMemberProps) {
   useRefreshOnFocus();
   const router = useRouter();
-  const params = useLocalSearchParams<{ negotiationId?: string; capture?: string }>();
-  const routeId = typeof params.negotiationId === "string" ? params.negotiationId : null;
-  const [selection, setSelection] = useState<{ routeId: string | null; id: string | null }>({
-    routeId,
-    id: routeId,
-  });
+  const params = useLocalSearchParams<{
+    negotiationId?: string;
+    capture?: string;
+    planning?: string;
+  }>();
+  const routeId = params.planning === "1" ? "planning" : null;
   const [pane, setPane] = useState({ routeId, planning: !!routeId });
   const showPlanning = pane.routeId === routeId ? pane.planning : !!routeId;
   const setShowPlanning = (planning: boolean) => setPane({ routeId, planning });
@@ -57,9 +47,8 @@ function Assistant({ member, session }: PrivateMemberProps) {
     undefined,
   );
   const [draftRevision, setDraftRevision] = useState(0);
-  const selected = selection.routeId === routeId ? selection.id : routeId;
-  const setSelected = (id: string) => setSelection({ routeId, id });
-  const [showPreferences, setShowPreferences] = useState(false);
+  const setSelected = (id: string) => router.push({ pathname: "/agent-chat/[id]", params: { id } });
+  const [showPreferences, setShowPreferences] = useState(params.planning === "1");
   const [showConnected, setShowConnected] = useState(false);
   const action = usePrivateAction(session);
   const client = useQueryClient();
@@ -82,12 +71,12 @@ function Assistant({ member, session }: PrivateMemberProps) {
   });
   // Same key as the discovery panel below, so the two share one request.
   const discovery = useQuery({
-    queryKey: [...key, "discovery", preferences.data?.preferences.revision],
+    queryKey: [...key, "matching"],
     gcTime: 0,
     retry: false,
     enabled: Boolean(preferences.data),
     queryFn: ({ signal }) =>
-      session.request<{ discovery: MemberDiscovery }>("/agents/discovery", { signal }),
+      session.request<{ matching: AgentMatching }>("/agents/matching", { signal }),
   });
   const mine = useQuery({
     queryKey: [...key, "completed-bookings"],
@@ -107,14 +96,13 @@ function Assistant({ member, session }: PrivateMemberProps) {
     names?.[ids.find((id) => id !== member.id) ?? ""] ??
     mine.data?.people.find((person) => ids.includes(person.id) && person.id !== member.id)?.name ??
     "Your workout buddy";
-  const completed = mine.data?.bookings.filter((booking) => booking.status === "completed") ?? [];
   const unavailable = preferences.error instanceof ApiError && preferences.error.status === 404;
   const current = preferences.data?.preferences ?? null;
   const status = current
     ? assistantStatus(
         member.id,
         current,
-        discovery.error ? null : (discovery.data?.discovery ?? null),
+        discovery.error ? null : (discovery.data?.matching ?? null),
         list.data?.negotiations ?? [],
       )
     : null;
@@ -253,82 +241,18 @@ function Assistant({ member, session }: PrivateMemberProps) {
                                 : "Expired"}
                       </T>
                       <Button
-                        label={selected === room.id ? "Open below" : "Open"}
+                        label="Read agent conversation"
                         variant="soft"
-                        disabled={selected === room.id}
                         onPress={() => setSelected(room.id)}
                       />
                     </Card>
                   ))}
-                {selected && (
-                  <Conversation
-                    key={selected}
-                    id={selected}
-                    session={session}
-                    ownerId={member.id}
-                    preferences={preferences.error ? null : preferences.data.preferences}
-                    venues={venues.error ? [] : (venues.data?.venues ?? [])}
-                    people={mine.data?.people ?? []}
-                    onChange={refresh}
-                  />
-                )}
                 <SectionTitle>Find a new buddy</SectionTitle>
                 <AssistantDiscovery
                   ownerId={member.id}
                   session={session}
                   preferences={preferences.error ? null : preferences.data.preferences}
-                  onInvited={async (room) => {
-                    setSelected(room.id);
-                    await refresh();
-                  }}
                 />
-                <SectionTitle>Plan with a past buddy</SectionTitle>
-                {(mine.isPending || mine.error) && (
-                  <StateView
-                    loading={mine.isPending}
-                    error={mine.error}
-                    onRetry={() => void mine.refetch()}
-                  />
-                )}
-                {mine.data && completed.length === 0 && (
-                  <Notice>
-                    Complete a SamePace workout together first. That shared booking opens planning
-                    with your buddy.
-                  </Notice>
-                )}
-                {completed.map((booking) => {
-                  const workout = mine.data?.sessions.find((item) => item.id === booking.sessionId);
-                  return (
-                    <Card key={booking.id}>
-                      <T variant="label">{partnerName([booking.hostId, booking.participantId])}</T>
-                      <T variant="caption" color="textSecondary">
-                        {workout?.title ?? "Completed workout"}
-                        {workout ? ` · ${new Date(workout.startAt).toLocaleDateString()}` : ""}
-                      </T>
-                      <T variant="caption" color="textSecondary">
-                        Starting a conversation records your consent to plan with this buddy.
-                      </T>
-                      <Button
-                        label="Start planning together"
-                        variant="soft"
-                        disabled={action.busy}
-                        onPress={() =>
-                          void action.run(
-                            (signal) =>
-                              session.request<{ negotiation: AssistantNegotiation }>(
-                                "/agents/negotiations",
-                                { method: "POST", json: { bookingId: booking.id }, signal },
-                              ),
-                            async ({ negotiation }) => {
-                              setSelected(negotiation.id);
-                              await refresh();
-                            },
-                          )
-                        }
-                      />
-                    </Card>
-                  );
-                })}
                 {action.error && <Notice tone="danger">{action.error}</Notice>}
               </>
             )}
@@ -375,562 +299,10 @@ function Assistant({ member, session }: PrivateMemberProps) {
                 </T>
               </>
             )}
-            {!preferences.data && !unavailable && selected && (
-              <Conversation
-                key={selected}
-                id={selected}
-                session={session}
-                ownerId={member.id}
-                preferences={null}
-                venues={venues.error ? [] : (venues.data?.venues ?? [])}
-                people={mine.data?.people ?? []}
-                onChange={refresh}
-              />
-            )}
           </>
         )}
       </Screen>
       <ComposerDock aboveTabBar={inTab} onHeight={setDockHeight} />
     </>
-  );
-}
-
-function PlanDetails({
-  plan,
-  venues,
-  label,
-  footer,
-}: {
-  plan: AssistantPlan;
-  venues: Venue[];
-  label?: string;
-  footer?: React.ReactNode;
-}) {
-  return <PlanCard plan={plan} venues={venues} label={label} footer={footer} />;
-}
-
-function Conversation({
-  id,
-  ownerId,
-  session,
-  venues,
-  people,
-  preferences,
-  onChange,
-}: {
-  id: string;
-  ownerId: string;
-  session: ApiSession;
-  venues: Venue[];
-  people: Person[];
-  preferences: AssistantPreferences | null;
-  onChange: () => Promise<void>;
-}) {
-  const action = usePrivateAction(session);
-  const [ending, setEnding] = useState(false);
-  const [withdrawn, setWithdrawn] = useState(false);
-  const room = useQuery({
-    queryKey: ["private-assistant", ownerId, "negotiation", id],
-    gcTime: 0,
-    retry: false,
-    refetchInterval: 5000,
-    queryFn: ({ signal }) =>
-      session.request<{ negotiation: AssistantNegotiation }>(
-        `/agents/negotiations/${encodeURIComponent(id)}`,
-        { signal },
-      ),
-  });
-  const refresh = async () => {
-    await room.refetch();
-    await onChange();
-  };
-  if (withdrawn)
-    return (
-      <Card>
-        <Notice>
-          Your consent was withdrawn and this planning conversation has ended. Existing booked
-          workouts are unchanged.
-        </Notice>
-      </Card>
-    );
-  if (!room.data || room.error)
-    return (
-      <Card>
-        <StateView
-          loading={room.isPending}
-          error={room.error}
-          onRetry={() => void room.refetch()}
-        />
-        {room.error && (
-          <>
-            <T variant="caption" color="textSecondary">
-              You can withdraw consent even if the conversation is no longer available to view.
-            </T>
-            <Button
-              label="Withdraw my consent"
-              variant="ghost"
-              disabled={action.busy}
-              onPress={() =>
-                void action.run(
-                  (signal) =>
-                    session.request(`/agents/negotiations/${id}/consent`, {
-                      method: "POST",
-                      json: { allow: false },
-                      signal,
-                    }),
-                  async () => {
-                    setWithdrawn(true);
-                    await onChange();
-                  },
-                )
-              }
-            />
-            {action.error && <Notice tone="danger">{action.error}</Notice>}
-          </>
-        )}
-      </Card>
-    );
-  const value = room.data.negotiation;
-  const consented = value.consentedIds.includes(ownerId);
-  const mutual = value.memberIds.every((memberId) => value.consentedIds.includes(memberId));
-  const active = ["open", "approved"].includes(value.state) && !value.booked;
-  const buddyId = value.memberIds.find((memberId) => memberId !== ownerId) ?? "";
-  const buddy =
-    value.memberNames?.[buddyId] ??
-    people.find((person) => person.id === buddyId)?.name ??
-    "your workout buddy";
-  return (
-    <Card>
-      <T variant="heading">With {buddy}</T>
-      <PlanTrack
-        done={value.booked ? 5 : value.state === "approved" ? 3 : value.plan ? 2 : mutual ? 1 : 0}
-        stopped={value.state === "cancelled" || value.state === "expired"}
-      />
-      <T variant="caption" color="textSecondary">
-        {value.booked
-          ? "Booked — it’s a session now."
-          : value.state === "cancelled"
-            ? "This plan was ended."
-            : value.state === "expired"
-              ? "This plan ran out of time."
-              : `Open until ${formatWhen(value.expiresAt)}.`}
-      </T>
-      {value.state === "open" && !consented && (
-        <>
-          <Notice>
-            Join to let this buddy and their assistant exchange workout plans with you. Your private
-            fitness history is not part of the conversation.
-          </Notice>
-          <Button
-            label="Join this planning conversation"
-            disabled={action.busy}
-            onPress={() =>
-              void action.run(
-                (signal) =>
-                  session.request(`/agents/negotiations/${id}/consent`, {
-                    method: "POST",
-                    json: { allow: true },
-                    signal,
-                  }),
-                refresh,
-              )
-            }
-          />
-        </>
-      )}
-      {consented && !mutual && active && (
-        <Notice>Waiting for {buddy} to join. Nothing is shared until they do.</Notice>
-      )}
-      {value.plan && (
-        <>
-          <PlanDetails
-            plan={value.plan}
-            venues={venues}
-            label={value.state === "approved" || value.booked ? "Agreed" : "Proposed"}
-          />
-          <Approvals
-            people={value.memberIds.map((memberId) => ({
-              id: memberId,
-              name: memberId === ownerId ? "You" : buddy,
-              approved: value.confirmedIds.includes(memberId),
-            }))}
-            caption={
-              value.confirmedIds.length === value.memberIds.length
-                ? "You’ve both approved this plan."
-                : "Both of you approve before anything is booked. Any change asks again."
-            }
-          />
-          {mutual && value.state === "open" && !value.confirmedIds.includes(ownerId) && (
-            <Button
-              label="Approve this plan"
-              disabled={action.busy || !venues.some((venue) => venue.id === value.plan!.venueId)}
-              onPress={() =>
-                void action.run(
-                  (signal) =>
-                    session.request(`/agents/negotiations/${id}/confirm`, {
-                      method: "POST",
-                      json: { revision: value.revision },
-                      signal,
-                    }),
-                  refresh,
-                )
-              }
-            />
-          )}
-          {value.confirmedIds.includes(ownerId) && value.state === "open" && (
-            <Notice>You approved this plan. {buddy} still needs to look at it.</Notice>
-          )}
-        </>
-      )}
-      {mutual && (
-        <AssistantCoordinationPanel
-          room={value}
-          ownerId={ownerId}
-          session={session}
-          preferences={preferences}
-          onChange={refresh}
-        />
-      )}
-      {mutual && active && (
-        <Candidates
-          key={value.revision}
-          room={value}
-          ownerId={ownerId}
-          session={session}
-          venues={venues}
-          onChange={refresh}
-        />
-      )}
-      {(value.state === "approved" || value.booked) && (
-        <BookingReview
-          room={value}
-          ownerId={ownerId}
-          session={session}
-          venues={venues}
-          onChange={refresh}
-        />
-      )}
-      {active && (
-        <Button
-          label={consented ? "Withdraw and end conversation" : "Decline conversation"}
-          variant="ghost"
-          disabled={action.busy}
-          onPress={() => setEnding(true)}
-        />
-      )}
-      {ending && active && (
-        <>
-          <Notice>
-            This ends the planning conversation and clears approvals. It does not cancel an existing
-            booked session.
-          </Notice>
-          <Button
-            label="End this conversation"
-            variant="danger"
-            disabled={action.busy}
-            onPress={() =>
-              void action.run(
-                (signal) =>
-                  session.request(`/agents/negotiations/${id}/consent`, {
-                    method: "POST",
-                    json: { allow: false },
-                    signal,
-                  }),
-                async () => {
-                  setEnding(false);
-                  await refresh();
-                },
-              )
-            }
-          />
-          <Button label="Keep planning" variant="ghost" onPress={() => setEnding(false)} />
-        </>
-      )}
-      {action.error && <Notice tone="danger">{action.error}</Notice>}
-      {value.memberIds
-        .filter((memberId) => memberId !== ownerId)
-        .map((memberId) => (
-          <ReportLink
-            key={memberId}
-            memberId={memberId}
-            name={
-              value.memberNames?.[memberId] ??
-              people.find((person) => person.id === memberId)?.name ??
-              "this buddy"
-            }
-            negotiationId={value.id}
-          />
-        ))}
-      <History
-        id={id}
-        revision={value.revision}
-        state={value.state}
-        confirmations={value.confirmedIds.length}
-        ownerId={ownerId}
-        session={session}
-        venues={venues}
-        people={people}
-        memberNames={value.memberNames}
-      />
-    </Card>
-  );
-}
-
-function Candidates({
-  room,
-  ownerId,
-  session,
-  venues,
-  onChange,
-}: {
-  room: AssistantNegotiation;
-  ownerId: string;
-  session: ApiSession;
-  venues: Venue[];
-  onChange: () => Promise<void>;
-}) {
-  const action = usePrivateAction(session);
-  const [result, setResult] = useState<AssistantCandidates | null>(null);
-  return (
-    <View style={{ gap: 12 }}>
-      <Button
-        label={room.plan ? "Find another plan" : "Find plans that fit both of us"}
-        variant="soft"
-        disabled={action.busy}
-        onPress={() =>
-          void action.run(
-            (signal) =>
-              session.request<AssistantCandidates>(`/agents/negotiations/${room.id}/candidates`, {
-                signal,
-              }),
-            setResult,
-          )
-        }
-      />
-      <T variant="caption" color="textSecondary">
-        Matches use both people’s entered times, public venues and workout preferences. No private
-        calendar or health readings are used.
-      </T>
-      {result?.reason && <Notice>{result.reason}</Notice>}
-      {result?.candidates.map((plan, index) => (
-        <PlanDetails
-          key={`${plan.startAt}:${plan.venueId}:${index}`}
-          plan={plan}
-          venues={venues}
-          label={`Option ${index + 1}`}
-          footer={
-            <Button
-              label={room.plan ? "Send this counterproposal" : "Propose this plan"}
-              disabled={action.busy || !venues.some((venue) => venue.id === plan.venueId)}
-              onPress={() =>
-                void action.run(
-                  (signal) =>
-                    session.request(`/agents/negotiations/${room.id}/proposal`, {
-                      method: "POST",
-                      json: {
-                        messageId: Crypto.randomUUID(),
-                        expectedRevision: room.revision,
-                        plan,
-                      },
-                      signal,
-                    }),
-                  onChange,
-                )
-              }
-            />
-          }
-        />
-      ))}
-      {action.error && <Notice tone="danger">{action.error}</Notice>}
-    </View>
-  );
-}
-
-function BookingReview({
-  room,
-  ownerId,
-  session,
-  venues,
-  onChange,
-}: {
-  room: AssistantNegotiation;
-  ownerId: string;
-  session: ApiSession;
-  venues: Venue[];
-  onChange: () => Promise<void>;
-}) {
-  const router = useRouter();
-  const action = usePrivateAction(session);
-  const review = useQuery({
-    queryKey: ["private-assistant", ownerId, "booking-terms", room.id, room.revision, room.booked],
-    gcTime: 0,
-    retry: false,
-    refetchInterval: 5000,
-    queryFn: ({ signal }) =>
-      session.request<AssistantBookingReview>(`/agents/negotiations/${room.id}/booking-terms`, {
-        signal,
-      }),
-  });
-  if (!review.data || review.error)
-    return (
-      <StateView
-        loading={review.isPending}
-        error={review.error}
-        onRetry={() => void review.refetch()}
-      />
-    );
-  const value = review.data;
-  if (value.booked && value.sessionId)
-    return (
-      <>
-        <Notice>
-          Your workout is booked. Open the session for check-in, chat and cancellation.
-        </Notice>
-        <Button
-          label="Open booked workout"
-          onPress={() =>
-            router.push({ pathname: "/session/[id]", params: { id: value.sessionId! } })
-          }
-        />
-      </>
-    );
-  return (
-    <Card>
-      <T variant="heading">Review booking terms</T>
-      <PlanDetails plan={value.terms.plan} venues={venues} label="Agreed" />
-      <T>
-        You will be the {value.terms.hostId === ownerId ? "host" : "participant"}. This is an
-        unlisted workout for two people.
-      </T>
-      <T variant="caption" color="textSecondary">
-        Late cancellation within {value.terms.lateCancelHours} hours:{" "}
-        {formatUsd(value.terms.lateCancelFeeCents)}. No-show fee:{" "}
-        {formatUsd(value.terms.noShowFeeCents)}. {formatUsd(value.terms.chargeNowCents)} charged
-        now. Payment collection is currently disabled.
-      </T>
-      <T variant="caption" color="textSecondary">
-        A booking is created only after both people accept these exact terms. A changed plan or
-        changed preferences requires review again.
-      </T>
-      {value.approvedIds.includes(ownerId) ? (
-        <Notice>You accepted. Waiting for your buddy to accept too.</Notice>
-      ) : (
-        <Button
-          label="Accept and book"
-          loading={action.busy}
-          disabled={action.busy || !venues.some((venue) => venue.id === value.terms.plan.venueId)}
-          onPress={() =>
-            void action.run(
-              (signal) =>
-                session.request<AssistantBookingReview>(`/agents/negotiations/${room.id}/book`, {
-                  method: "POST",
-                  json: { revision: value.terms.revision, termsHash: value.terms.termsHash },
-                  signal,
-                }),
-              async () => {
-                await review.refetch();
-                await onChange();
-              },
-            )
-          }
-        />
-      )}
-      {action.error && <Notice tone="danger">{action.error}</Notice>}
-    </Card>
-  );
-}
-
-function History({
-  id,
-  revision,
-  state,
-  confirmations,
-  ownerId,
-  session,
-  venues,
-  people,
-  memberNames,
-}: {
-  id: string;
-  revision: number;
-  state: string;
-  confirmations: number;
-  ownerId: string;
-  session: ApiSession;
-  venues: Venue[];
-  people: Person[];
-  memberNames?: Record<string, string>;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const events = useQuery({
-    queryKey: ["private-assistant", ownerId, "history", id, revision, state, confirmations],
-    gcTime: 0,
-    retry: false,
-    enabled: expanded,
-    queryFn: ({ signal }) =>
-      session.request<{ events: AssistantHistoryEvent[] }>(`/agents/negotiations/${id}/history`, {
-        signal,
-      }),
-  });
-  const labels: Record<AssistantHistoryEvent["kind"], string> = {
-    consent: "Joined or left",
-    proposal: "Plan proposed",
-    confirmation: "Plan approved",
-    cancel: "Plan ended",
-    booking_approval: "Booking terms accepted",
-    booked: "Workout booked",
-  };
-  return (
-    <View style={{ gap: 12 }}>
-      <Button
-        label={expanded ? "Hide what’s happened" : "See what’s happened so far"}
-        variant="ghost"
-        onPress={() => setExpanded((value) => !value)}
-      />
-      {expanded && (
-        <>
-          {(events.isPending || events.error) && (
-            <StateView
-              loading={events.isPending}
-              error={events.error}
-              onRetry={() => void events.refetch()}
-            />
-          )}
-          {!events.error &&
-            events.data?.events.map((event, index, all) => (
-              <TimelineItem
-                key={event.sequence}
-                title={labels[event.kind]}
-                mine={event.actorId === ownerId}
-                last={index === all.length - 1}
-                when={formatWhen(event.createdAt)}
-                who={
-                  typeof event.data.agentLabel === "string" && event.data.agentLabel !== "Member"
-                    ? `${event.data.agentLabel}, for ${event.actorId === ownerId ? "you" : "your buddy"}`
-                    : event.actorId === ownerId
-                      ? "You"
-                      : (memberNames?.[event.actorId] ??
-                        people.find((person) => person.id === event.actorId)?.name ??
-                        "Your buddy")
-                }
-              >
-                {event.kind === "proposal" && event.data.plan ? (
-                  <T variant="caption" color="textSecondary">
-                    {(event.data.plan as AssistantPlan).title} ·{" "}
-                    {formatWhen((event.data.plan as AssistantPlan).startAt)} ·{" "}
-                    {venues.find((venue) => venue.id === (event.data.plan as AssistantPlan).venueId)
-                      ?.name ?? "meeting point"}
-                  </T>
-                ) : null}
-                {event.kind === "consent" && (
-                  <T variant="caption" color="textSecondary">
-                    {event.data.allowed ? "Joined" : "Left, and withdrew consent"}
-                  </T>
-                )}
-              </TimelineItem>
-            ))}
-        </>
-      )}
-    </View>
   );
 }

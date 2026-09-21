@@ -168,7 +168,7 @@ describe("joining", () => {
     await rejects(svc.bookSeat(sql, "ann", s.id), 409, /already/);
     await rejects(svc.bookSeat(sql, "bob", s.id), 409, /full/);
     await rejects(svc.bookSeat(sql, "host", s.id), 409, /posted/);
-    assert.equal((await svc.listMessages(sql, "ann", b.id)).length, 1);
+    assert.equal((await svc.listMessages(sql, "ann", b.id)).length, 0);
     await rejects(svc.listMessages(sql, "bob", b.id), 404);
     assert.deepEqual(await ledgerFor("ann"), [], "joining costs nothing");
   });
@@ -573,15 +573,30 @@ describe("standing slots", () => {
   });
 });
 
-describe("chat", () => {
-  it("is booking-scoped and expires 24h after the session", async () => {
+describe("read-only legacy chat", () => {
+  it("preserves scoped history while disabling all direct-message writes", async () => {
     const s = await svc.postSession(sql, "host", listing());
     const b = await svc.bookSeat(sql, "bob", s.id);
-    const thread = await svc.sendMessage(sql, "bob", b.id, "  On my way.  ");
-    assert.equal(thread.at(-1)?.text, "On my way.");
+    assert.equal(b.chatOpen, false);
+    assert.deepEqual(await svc.listMessages(sql, "bob", b.id), []);
+    await sql`insert into messages (id, booking_id, from_id, text)
+      values ('historical-member-message', ${b.id}, 'bob', 'Historical member text')`;
+    const before = await sql`select id from notifications`;
     await rejects(svc.sendMessage(sql, "ann", b.id, "hi"), 404);
-    await rejects(svc.sendMessage(sql, "bob", b.id, "   "), 400);
-    await rejects(svc.sendMessage(sql, "bob", b.id, "late", Date.now() + 50 * HOUR), 409, /expired/);
+    for (const text of ["Hello", "", "   "]) {
+      await rejects(svc.sendMessage(sql, "bob", b.id, text), 409, /agents/);
+    }
+    await rejects(
+      svc.sendMessage(sql, "host", b.id, "late", Date.now() + 50 * HOUR),
+      409,
+      /agents/,
+    );
+    const history = await svc.listMessages(sql, "bob", b.id);
+    assert.equal(history.length, 1);
+    assert.equal(history[0].fromId, "bob");
+    assert.equal(history[0].text, "Historical member text");
+    assert.deepEqual(await sql`select id from notifications`, before);
+    await rejects(svc.listMessages(sql, "ann", b.id), 404);
   });
 });
 
