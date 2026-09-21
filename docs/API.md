@@ -278,8 +278,10 @@ slots after `closing`.
 ## Words
 
 Titles, details and event names go through one whole-word list (PRD v0.3 §8):
-tinder, swipe, match, spark, date, crush, single, cute, chemistry, vibe.
-"Update" and "singletrack" pass; "single-leg" and "single-arm" are let through.
+tinder, swipe, spark, crush, single, cute, chemistry, vibe. The PRD's "match" and
+"date" are left off on purpose — "match my pace" and "race date" are what people
+write here, and the `date_framing` report covers the other meaning.
+"Singletrack" passes; "single-leg" and "single-arm" are let through.
 A hit is a `400` naming the word. The list is `BANNED_WORDS` in `rules.ts`.
 
 ## Not built yet (PRD v0.3)

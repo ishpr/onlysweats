@@ -310,7 +310,7 @@ describe("public blocks", () => {
   it("posts a block that waits for a second member, and shows it without faces", async () => {
     const [ana, bob] = [await member("Ana"), await member("Bob")];
     await rejects(post(ana, { slots: [] }), 400, /one to four/);
-    await rejects(post(ana, { slots: [slot({ title: "Looking for a date" })] }), 400, /about the workout/);
+    await rejects(post(ana, { slots: [slot({ title: "Good vibe long run" })] }), 400, /about the workout/);
     await rejects(post(ana, { eventName: "Cute 10k" }), 400, /about the workout/);
     await rejects(post(ana, { slots: [slot({ startAt: new Date(Date.now() + 20 * DAY).toISOString() })] }), 400, /two weeks/);
     await rejects(post(ana, { goalDate: daysOut(10) }), 400, /4 weeks/);

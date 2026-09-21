@@ -128,15 +128,14 @@ export function abilityFits(
 
 /**
  * PRD v0.3 §8: what a member writes stays about the workout. The list is the
- * PRD's, matched as whole words — "update" and "singletrack" pass, "date" and
- * "single" don't. Blunt on purpose; one list to tune.
+ * PRD's, matched as whole words — "singletrack" passes, "single" doesn't — minus
+ * "match" and "date": "match my pace" and "race date" are what people write here,
+ * and the `date_framing` report covers the other meaning. One list to tune.
  */
 export const BANNED_WORDS = [
   "tinder",
   "swipe",
-  "match",
   "spark",
-  "date",
   "gym crush",
   "crush",
   "single",

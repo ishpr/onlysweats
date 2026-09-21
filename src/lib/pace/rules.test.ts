@@ -318,12 +318,13 @@ describe("words", () => {
       "Singletrack loop, candidate for Saturdays",
       "Single-leg RDLs and single arm rows",
       "Sparkling water after",
+      "Match my pace — race date is Dec 13",
       "",
     ]) {
       assert.deepEqual(cleanText(fine), { ok: true }, fine);
     }
     for (const [text, word] of [
-      ["Looking for a date", "date"],
+      ["Looking for a spark", "spark"],
       ["SWIPE right on this run", "swipe"],
       ["any gym  crush welcome", "gym crush"],
       ["Good VIBE only", "vibe"],
