@@ -47,6 +47,10 @@ export type Person = {
   completedCount: number;
   onTimePct: number;
   wouldJoinPct: number;
+  /** Training blocks finished: kept 75% of the sessions they had. */
+  blocksFinished: number;
+  /** Distinct people who said this member helped them stick to a block. */
+  helpedCount: number;
   abilities: MemberAbilities;
 };
 
@@ -248,6 +252,11 @@ export type TrainingBlock = {
   /** Mine alone: sessions I checked in to, out of the ones I had. */
   my: { planned: number; kept: number; keptMiles: number; finished: boolean | null };
   group: { planned: number; kept: number };
+  /**
+   * Set for a member once the goal date has passed: whether I can still say who
+   * helped (and about whom), and whether the weekly slots can still be kept.
+   */
+  ending: { creditsOpen: boolean; creditable: string[]; slotsUndecided: boolean } | null;
 };
 
 export type ChatMessage = {

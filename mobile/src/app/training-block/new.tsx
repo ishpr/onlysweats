@@ -10,15 +10,26 @@ import {
 } from "@/components/goal-picker";
 import { Button, Card, Notice, Screen, StateView, T } from "@/components/ui";
 import { formatDate } from "@/lib/format";
-import { useMakeTrainingBlock, useMine } from "@/lib/queries";
+import { useMakeTrainingBlock, useMine, useNextTrainingBlock } from "@/lib/queries";
 
-/** "Give it a finish line": a standing slot gets a goal and a date. */
+/**
+ * "Give it a finish line": a standing slot gets a goal and a date. With
+ * `fromBlockId` it is "Start the next block": a finished block's people and
+ * weekly slots, aimed at a new goal.
+ */
 export default function NewTrainingBlock() {
-  const { seriesId } = useLocalSearchParams<{ seriesId: string }>();
+  const { seriesId, fromBlockId } = useLocalSearchParams<{
+    seriesId?: string;
+    fromBlockId?: string;
+  }>();
   const router = useRouter();
   const mine = useMine();
   const make = useMakeTrainingBlock();
-  const slot = mine.data?.series.find((s) => s.id === seriesId);
+  const next = useNextTrainingBlock();
+  const previous = mine.data?.trainingBlocks.find((b) => b.id === fromBlockId);
+  const slot = previous
+    ? { title: previous.goalLabel, activity: previous.activity }
+    : mine.data?.series.find((s) => s.id === seriesId);
   const [goal, setGoal] = useState(DEFAULT_GOAL);
 
   if (!slot) {
@@ -33,22 +44,24 @@ export default function NewTrainingBlock() {
     );
   }
 
+  const opts = {
+    onSuccess: (block: { id: string }) =>
+      router.replace({ pathname: "/training-block/[id]", params: { id: block.id } }),
+  };
   function start() {
-    make.mutate(
-      { seriesId, ...goalFields(goal) },
-      {
-        onSuccess: (block) =>
-          router.replace({ pathname: "/training-block/[id]", params: { id: block.id } }),
-      },
-    );
+    if (fromBlockId) return next.mutate({ blockId: fromBlockId, ...goalFields(goal) }, opts);
+    if (seriesId) make.mutate({ seriesId, ...goalFields(goal) }, opts);
   }
+  const busy = make.isPending || next.isPending;
+  const error = make.error ?? next.error;
 
   return (
     <Screen edges={["bottom"]}>
-      <T variant="title">Give it a finish line.</T>
+      <T variant="title">{previous ? "What’s next?" : "Give it a finish line."}</T>
       <T color="textSecondary">
-        {slot.title} keeps running every week — until the date you pick. You’ll see the sessions
-        you’ve kept out of the ones you had.
+        {previous
+          ? `${previous.goalLabel} is done. Same people, same weekly slots — pick the next goal and its date.`
+          : `${slot.title} keeps running every week — until the date you pick. You’ll see the sessions you’ve kept out of the ones you had.`}
       </T>
 
       <GoalPicker activity={slot.activity} value={goal} onChange={setGoal} />
@@ -56,16 +69,16 @@ export default function NewTrainingBlock() {
       <Card>
         <T variant="label">Ends {formatDate(goalDateOf(goal))}</T>
         <T variant="caption" color="textSecondary">
-          Everyone in the slot is in the block. Check-in, skipping a week and the no-show rules stay
-          exactly as they are. Anyone can leave at any time.
+          Everyone in the {previous ? "last block" : "slot"} is in the block. Check-in, skipping a
+          week and the no-show rules stay exactly as they are. Anyone can leave at any time.
         </T>
       </Card>
 
-      {make.error && <Notice tone="danger">{make.error.message}</Notice>}
+      {error && <Notice tone="danger">{error.message}</Notice>}
       <Button
         variant="accent"
         label="Start the training block"
-        loading={make.isPending}
+        loading={busy}
         disabled={!goalReady(goal)}
         onPress={start}
       />

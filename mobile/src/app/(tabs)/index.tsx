@@ -31,6 +31,11 @@ export default function Today() {
     .filter((x) => x.session)
     .sort((a, b) => +new Date(a.session!.startAt) - +new Date(b.session!.startAt));
   const trainingBlocks = mine.data?.trainingBlocks ?? [];
+  // A finished block with something still to answer goes to the top: there is no
+  // other reminder that the week for it is running.
+  const toAnswer = trainingBlocks.filter(
+    (b) => (b.ending?.creditsOpen && b.ending.creditable.length > 0) || b.ending?.slotsUndecided,
+  );
   // A block lists its own slots; don't show them twice.
   const standingSlots = (mine.data?.series ?? []).filter((slot) => !slot.trainingBlockId);
   const live = upcoming.find(
@@ -60,6 +65,26 @@ export default function Today() {
 
       {/* Ask once there's something worth hearing about. */}
       {upcoming.length > 0 && <PushPrompt />}
+
+      {toAnswer.map((block) => (
+        <Card key={block.id}>
+          <T variant="label">
+            {block.my.finished ? `You finished ${block.goalLabel}` : `${block.goalLabel} is done`}
+          </T>
+          <T variant="caption" color="textSecondary">
+            {block.ending?.creditsOpen && block.ending.creditable.length > 0
+              ? "Say who helped you stick to it, and what happens to the weekly slots."
+              : "The weekly slots have stopped. Start the next block, keep them running, or let them end."}
+          </T>
+          <Button
+            variant="accent"
+            label="Wrap it up"
+            onPress={() =>
+              router.push({ pathname: "/training-block/[id]", params: { id: block.id } })
+            }
+          />
+        </Card>
+      ))}
 
       {me.data && me.data.creditCents > 0 && (
         <Card>
@@ -127,7 +152,7 @@ export default function Today() {
                     <View style={styles.flex}>
                       <T variant="label">{block.goalLabel}</T>
                       <T variant="caption" color="textSecondary">
-                        {block.status === "closing"
+                        {block.ending
                           ? block.my.finished
                             ? "Finished"
                             : "Reached its date"

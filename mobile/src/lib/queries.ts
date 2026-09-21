@@ -292,6 +292,51 @@ export function useResolveBlockRequest() {
   });
 }
 
+/** "Helped me stick to it?" — a finisher's one answer. An empty list is an answer. */
+export function useGiveCredits() {
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: (v: { blockId: string; toIds: string[] }) =>
+      api(`/training-blocks/${v.blockId}/credits`, { method: "POST", json: { toIds: v.toIds } }),
+    onSuccess: refresh,
+  });
+}
+
+/** The block is done; its weekly slots carry on as plain standing slots. */
+export function useKeepBlockSlots() {
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: (blockId: string) =>
+      api(`/training-blocks/${blockId}/next`, { method: "POST", json: { action: "keep_slots" } }),
+    onSuccess: refresh,
+  });
+}
+
+/** Same people, same weekly slots, a new goal and date. */
+export function useNextTrainingBlock() {
+  const refresh = useRefreshAll();
+  return useMutation({
+    mutationFn: async (v: {
+      blockId: string;
+      goalKind: GoalKind;
+      eventName?: string;
+      goalDate: string;
+    }) =>
+      (
+        await api<{ block: TrainingBlock }>(`/training-blocks/${v.blockId}/next`, {
+          method: "POST",
+          json: {
+            action: "next_block",
+            goalKind: v.goalKind,
+            eventName: v.eventName,
+            goalDate: v.goalDate,
+          },
+        })
+      ).block,
+    onSuccess: refresh,
+  });
+}
+
 /** "Start one like it": a full block, again, for the next group. */
 export function useCloneTrainingBlock() {
   const refresh = useRefreshAll();

@@ -96,6 +96,13 @@ export default function You() {
         <Stat value={rated ? `${p.wouldJoinPct}%` : "—"} label="Join again" />
       </Row>
 
+      {(p.blocksFinished > 0 || p.helpedCount > 0) && (
+        <Row style={styles.stats}>
+          <Stat value={String(p.blocksFinished)} label="Blocks finished" />
+          <Stat value={String(p.helpedCount)} label="People you helped finish" />
+        </Row>
+      )}
+
       {p.frozenUntil && (
         <Notice tone="danger">
           Two no-shows in 60 days. Public sessions are paused until {formatWhen(p.frozenUntil)}.
