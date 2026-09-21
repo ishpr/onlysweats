@@ -27,6 +27,7 @@ import type { Sql } from "../db.ts";
 import { PaceError } from "../pace/service.server.ts";
 import { PLAN_SCHEMA, PROTOCOL_VERSION } from "./contracts.ts";
 import * as service from "./service.server.ts";
+import { sharedPreferences } from "./assistant.server.ts";
 
 export const enabled = () => process.env.A2A_ENABLED === "true";
 
@@ -127,7 +128,9 @@ async function taskFor(
             {
               text:
                 state === TaskState.TASK_STATE_COMPLETED
-                  ? "Both members approved this plan. No workout has been booked."
+                  ? r.booked
+                    ? "Both members separately accepted the booking terms in SamePace. Their workout is booked."
+                    : "Both members approved this plan. Booking still requires both members to accept the terms in SamePace."
                   : state === TaskState.TASK_STATE_CANCELED
                     ? "This proposal conversation has ended."
                     : "Waiting for a proposal or both members to confirm the current revision in SamePace.",
@@ -148,7 +151,7 @@ async function taskFor(
                   revision: r.revision,
                   plan: r.plan,
                   confirmedIds: r.confirmedIds,
-                  booked: false,
+                  booked: r.booked,
                 },
                 mediaType: "application/json",
               },
@@ -171,8 +174,9 @@ async function taskFor(
     metadata: {
       revision: r.revision,
       expiresAt: r.expiresAt,
-      booked: false,
+      booked: r.booked,
       confirmationMode: "each-member-in-app",
+      sharedPreferences: await sharedPreferences(sql, room.host_id, room.id, now),
     },
   });
 }

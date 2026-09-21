@@ -46,12 +46,11 @@ function Today() {
           className="glass rounded-[28px] p-4"
         >
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-stand">
-            Intelligence · Health
+            Sample suggestion · Simulated readings
           </p>
           <p className="mt-2 text-pretty text-[15px] leading-relaxed text-fg">
             Sleep {formatSleep(health.sleepMin)}, HRV {health.hrvMs} ms, recovery{" "}
-            {health.recoveryPct}%. {suggestion.title} fits an easy day — not a
-            workout plan.
+            {health.recoveryPct}%. {suggestion.title} fits an easy day — not a workout plan.
           </p>
           <span className="mt-3 inline-flex items-center gap-1 text-sm text-muted">
             See the session <ChevronRight className="size-4" />
@@ -59,10 +58,7 @@ function Today() {
         </Link>
       )}
 
-      <Link
-        to="/health"
-        className="glass flex items-center gap-5 rounded-[28px] p-4"
-      >
+      <Link to="/health" className="glass flex items-center gap-5 rounded-[28px] p-4">
         <ActivityRings
           size={118}
           move={health.moveKcal / health.moveGoal}
@@ -72,7 +68,7 @@ function Today() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold tracking-tight">Fitness</h2>
-            <span className="text-xs text-muted">Apple Health</span>
+            <span className="text-xs text-muted">Sample data</span>
           </div>
           <div className="mt-3">
             <RingLegend
@@ -103,8 +99,7 @@ function Today() {
               Invite someone you already know
             </h3>
             <p className="mt-2 text-pretty text-sm leading-relaxed text-muted">
-              Empty cluster still works. Create an unlisted session and share it
-              from Messages.
+              Empty cluster still works. Create an unlisted session and share it from Messages.
             </p>
             <Link
               to="/post"

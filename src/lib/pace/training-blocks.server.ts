@@ -36,6 +36,7 @@ import {
   type Occurrence,
 } from "./rules.ts";
 import {
+  assertNoAssistantOverlap,
   at,
   blockedBetween,
   ensureNextOccurrence as repeatSeries,
@@ -49,6 +50,7 @@ import {
   PaceError,
   people,
   profileRow,
+  validRegulars,
   type SessionRow,
 } from "./service.server.ts";
 import type {
@@ -243,7 +245,12 @@ const membersOf = (sql: Sql, blockId: string) => sql<MemberRow>`
 
 // ── Reads ────────────────────────────────────────────────────────────────────
 
-async function toDTO(sql: Sql, b: BlockRow, viewer: string, now: number): Promise<TrainingBlockDTO> {
+async function toDTO(
+  sql: Sql,
+  b: BlockRow,
+  viewer: string,
+  now: number,
+): Promise<TrainingBlockDTO> {
   const members = await membersOf(sql, b.id);
   const isMember = members.some((m) => m.profile_id === viewer);
   const rows = isMember ? await occurrencesOf(sql, b.id) : [];
@@ -258,13 +265,19 @@ async function toDTO(sql: Sql, b: BlockRow, viewer: string, now: number): Promis
             sideOf(rows, { id: m.profile_id, joinedAt: ms(m.joined_at)!, leftAt: ms(m.left_at) }),
             now,
           )
-        : { planned: m.planned_count, kept: m.kept_count ?? 0, keptMiles: Number(m.kept_miles ?? 0) };
+        : {
+            planned: m.planned_count,
+            kept: m.kept_count ?? 0,
+            keptMiles: Number(m.kept_miles ?? 0),
+          };
     group.planned += p.planned;
     group.kept += p.kept;
     if (m.profile_id === viewer) mine = { ...p, finished: m.finished };
   }
 
-  const [me] = await sql<{ abilities: unknown }>`select abilities from profiles where id = ${viewer}`;
+  const [me] = await sql<{
+    abilities: unknown;
+  }>`select abilities from profiles where id = ${viewer}`;
   const myLevels = json<MemberAbilities>(me?.abilities) ?? {};
   const fits: (boolean | null)[] = [];
   const series = await sql<{ id: string; streak: number }>`
@@ -294,7 +307,10 @@ async function toDTO(sql: Sql, b: BlockRow, viewer: string, now: number): Promis
   }
 
   // In the order the week runs, not the order they were created.
-  slots.sort((a, b) => (a.nextStartAt ?? "9").localeCompare(b.nextStartAt ?? "9") || a.title.localeCompare(b.title));
+  slots.sort(
+    (a, b) =>
+      (a.nextStartAt ?? "9").localeCompare(b.nextStartAt ?? "9") || a.title.localeCompare(b.title),
+  );
 
   const ending = isMember ? await endingOf(sql, b, viewer, members, now) : null;
 
@@ -620,13 +636,15 @@ export async function addBlockSlot(
     );
     const members = (await membersOf(tx, blockId)).map((m) => m.profile_id);
     if (!b || !members.includes(userId)) throw new PaceError(404, "No training block.");
-    if (b.created_by !== userId) throw new PaceError(403, "Only whoever started the block adds slots.");
+    if (b.created_by !== userId)
+      throw new PaceError(403, "Only whoever started the block adds slots.");
     if (b.status !== "forming" && b.status !== "active") {
       throw new PaceError(409, "This training block has finished.");
     }
     const [{ n }] = await tx<{ n: number }>`
       select count(*) as n from series where training_block_id = ${blockId} and status = 'active'`;
-    if (Number(n) >= BLOCK_MAX_SLOTS) throw new PaceError(409, "A block holds up to four slots a week.");
+    if (Number(n) >= BLOCK_MAX_SLOTS)
+      throw new PaceError(409, "A block holds up to four slots a week.");
 
     const ability = validAbility(b.activity, input.ability);
     if (!ability.ok) throw new PaceError(400, ability.error);
@@ -646,7 +664,10 @@ export async function addBlockSlot(
     );
     if (!verdict.ok) throw new PaceError(400, verdict.error);
     if (members.length > 1 && startAt < now + NEW_SLOT_LEAD_MS) {
-      throw new PaceError(400, "Start a new slot at least two days out, so everyone can plan for it.");
+      throw new PaceError(
+        400,
+        "Start a new slot at least two days out, so everyone can plan for it.",
+      );
     }
     if (clusterDate(startAt) > b.goal_date) {
       throw new PaceError(400, "That’s after the goal date.");
@@ -684,6 +705,10 @@ async function createSlot(
   input: BlockSlotInput,
   startAt: number,
 ) {
+  if (!(await validRegulars(tx, members)))
+    throw new PaceError(409, "This group cannot book a new slot.");
+  for (const member of members)
+    await assertNoAssistantOverlap(tx, member, at(startAt), input.durationMin);
   const seriesId = newId("ser");
   await tx`
     insert into series (id, created_by, training_block_id)
@@ -765,7 +790,8 @@ export async function postTrainingBlock(
     if (startAt > now + BLOCK_FIRST_WEEK_DAYS * 24 * 60 * 60_000) {
       throw new PaceError(400, "Start each slot inside the next two weeks.");
     }
-    if (clusterDate(startAt) > input.goalDate) throw new PaceError(400, "That’s after the goal date.");
+    if (clusterDate(startAt) > input.goalDate)
+      throw new PaceError(400, "That’s after the goal date.");
     starts.push(startAt);
   }
   const startsOn = clusterDate(Math.min(...starts));
@@ -814,6 +840,9 @@ export async function postTrainingBlock(
  * the moment it has two people.
  */
 async function admit(tx: Sql, b: BlockRow, profileId: string, now: number) {
+  const regulars = (await membersOf(tx, b.id)).map((m) => m.profile_id);
+  if (!(await validRegulars(tx, [...new Set([...regulars, profileId])])))
+    throw new PaceError(409, "This group cannot add that member.");
   await tx`
     insert into training_block_members (block_id, profile_id, joined_at)
     values (${b.id}, ${profileId}, ${at(now)})
@@ -838,6 +867,13 @@ async function admit(tx: Sql, b: BlockRow, profileId: string, now: number) {
     // one: they start the week after.
     if (seated.some((x) => x.participant_id === profileId)) continue;
     if (seated.length >= next.capacity - 1) continue;
+    await assertNoAssistantOverlap(
+      tx,
+      profileId,
+      at(ms(next.start_at)!),
+      next.duration_min,
+      next.id,
+    );
     const bookingId = newId("bk");
     await tx`
       insert into bookings (id, session_id, participant_id, status)
@@ -850,7 +886,12 @@ async function admit(tx: Sql, b: BlockRow, profileId: string, now: number) {
   await tx`update training_blocks set status = 'active' where id = ${b.id} and status = 'forming'`;
 
   const who = await firstName(tx, profileId);
-  const label = goalLabel(b.goal_kind, b.event_name, Math.max(series.length, 1), blockWeeks(b.starts_on, b.goal_date));
+  const label = goalLabel(
+    b.goal_kind,
+    b.event_name,
+    Math.max(series.length, 1),
+    blockWeeks(b.starts_on, b.goal_date),
+  );
   for (const m of await membersOf(tx, b.id)) {
     if (m.profile_id === profileId) continue;
     await enqueue(
@@ -1236,7 +1277,12 @@ export async function withdrawCredits(tx: Sql, fromId: string, toId: string) {
 }
 
 /** The slots of a finished block that nobody has decided about yet. */
-async function undecidedSlots(tx: Sql, b: BlockRow, userId: string, now: number): Promise<string[]> {
+async function undecidedSlots(
+  tx: Sql,
+  b: BlockRow,
+  userId: string,
+  now: number,
+): Promise<string[]> {
   const mine = (await membersOf(tx, b.id)).some((m) => m.profile_id === userId);
   if (!mine) throw new PaceError(404, "No training block.");
   if (!past(b)) throw new PaceError(409, "This block is still running.");

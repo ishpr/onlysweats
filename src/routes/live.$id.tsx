@@ -72,9 +72,7 @@ function Live() {
           Close
         </button>
         <PaceMark className="size-7" />
-        <span className="text-sm tabular-nums text-muted">
-          {formatTime(session.startAt)}
-        </span>
+        <span className="text-sm tabular-nums text-muted">{formatTime(session.startAt)}</span>
       </div>
 
       <h1 className="mt-6 text-[28px] font-semibold tracking-tight">Live session</h1>
@@ -82,8 +80,7 @@ function Live() {
         {venue?.name} · {host.name.split(" ")[0]}
       </p>
       <p className="mt-1 text-xs text-faint">
-        Window {formatTime(new Date(from).toISOString())} –{" "}
-        {formatTime(new Date(to).toISOString())}
+        Window {formatTime(new Date(from).toISOString())} – {formatTime(new Date(to).toISOString())}
       </p>
 
       <div className="mt-5">
@@ -111,11 +108,7 @@ function Live() {
                   ? "Check in · 150 m"
                   : "Walk inside 150 m"}
           </Button>
-          <Button
-            className="mt-2 w-full"
-            variant="soft"
-            onClick={() => setDistance(42)}
-          >
+          <Button className="mt-2 w-full" variant="soft" onClick={() => setDistance(42)}>
             Simulate arriving at pin
           </Button>
 
@@ -126,9 +119,7 @@ function Live() {
             </p>
             {session.codeRevealedAt ? (
               <p className="mt-3 text-center text-3xl font-semibold tabular-nums tracking-[0.4em]">
-                {session.hostId === ME_ID || session.codeRevealedAt
-                  ? session.code
-                  : "••••"}
+                {session.hostId === ME_ID || session.codeRevealedAt ? session.code : "••••"}
               </p>
             ) : (
               <Button
@@ -172,7 +163,7 @@ function Live() {
           <div className="rounded-[28px] bg-accent/15 p-5 text-center">
             <p className="text-lg font-semibold text-accent">Both checked in</p>
             <p className="mt-1 text-sm text-muted">
-              Capture is eligible. Workout writes to Fitness after the hold.
+              Demo check-in complete. This does not record exercise or write to Apple Health.
             </p>
           </div>
           {!booking.ratedByParticipant && !showRating && (

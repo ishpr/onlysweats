@@ -29,6 +29,8 @@ async function handle({ request }: { request: Request }) {
   const retired = await notify.checkReceipts(sql);
   const { retryAppleRevocations } = await import("@/lib/auth/apple-revoke.server");
   const appleRevocations = await retryAppleRevocations(sql);
+  const { pruneOperations } = await import("@/lib/operations/service.server");
+  await pruneOperations(sql);
   return Response.json({ ok: true, settled, closed, reminders, pushed, retired, appleRevocations });
 }
 

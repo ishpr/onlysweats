@@ -33,6 +33,18 @@ type Overview = {
   feesAssessedCents: number;
 };
 type ReportStatus = "open" | "actioned" | "dismissed";
+type Operations = {
+  metrics: {
+    component: string;
+    requests: number;
+    server_errors: number;
+    conflicts: number;
+    p50_ms: number;
+    p95_ms: number;
+    p99_ms: number;
+  }[];
+  counts: Record<string, number>;
+};
 type Report = {
   id: string;
   reason: string;
@@ -121,8 +133,7 @@ const when = (iso: string) =>
   new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
-const focus =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stand";
+const focus = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stand";
 const inputClass = `min-h-11 w-full rounded-2xl border border-fg/10 bg-bg-raised px-4 text-[15px] text-fg placeholder:text-faint ${focus}`;
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -206,7 +217,8 @@ function SignIn({ onDone }: { onDone: () => Promise<void> }) {
     script.src = "https://accounts.google.com/gsi/client";
     script.async = true;
     script.onload = () => {
-      const id = (window as unknown as { google?: { accounts: { id: GoogleId } } }).google?.accounts.id;
+      const id = (window as unknown as { google?: { accounts: { id: GoogleId } } }).google?.accounts
+        .id;
       if (!id || !googleButton.current) return;
       id.initialize({
         client_id: clientId,
@@ -214,10 +226,16 @@ function SignIn({ onDone }: { onDone: () => Promise<void> }) {
           setError("");
           void authClient.signIn
             .social({ provider: "google", idToken: { token: credential } })
-            .then(({ error: failed }) => (failed ? setError(failed.message ?? "Sign-in failed.") : onDone()));
+            .then(({ error: failed }) =>
+              failed ? setError(failed.message ?? "Sign-in failed.") : onDone(),
+            );
         },
       });
-      id.renderButton(googleButton.current, { theme: "filled_black", size: "large", shape: "pill" });
+      id.renderButton(googleButton.current, {
+        theme: "filled_black",
+        size: "large",
+        shape: "pill",
+      });
     };
     script.onerror = () => setError("Couldn’t load Google sign-in.");
     document.head.appendChild(script);
@@ -276,6 +294,7 @@ function SignIn({ onDone }: { onDone: () => Promise<void> }) {
 
 function Console() {
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [operations, setOperations] = useState<Operations | null>(null);
   const [status, setStatus] = useState<ReportStatus>("open");
   const [queue, setQueue] = useState<{ reports: Report[]; people: Person[] } | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
@@ -283,14 +302,16 @@ function Console() {
 
   const load = useCallback(async () => {
     try {
-      const [o, q, a] = await Promise.all([
+      const [o, q, a, reliability] = await Promise.all([
         api<Overview>("/admin/overview"),
         api<{ reports: Report[]; people: Person[] }>(`/admin/reports?status=${status}`),
         api<{ actions: Action[] }>("/admin/actions"),
+        api<Operations>("/admin/operations"),
       ]);
       setOverview(o);
       setQueue(q);
       setActions(a.actions);
+      setOperations(reliability);
       setError("");
     } catch (err) {
       setError((err as Error).message);
@@ -322,6 +343,70 @@ function Console() {
           <Stat label="No-shows" value={overview.noShows} />
           <Stat label="Fees assessed" value={usd(overview.feesAssessedCents)} />
         </dl>
+      )}
+
+      {operations && (
+        <Panel title="Service reliability">
+          <p className="text-sm text-muted">
+            Last 24 hours. Counts and timings only. Health sync is manual; an older sync does not by
+            itself indicate a failure.
+          </p>
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="Health connections" value={operations.counts.health_connections} />
+            <Stat label="Never synced" value={operations.counts.never_synced} />
+            <Stat label="Assistant bookings" value={operations.counts.assistant_bookings} />
+            <Stat label="Open negotiations" value={operations.counts.open_negotiations} />
+            <Stat label="Failed push deliveries" value={operations.counts.failed_push_deliveries} />
+            <Stat
+              label="Failed Apple revocations"
+              value={operations.counts.failed_apple_revocations}
+            />
+          </dl>
+          {operations.metrics.length === 0 ? (
+            <p className="text-sm text-muted">No recorded requests in this window.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <caption className="sr-only">Request reliability and response times</caption>
+                <thead>
+                  <tr>
+                    {[
+                      "Service",
+                      "Requests",
+                      "Errors",
+                      "Conflicts",
+                      "Median",
+                      "95th percentile",
+                      "99th percentile",
+                    ].map((title) => (
+                      <th key={title} scope="col" className="p-2">
+                        {title}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {operations.metrics.map((metric) => (
+                    <tr key={metric.component}>
+                      <th scope="row" className="p-2 capitalize">
+                        {metric.component}
+                      </th>
+                      <td>{metric.requests}</td>
+                      <td>{metric.server_errors}</td>
+                      <td>{metric.conflicts}</td>
+                      <td>{Math.round(metric.p50_ms)} ms</td>
+                      <td>{Math.round(metric.p95_ms)} ms</td>
+                      <td>{Math.round(metric.p99_ms)} ms</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Button variant="soft" onClick={() => void load()}>
+            Refresh reliability
+          </Button>
+        </Panel>
       )}
 
       <Panel title="Reports">
@@ -409,7 +494,8 @@ function ReportCard({
         <h3 className="text-lg font-semibold text-fg">{REASONS[r.reason] ?? r.reason}</h3>
         <p className="text-sm text-muted">
           {reporter?.name ?? r.reporterId} reported{" "}
-          <strong className="text-fg">{reported?.name ?? r.reportedId}</strong> · {when(r.createdAt)}
+          <strong className="text-fg">{reported?.name ?? r.reportedId}</strong> ·{" "}
+          {when(r.createdAt)}
         </p>
         <p className="text-sm text-faint">
           {r.reportsAgainst} report{r.reportsAgainst === 1 ? "" : "s"} against this member
@@ -456,7 +542,12 @@ function ReportCard({
             />
           </label>
           <div className="flex flex-wrap gap-2">
-            <Button variant="soft" disabled={busy} className={focus} onClick={() => void resolve("dismiss")}>
+            <Button
+              variant="soft"
+              disabled={busy}
+              className={focus}
+              onClick={() => void resolve("dismiss")}
+            >
               Dismiss
             </Button>
             {r.session && (
@@ -469,7 +560,12 @@ function ReportCard({
                 {r.session.trainingBlockId ? "Take block down" : "Take session down"}
               </Button>
             )}
-            <Button variant="danger" disabled={busy} className={focus} onClick={() => void resolve("suspend")}>
+            <Button
+              variant="danger"
+              disabled={busy}
+              className={focus}
+              onClick={() => void resolve("suspend")}
+            >
               Pause member
             </Button>
             {r.session && (

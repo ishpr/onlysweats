@@ -39,6 +39,7 @@ import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
 import { passwordSignInEnabled, socialProviderIds, socialProviders } from "./social.server";
 import { accountLinkingPolicy } from "./account-linking";
+import { vercelPreviewAuth } from "./vercel-preview";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
 import { pgliteDialect } from "./pglite-dialect";
@@ -94,6 +95,11 @@ export const authConfigured =
 // preview allowlist, which makes the OAuth `redirect_uri` the concrete preview URL
 // the broker's preview client accepts.
 const explicitBaseURL = env("BETTER_AUTH_URL");
+const vercelPreview = vercelPreviewAuth({
+  VERCEL_ENV: env("VERCEL_ENV"),
+  VERCEL_URL: env("VERCEL_URL"),
+  VERCEL_BRANCH_URL: env("VERCEL_BRANCH_URL"),
+});
 // Explicit `string[]` (not a readonly tuple) — Better Auth's DynamicBaseURLConfig
 // requires a mutable `allowedHosts: string[]`.
 const previewAllowedHosts: string[] = [...PREVIEW_ALLOWED_HOSTS];
@@ -110,11 +116,11 @@ const LOCAL_DEV_ORIGINS: string[] = [8080, 8088].flatMap((port) => [
 const baseURL = explicitBaseURL ?? {
   // Include loopback hosts so dynamic baseURL resolves for local email/password
   // (not only the preview wildcard).
-  allowedHosts: [...previewAllowedHosts, "localhost", "127.0.0.1", "[::1]"],
+  allowedHosts: [...previewAllowedHosts, ...vercelPreview.allowedHosts, "localhost", "127.0.0.1", "[::1]"],
   // `auto` → trust both http:// and https:// expansions of allowedHosts
   // (preview is https; local dev is http).
   protocol: "auto" as const,
-  fallback: "http://localhost:8080",
+  fallback: vercelPreview.fallback ?? "http://localhost:8080",
 };
 
 // Origins Better Auth accepts on credentialed POSTs (sign-up/sign-in, etc.).
@@ -126,6 +132,7 @@ const trustedOrigins: string[] = explicitBaseURL
       ...previewAllowedHosts,
       // Full-origin wildcards (matched against Origin)
       ...previewAllowedHosts.flatMap((host) => [`https://${host}`, `http://${host}`]),
+      ...vercelPreview.trustedOrigins,
       ...LOCAL_DEV_ORIGINS,
     ];
 

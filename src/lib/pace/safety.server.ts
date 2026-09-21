@@ -46,10 +46,9 @@ export async function blockMember(sql: Sql, userId: string, targetId: string, no
   await sql.transaction(async (tx) => {
     // Serialize a block with standing-slot eligibility validation. Otherwise a
     // newly created slot can miss this block while severTies misses that slot.
-    await tx.query(
-      `select id from profiles where id = any($1) order by id for update`,
-      [[userId, targetId]],
-    );
+    await tx.query(`select id from profiles where id = any($1) order by id for update`, [
+      [userId, targetId],
+    ]);
     await tx`
       insert into blocks (blocker_id, blocked_id, created_at)
       values (${userId}, ${targetId}, ${at(now)})
@@ -133,7 +132,10 @@ export async function reportMember(
       select count(*) as n from reports
       where reporter_id = ${userId} and created_at > ${at(now - DAY_MS)}`;
     if (Number(n) >= REPORTS_PER_DAY) {
-      throw new PaceError(409, "That’s the limit for one day. Email support@samepace.app and we’ll pick it up.");
+      throw new PaceError(
+        409,
+        "That’s the limit for one day. Email support@samepace.app and we’ll pick it up.",
+      );
     }
     const reportId = newId("rep");
     await tx`
@@ -205,6 +207,7 @@ export async function deleteAccount(sql: Sql, userId: string, now = Date.now()) 
     await tx`delete from push_devices where profile_id = ${userId}`;
     await tx`delete from notifications where profile_id = ${userId}`;
     await tx`delete from agent_delegations where profile_id = ${userId}`;
+    await tx`delete from agent_preferences where profile_id = ${userId}`;
     // Negotiation events cascade with the room; private proposals do not remain
     // attached to the deliberately retained, anonymized history profile.
     await tx`delete from agent_negotiations where host_id = ${userId} or participant_id = ${userId}`;
@@ -376,7 +379,11 @@ export async function adminListReports(
             trainingBlockId: s.training_block_id,
           }
         : null,
-      messages: messages.map((m) => ({ fromId: m.from_id, text: m.text, createdAt: iso(m.created_at)! })),
+      messages: messages.map((m) => ({
+        fromId: m.from_id,
+        text: m.text,
+        createdAt: iso(m.created_at)!,
+      })),
     });
   }
   return {
@@ -491,9 +498,10 @@ export async function adminRemoveSession(
 }
 
 const blockIsRunning = async (tx: Sql, blockId: string) =>
-  (await tx`
-    select 1 from training_blocks where id = ${blockId} and status in ('forming', 'active')`)
-    .length > 0;
+  (
+    await tx`
+    select 1 from training_blocks where id = ${blockId} and status in ('forming', 'active')`
+  ).length > 0;
 
 /**
  * Take a training block down: its weekly slots end, every session still on the
@@ -539,7 +547,9 @@ export async function adminRemoveTrainingBlock(
             profileId: m.profile_id,
             kind: started ? "block_removed" : "block_cancelled",
             category: started ? "account" : "sessions",
-            title: started ? "Your training block was taken down" : "A training block you’re in has ended",
+            title: started
+              ? "Your training block was taken down"
+              : "A training block you’re in has ended",
             body: started
               ? "It broke the rules for what can be posted. Email support@samepace.app if you think that’s wrong."
               : "SamePace took it down. Your seats are released and nothing is charged.",
@@ -573,7 +583,10 @@ export async function adminResolveReport(
     if (input.action === "suspend" || input.action === "suspend_and_remove") {
       await adminSuspend(tx, adminEmail, r.reported_id, note || `Report: ${r.reason}`, now);
     }
-    if ((input.action === "remove_session" || input.action === "suspend_and_remove") && r.session_id) {
+    if (
+      (input.action === "remove_session" || input.action === "suspend_and_remove") &&
+      r.session_id
+    ) {
       await adminRemoveSession(tx, adminEmail, r.session_id, note, now);
     }
     // A report that was acted on takes back any goal credit the reporter gave them.

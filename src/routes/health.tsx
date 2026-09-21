@@ -20,19 +20,19 @@ function Health() {
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-5">
       <header>
-        <p className="text-sm text-muted">Apple Fitness + Health</p>
+        <p className="text-sm text-muted">Simulated fitness data</p>
         <h1 className="text-[32px] font-semibold tracking-tight">Activity</h1>
       </header>
 
       {!health.connected ? (
         <div className="glass rounded-[28px] p-6">
-          <h2 className="text-xl font-semibold">Connect Apple Health</h2>
+          <h2 className="text-xl font-semibold">Preview sample activity</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            Rings, sleep, and HRV help Intelligence pick a session that fits today.
-            SamePace never ranks bodies or photos.
+            These readings are examples. This web demo cannot connect to Apple Health. Connect in
+            the iPhone app to see your own records.
           </p>
           <Button className="mt-5" onClick={() => connect(true)}>
-            Turn on Health
+            Show sample readings
           </Button>
         </div>
       ) : (
@@ -91,7 +91,10 @@ function Health() {
             <h2 className="mb-3 text-lg font-semibold tracking-tight">Workouts</h2>
             <div className="flex flex-col gap-2">
               {health.workouts.map((w) => (
-                <div key={w.id} className="glass flex items-center justify-between rounded-2xl px-4 py-3">
+                <div
+                  key={w.id}
+                  className="glass flex items-center justify-between rounded-2xl px-4 py-3"
+                >
                   <div>
                     <p className="font-medium tracking-tight">{w.title}</p>
                     <p className="text-xs text-muted">
@@ -106,13 +109,14 @@ function Health() {
           </section>
 
           <p className="text-sm text-muted">
-            Completing a dual check-in writes a workout back to Fitness.{" "}
+            These workouts are simulated. Check-ins do not create measured workouts or write to
+            Apple Health.{" "}
             <Link to="/prototype" className="text-fg">
               Today
             </Link>
           </p>
           <Button variant="ghost" onClick={() => connect(false)}>
-            Disconnect Health
+            Hide sample readings
           </Button>
         </>
       )}

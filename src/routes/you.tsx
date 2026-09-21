@@ -44,9 +44,9 @@ function You() {
           stand={health.standHours / health.standGoal}
         />
         <div>
-          <p className="font-medium">Apple Fitness</p>
+          <p className="font-medium">Sample fitness data</p>
           <p className="text-sm text-muted">
-            {health.connected ? "Rings, HRV, sleep — used for seat fit, not coaching." : "Connect Health"}
+            {health.connected ? "Simulated rings, HRV, and sleep." : "View sample activity"}
           </p>
         </div>
       </Link>
@@ -59,14 +59,13 @@ function You() {
           onChange={(on) => setPref({ womenOnlySearch: on })}
         />
         <Toggle
-          label="Share Health with Intelligence"
+          label="Use sample health in the demo"
           on={prefs.shareHealth}
           onChange={(on) => setPref({ shareHealth: on })}
         />
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Report and block live on every listing. 18+. Everyone verifies a phone
-          and a selfie before joining a public session. Ranking never uses body
-          or photo quality.
+          Report and block are available in the app. Members must be 18 or older. Phone and identity
+          verification are not currently performed.
         </p>
       </section>
 
@@ -76,8 +75,8 @@ function You() {
           {formatUsd(credit)}
         </p>
         <p className="text-sm text-muted">
-          You get $5 of membership credit when you show up and the other person
-          doesn’t. Nobody pays anybody for a session.
+          You get $5 of membership credit when you show up and the other person doesn’t. Nobody pays
+          anybody for a session.
         </p>
       </section>
     </div>

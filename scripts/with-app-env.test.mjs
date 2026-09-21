@@ -86,6 +86,24 @@ test("the wrapped command runs with the app env applied", async () => {
   assert.equal(stdout, "false");
 });
 
+test("local server configuration is loaded without replacing explicit overrides", async () => {
+  const root = makeWorkspace();
+  mkdirSync(join(root, "scripts"));
+  copyFileSync(WRAPPER, join(root, "scripts/with-app-env.mjs"));
+  writeFileSync(join(root, ".env.local"), "TYPESAFE_API_KEY=synthetic-fixture\nJEV_ENABLED=true\n");
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      join(root, "scripts/with-app-env.mjs"),
+      process.execPath,
+      "-e",
+      "console.log(JSON.stringify({keyLoaded:process.env.TYPESAFE_API_KEY==='synthetic-fixture',flag:process.env.JEV_ENABLED}));",
+    ],
+    { env: { ...process.env, TYPESAFE_API_KEY: "synthetic-fixture", JEV_ENABLED: "false" } },
+  );
+  assert.deepEqual(JSON.parse(stdout), { keyLoaded: true, flag: "false" });
+});
+
 test("the wrapped command sees an explicit override, not the file value", async () => {
   const { stdout } = await execFileAsync(
     process.execPath,
