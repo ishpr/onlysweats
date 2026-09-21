@@ -16,6 +16,8 @@ The built-in coach now uses `zai/glm-5.3-flash` through Vercel. The normal coach
 
 The member confirmed current product Terms acceptance and return to Home on the physical iPhone. The [recovery and entry follow-up](evaluations/recovery-and-entry-2026-09-21.md) preserves nine additional cross-component recovery checks and keeps the home coach entry available independently of buddy-matching setup. The requested Home spacing adjustment raises the greeting and brings the workout shortcut cards higher in the viewport. Full physical coaching/workout acceptance remains pending.
 
+The coach now leads with a structured workout draft, editable review and **Save & start**, with full formatted prose under **Coach notes**. Timed sets offer a foreground stopwatch and explicit elapsed-duration review before completion. Today is reduced to labeled readings with detail one tap away. See the [dated acceptance](evaluations/actionable-coach-2026-09-21.md); these JavaScript changes require no new native binary. A physical-phone screenshot showed a live coach response and generated draft before this update; the full physical plan/timer/offline flow remains unverified.
+
 Apple sign-in was confirmed successful by the user on the physical iPhone after PR #33. The refreshed physical-phone view also showed the current home screen and imported Health data. These observations do not complete the HealthKit or workout acceptance checklist. On-device plan generation has not yet been confirmed on this phone.
 
 The signed [phone artifact e01757e4](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/e01757e4-d659-442b-861a-dd611db94636) contains native plan generation. The installed app's generic version/build metadata did not identify its exact EAS package, so the pending on-device capability check is still necessary.
@@ -50,4 +52,4 @@ Follow [workout plans](WORKOUT-PLANS.md), [the release checklist](RELEASE-CHECKL
 
 ## Redesign boundary
 
-Start redesign work from current `origin/main`, including the native authentication fix. Preserve the distinction between planned targets, member-entered actual results, measured Health data and AI suggestions. Keep explicit review/save, sharing permissions, missing-value labels and error/recovery behavior visible through any layout changes. No design edits are part of this handoff.
+Start redesign work from current `origin/main`, including the native authentication fix. Preserve the distinction between planned targets, member-entered actual results, measured Health data and AI suggestions. Keep explicit review/save, sharing permissions, missing-value labels and error/recovery behavior visible through any layout changes. The member-requested Home spacing, compact Today card and coach text/plan presentation are narrow refinements; the wider redesign remains with Claude.

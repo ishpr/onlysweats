@@ -142,18 +142,9 @@ function Compact({
     return (
       <Card>
         <Header />
-        <Row style={styles.hero}>
-          <DayDial size={96}>
-            <HeartPulse size={26} color={theme.textFaint} />
-          </DayDial>
-          <View style={styles.flex}>
-            <T variant="heading">See your day at a glance</T>
-            <T variant="caption" color="textSecondary">
-              Sleep, heart rate, steps and workouts from Apple Health. Your recorded history,
-              private to you.
-            </T>
-          </View>
-        </Row>
+        <T variant="caption" color="textSecondary">
+          Choose what to sync from Apple Health.
+        </T>
         <Button
           label="Connect Apple Health"
           variant="accent"
@@ -181,29 +172,33 @@ function Compact({
       icon: Moon,
       color: theme.stand,
       value: hoursMinutes(d.sleepMin),
-      label: "sleep",
+      label: "Sleep",
+      spoken: `Sleep last night: ${hoursMinutes(d.sleepMin)}`,
     },
     d.restingHr !== null && {
       icon: HeartPulse,
       color: theme.move,
       value: `${d.restingHr} bpm`,
-      label: "resting",
+      label: "Resting HR",
+      spoken: `Recorded resting heart rate: ${d.restingHr} beats per minute`,
     },
     d.steps !== null && {
       icon: Footprints,
       color: theme.accent,
       value: d.steps.toLocaleString("en-US"),
-      label: "steps",
+      label: "Steps",
+      spoken: `Steps today: ${d.steps.toLocaleString("en-US")}`,
     },
-  ].filter((x): x is { icon: LucideIcon; color: string; value: string; label: string } =>
-    Boolean(x),
+  ].filter(
+    (x): x is { icon: LucideIcon; color: string; value: string; label: string; spoken: string } =>
+      Boolean(x),
   );
 
   return (
     <Card>
       <PressScale
         accessibilityRole="button"
-        accessibilityLabel={`Today: ${read.headline}. ${read.lines.join(" ")} Open your day`}
+        accessibilityLabel={`Today. ${stats.length > 0 ? stats.map((stat) => stat.spoken).join(". ") : `${read.headline}. ${read.lines.join(" ")}`} Open your day`}
         onPress={() => router.push("/today")}
         scaleTo={0.98}
         style={styles.compact}
@@ -225,25 +220,25 @@ function Compact({
             <T variant="caption" color="textSecondary">
               {read.ourRead ? read.ourRead.because : read.lines[0]}
             </T>
-            {stats.length > 0 && (
-              <View style={styles.stats}>
-                {stats.map(({ icon: Icon, color, value, label }) => (
-                  <View
-                    key={label}
-                    accessible
-                    accessibilityLabel={`${label}: ${value}`}
-                    style={[styles.stat, { backgroundColor: theme.field }]}
-                  >
-                    <Icon size={13} color={color} />
-                    <T variant="caption" style={styles.statText} numberOfLines={1}>
-                      {value}
-                    </T>
-                  </View>
-                ))}
-              </View>
-            )}
           </View>
         </Row>
+        {stats.length > 0 ? (
+          <View style={styles.stats}>
+            {stats.map(({ icon: Icon, color, value, label }) => (
+              <View key={label} style={styles.stat}>
+                <Row style={styles.statLabel}>
+                  <Icon size={14} color={color} />
+                  <T variant="caption" color="textSecondary">
+                    {label}
+                  </T>
+                </Row>
+                <T variant="heading" style={styles.statText}>
+                  {value}
+                </T>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </PressScale>
       {picked && pick && <Suggested why={pick.why} session={picked} />}
     </Card>
@@ -704,15 +699,13 @@ const styles = StyleSheet.create({
   hero: { alignItems: "center", gap: Spacing.three },
   compact: { gap: Spacing.two },
   detail: { gap: Spacing.two },
-  stats: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: Spacing.one },
+  stats: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
   stat: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderRadius: Radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: Spacing.half,
+    flexGrow: 1,
+    flexBasis: 96,
+    gap: Spacing.half,
   },
+  statLabel: { alignItems: "center", gap: Spacing.half },
   statText: { fontFamily: Fonts.medium, fontVariant: ["tabular-nums"] },
   recorded: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: Spacing.two, gap: 2 },
   dialSub: { fontSize: 11, lineHeight: 14 },

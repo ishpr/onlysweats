@@ -41,6 +41,7 @@ export function PlanEditor({
   onSave,
   onCancel,
   reviewSuggested = false,
+  saveLabel = "Save private workout plan",
 }: {
   value: PlanFields;
   onChange: (value: PlanFields) => void;
@@ -48,6 +49,7 @@ export function PlanEditor({
   onSave: (plan: WorkoutPlanContent) => void;
   onCancel?: () => void;
   reviewSuggested?: boolean;
+  saveLabel?: string;
 }) {
   const [active, setActive] = useState<string | null>(() => value.exercises[0]?.id ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -255,7 +257,7 @@ export function PlanEditor({
         )}
       </Card>
       <Button
-        label="Save private workout plan"
+        label={saveLabel}
         loading={busy}
         onPress={() => {
           try {

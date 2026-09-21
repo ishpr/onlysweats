@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppState, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -9,9 +9,15 @@ import {
   type OfflineWorkoutMemberProps,
 } from "@/components/workout-plans/offline-member";
 import { Button, Card, Chip, Field, Notice, Row, Screen, StateView, T } from "@/components/ui";
+import { AssistantMarkdown } from "@/components/assistant-markdown";
 import { SetFields } from "@/components/workout-plans/set-fields";
 import OnlineRun from "@/components/workout-plans/online-run";
 import { RestTimer } from "@/components/workout-plans/rest-timer";
+import { ExerciseTimer } from "@/components/workout-plans/exercise-timer";
+import {
+  fieldsWithTimedDuration,
+  workoutSetTimerIdentity,
+} from "@/lib/workout-plans/workout-timer";
 import { Spacing } from "@/constants/theme";
 import { usePrivateAction } from "@/hooks/use-private-action";
 import { formatWhen } from "@/lib/format";
@@ -137,6 +143,7 @@ function RunEditor({
     exerciseId: string;
     set: PlannedSet;
     fields: ActualFields;
+    timerIdentity?: string;
   } | null>(() => activeEditorFromEntry(entry));
   const [legacyRecovery, setLegacyRecovery] = useState<WorkoutRecovery | null>(null);
   useEffect(() => {
@@ -172,6 +179,19 @@ function RunEditor({
   const remaining = totalSets - completed - skipped;
   const ended = run.status === "completed";
   const blocked = action.busy || entry.conflict !== null;
+  const timerScope = useRef<string | null>(null);
+  const activeTimerIdentity = active
+    ? workoutSetTimerIdentity(run, active.exerciseId, active.set.id)
+    : null;
+  const currentTimerScope = !blocked && !ended ? activeTimerIdentity : null;
+  useLayoutEffect(() => {
+    timerScope.current = currentTimerScope;
+    return () => {
+      timerScope.current = null;
+    };
+  }, [currentTimerScope]);
+  const timerCurrent = (identity: string | null) =>
+    identity !== null && session.isCurrent() && timerScope.current === identity;
   const invalidate = useCallback(async () => {
     await client.invalidateQueries({ queryKey: ["private-workout-runs", member.id] });
     await client.invalidateQueries({ queryKey: ["private-fitness", member.id, "summary"] });
@@ -484,7 +504,7 @@ function RunEditor({
       )}
       <Card>
         <T variant="heading">
-          {completed} of {totalSets} sets completed
+          {completed} of {totalSets} set{totalSets === 1 ? "" : "s"} completed
         </T>
         <T color="textSecondary">
           {skipped} skipped · {remaining} not recorded
@@ -493,7 +513,7 @@ function RunEditor({
           Your entries are separate from Apple Health measurements and session attendance.
         </T>
       </Card>
-      {run.snapshot.instructions ? <T color="textSecondary">{run.snapshot.instructions}</T> : null}
+      {run.snapshot.instructions ? <AssistantMarkdown text={run.snapshot.instructions} /> : null}
       {(action.error || error) && <Notice tone="danger">{error ?? action.error}</Notice>}
       {action.error && (
         <Button
@@ -503,7 +523,14 @@ function RunEditor({
           onPress={refresh}
         />
       )}
-      {!ended && rest && <RestTimer key={rest.key} seconds={rest.seconds} />}
+      {!ended && rest && (
+        <RestTimer
+          key={rest.key}
+          seconds={rest.seconds}
+          disabled={blocked}
+          isCurrent={session.isCurrent}
+        />
+      )}
       {run.snapshot.exercises.map((exercise, exerciseIndex) => (
         <Card key={exercise.id}>
           <Row>
@@ -514,7 +541,7 @@ function RunEditor({
               {exercise.name}
             </T>
           </Row>
-          {exercise.instructions ? <T color="textSecondary">{exercise.instructions}</T> : null}
+          {exercise.instructions ? <AssistantMarkdown text={exercise.instructions} /> : null}
           {exercise.sets.map((set, setIndex) => {
             const result = run.results.find(
               (item) => item.exerciseId === exercise.id && item.setId === set.id,
@@ -541,6 +568,22 @@ function RunEditor({
                 )}
                 {editing && active ? (
                   <>
+                    {!ended && set.durationSeconds !== null && (
+                      <ExerciseTimer
+                        key={`${member.id}:${activeTimerIdentity}`}
+                        targetSeconds={set.durationSeconds}
+                        autoStart={active.timerIdentity === activeTimerIdentity}
+                        disabled={blocked}
+                        isCurrent={() => timerCurrent(activeTimerIdentity)}
+                        onUseDuration={(seconds) => {
+                          if (!timerCurrent(activeTimerIdentity)) return;
+                          changeActive({
+                            ...active,
+                            fields: fieldsWithTimedDuration(active.fields, seconds),
+                          });
+                        }}
+                      />
+                    )}
                     <Notice>
                       Enter what you actually did. Planned values are not automatically recorded.
                     </Notice>
@@ -587,6 +630,25 @@ function RunEditor({
                   </>
                 ) : (
                   <>
+                    {!ended && set.durationSeconds !== null && result?.status !== "completed" && (
+                      <Button
+                        label="Start timer for this set"
+                        variant="soft"
+                        disabled={blocked || active !== null}
+                        onPress={() => {
+                          if (blocked || !session.isCurrent()) return;
+                          setRest(null);
+                          setError(null);
+                          changeActive({
+                            exerciseId: exercise.id,
+                            set,
+                            fields: { ...emptySetFields(), unit: set.unit, restSeconds: "0" },
+                            timerIdentity:
+                              workoutSetTimerIdentity(run, exercise.id, set.id) ?? undefined,
+                          });
+                        }}
+                      />
+                    )}
                     <Button
                       label={
                         result?.status === "completed" ? "Correct this set" : "Record completed set"
@@ -772,10 +834,13 @@ function RunEditor({
       )}
       {finishing && (
         <Card>
-          <T variant="heading">Finish with {completed} completed sets?</T>
+          <T variant="heading">
+            Finish with {completed} completed set{completed === 1 ? "" : "s"}?
+          </T>
           <T color="textSecondary">
-            {skipped} sets skipped. {remaining} sets remain unrecorded and will not count as
-            completed. Your session attendance is handled separately.
+            {skipped} set{skipped === 1 ? "" : "s"} skipped. {remaining} set
+            {remaining === 1 ? " remains" : "s remain"} unrecorded and will not count as completed.
+            Your session attendance is handled separately.
           </T>
           <Button
             label="Finish and save my workout"

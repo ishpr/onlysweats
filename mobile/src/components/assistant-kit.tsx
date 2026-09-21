@@ -4,8 +4,8 @@
  * assistant looks like one thing: bubbles, a typing state, reviewable action cards,
  * a composer, and a two-way switch. See docs/audits/design-handoff-assistant.md.
  */
-import { ArrowUp, Square, type LucideIcon } from "lucide-react-native";
-import { useEffect, type ReactNode } from "react";
+import { ArrowUp, ChevronDown, ChevronRight, Square, type LucideIcon } from "lucide-react-native";
+import { useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -18,6 +18,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { AssistantOrb } from "@/components/assistant-hero";
+import { AssistantMarkdown } from "@/components/assistant-markdown";
 import { PressScale } from "@/components/motion";
 import { Button, Card, Row, T, TYPE, withAlpha } from "@/components/ui";
 import { HitTarget, Radius, Spacing } from "@/constants/theme";
@@ -38,6 +39,7 @@ export function Segmented<V extends string>({
   label: string;
 }) {
   const theme = useTheme();
+  const light = useColorScheme() === "light";
   return (
     <View
       accessibilityRole="radiogroup"
@@ -53,15 +55,21 @@ export function Segmented<V extends string>({
             accessibilityState={{ selected }}
             accessibilityLabel={text}
             onPress={() => onChange(option)}
-            style={[styles.segment, selected && { backgroundColor: theme.primary }]}
+            style={[
+              styles.segment,
+              // A switch is not a call to action: the chosen side is a quiet raised pill,
+              // so the screen's one green button stays the loudest thing on it.
+              selected && [
+                styles.segmentOn,
+                { backgroundColor: light ? theme.background : withAlpha(theme.text, 0.16) },
+              ],
+            ]}
           >
-            {Icon ? (
-              <Icon size={15} color={selected ? theme.onPrimary : theme.textSecondary} />
-            ) : null}
+            {Icon ? <Icon size={15} color={selected ? theme.text : theme.textSecondary} /> : null}
             <T
               variant="label"
               numberOfLines={1}
-              style={{ color: selected ? theme.onPrimary : theme.textSecondary }}
+              style={{ color: selected ? theme.text : theme.textSecondary }}
             >
               {text}
             </T>
@@ -81,12 +89,17 @@ export function ChatBubble({
   source,
   children,
   footer,
+  leading,
+  streaming = false,
 }: {
   from: "me" | "assistant";
   source?: string;
   children: ReactNode;
   /** Under the text, inside the bubble: a caption, or action cards. */
   footer?: ReactNode;
+  /** A validated plan can lead the response, ahead of its optional explanation. */
+  leading?: ReactNode;
+  streaming?: boolean;
 }) {
   const theme = useTheme();
   const light = useColorScheme() === "light";
@@ -119,10 +132,40 @@ export function ChatBubble({
             },
           ]}
         >
-          {typeof children === "string" ? <T selectable>{children}</T> : children}
+          {leading}
+          {typeof children === "string" ? (
+            <AssistantMarkdown text={children} streaming={streaming} />
+          ) : (
+            children
+          )}
           {footer}
         </View>
       </View>
+    </View>
+  );
+}
+
+/** Keep an actionable plan prominent without losing any of the coach's explanation. */
+export function CoachNotes({ text }: { text: string }) {
+  const theme = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const Chevron = expanded ? ChevronDown : ChevronRight;
+  if (!text) return null;
+  return (
+    <View style={{ gap: Spacing.half }}>
+      <PressScale
+        accessibilityRole="button"
+        accessibilityLabel="Coach notes"
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded((value) => !value)}
+        style={styles.notesToggle}
+      >
+        <T variant="label" color="textSecondary" style={styles.flex}>
+          Coach notes
+        </T>
+        <Chevron size={16} color={theme.textFaint} />
+      </PressScale>
+      {expanded && <AssistantMarkdown text={text} />}
     </View>
   );
 }
@@ -305,7 +348,7 @@ const styles = StyleSheet.create({
   segmented: { flexDirection: "row", borderRadius: Radius.pill, padding: 4, gap: 4 },
   segment: {
     flex: 1,
-    minHeight: HitTarget - 8,
+    minHeight: HitTarget,
     borderRadius: Radius.pill,
     flexDirection: "row",
     alignItems: "center",
@@ -313,9 +356,22 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: Spacing.two,
   },
+  segmentOn: {
+    shadowColor: "#0F1419",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
   mine: { alignItems: "flex-end" },
   theirs: { flexDirection: "row", alignItems: "flex-start", gap: Spacing.one },
   source: { marginBottom: 2, marginLeft: Spacing.half },
+  notesToggle: {
+    minHeight: HitTarget,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.one,
+  },
   bubble: { maxWidth: "88%", padding: Spacing.two, gap: Spacing.one },
   bubbleMine: {
     borderRadius: Radius.lg,
@@ -358,7 +414,7 @@ const styles = StyleSheet.create({
     paddingLeft: Spacing.three,
     borderRadius: Radius.xl,
   },
-  input: { flex: 1, maxHeight: 120, minHeight: HitTarget - 8, paddingTop: 8, paddingBottom: 8 },
+  input: { flex: 1, maxHeight: 120, minHeight: HitTarget, paddingTop: 10, paddingBottom: 10 },
   send: {
     width: HitTarget,
     height: HitTarget,

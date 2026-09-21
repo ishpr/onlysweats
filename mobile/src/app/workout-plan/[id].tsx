@@ -78,6 +78,25 @@ function WorkoutPlanDetail({ member, session }: PrivateMemberProps) {
         </>
       ) : (
         <>
+          <Button
+            label="Start my workout"
+            loading={action.busy}
+            onPress={() =>
+              void action.run(
+                (signal) =>
+                  session.request<{ run: WorkoutRun }>("/fitness/runs", {
+                    method: "POST",
+                    json: { id: runId, planId: plan.id, expectedPlanRevision: plan.revision },
+                    signal,
+                  }),
+                async ({ run }) => {
+                  setRunId(Crypto.randomUUID());
+                  await client.invalidateQueries({ queryKey: ["private-workout-runs", member.id] });
+                  router.push({ pathname: "/workout-run/[id]", params: { id: run.id } });
+                },
+              )
+            }
+          />
           <PlanPreview plan={plan} />
           {sessionId && (
             <Card>
@@ -116,25 +135,6 @@ function WorkoutPlanDetail({ member, session }: PrivateMemberProps) {
               />
             </Card>
           )}
-          <Button
-            label="Start my workout"
-            loading={action.busy}
-            onPress={() =>
-              void action.run(
-                (signal) =>
-                  session.request<{ run: WorkoutRun }>("/fitness/runs", {
-                    method: "POST",
-                    json: { id: runId, planId: plan.id, expectedPlanRevision: plan.revision },
-                    signal,
-                  }),
-                async ({ run }) => {
-                  setRunId(Crypto.randomUUID());
-                  await client.invalidateQueries({ queryKey: ["private-workout-runs", member.id] });
-                  router.push({ pathname: "/workout-run/[id]", params: { id: run.id } });
-                },
-              )
-            }
-          />
           <Button
             label="Edit template"
             variant="soft"
