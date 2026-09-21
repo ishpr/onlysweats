@@ -163,8 +163,9 @@ export function Screen({
     const max = e.contentSize.height - e.layoutMeasurement.height;
     lastY.value = y;
     if (y <= 0) tabBarHidden.value = withTiming(0, { duration: 180 });
-    // Ignore the rubber-band at the bottom: bouncing back isn't "scrolling up".
-    else if (y >= max) return;
+    // The end of the page: nothing left to read, so give the bar back. (Also keeps the
+    // rubber-band bounce here from reading as "scrolling up".)
+    else if (y >= max - 4) tabBarHidden.value = withTiming(0, { duration: 180 });
     else if (dy > 4 && y > 80) tabBarHidden.value = withTiming(1, { duration: 220 });
     else if (dy < -4) tabBarHidden.value = withTiming(0, { duration: 180 });
   });

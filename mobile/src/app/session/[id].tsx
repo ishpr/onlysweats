@@ -12,7 +12,14 @@ import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
 import { myLevelLabel } from "@/lib/ability";
 import { SITE_URL } from "@/lib/config";
-import { formatDuration, formatWhen, inCheckinWindow, isLateCancel } from "@/lib/format";
+import {
+  checkinWindow,
+  formatDuration,
+  formatTime,
+  formatWhen,
+  inCheckinWindow,
+  isLateCancel,
+} from "@/lib/format";
 import { byId } from "@/lib/lookup";
 import { firstName } from "@/lib/names";
 import { reputationLine } from "@/lib/reputation";
@@ -173,6 +180,7 @@ export default function SessionDetail() {
   }
 
   const joined = seats.filter((b) => b.status === "confirmed");
+  const checkin = checkinWindow(session.startAt);
   const closed = session.status !== "open" || started;
   const status: string | null = ENDED[session.status]
     ? ENDED[session.status]
@@ -416,6 +424,23 @@ export default function SessionDetail() {
         </T>
         {session.pinHint && <Button variant="soft" label="Open in Maps" onPress={openMaps} />}
       </Card>
+
+      {/* Joined, but it isn't time yet: say when check-in opens, and let them see the screen. */}
+      {!closed && liveSeat && !live && (
+        <Card>
+          <T variant="label">Check-in</T>
+          <T variant="caption" color="textSecondary">
+            Opens at {formatTime(checkin.from)}, 20 minutes before the start, and closes at{" "}
+            {formatTime(checkin.to)}. You both check in at the meeting point — your phone confirms
+            you’re there, or you use a 4-digit backup code.
+          </T>
+          <Button
+            variant="soft"
+            label="See the check-in screen"
+            onPress={() => router.push({ pathname: "/live/[id]", params: { id: liveSeat.id } })}
+          />
+        </Card>
+      )}
 
       {!closed && !isHost && (
         <Card>

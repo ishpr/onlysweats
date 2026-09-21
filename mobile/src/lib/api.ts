@@ -39,6 +39,21 @@ async function send(path: string, init: RequestInit & { json?: unknown } = {}) {
   return res;
 }
 
+/**
+ * Rule rejections arrive as sentences written for members and pass straight through.
+ * Transport-level replies ("Not found", "Forbidden", a schema path) are the server
+ * talking to a developer — a member gets something they can act on instead.
+ */
+const PLUMBING = /^(not found|method not allowed|forbidden|unauthorized|body must be json\.?)$/i;
+function friendly(status: number, message?: string): string {
+  if (!message || PLUMBING.test(message.trim()) || /^[a-zA-Z_.]+: /.test(message)) {
+    if (status === 404) return "That isn’t available any more. Pull down to refresh.";
+    if (status === 400) return "Something in that didn’t look right. Check it and try again.";
+    return "Something went wrong on our side. Try again in a moment.";
+  }
+  return message;
+}
+
 async function parse<T>(res: Response): Promise<T> {
   const text = await res.text();
   let data: unknown = null;
@@ -49,7 +64,7 @@ async function parse<T>(res: Response): Promise<T> {
   }
   if (!res.ok) {
     const body = data as { error?: string; message?: string } | null;
-    throw new ApiError(res.status, body?.error ?? body?.message ?? "Something went wrong.");
+    throw new ApiError(res.status, friendly(res.status, body?.error ?? body?.message));
   }
   return data as T;
 }

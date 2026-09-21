@@ -177,7 +177,15 @@ export default function Live() {
         </View>
       )}
       <View>
-        <T variant="title">{done ? "You’re both here" : "Check in"}</T>
+        <T variant="title">
+          {done
+            ? "You’re both here"
+            : inWindow
+              ? "Check in"
+              : now < +from
+                ? "Not open yet"
+                : "Check-in has closed"}
+        </T>
         <T color="textSecondary">
           {venue?.name} · with {otherName}
         </T>
@@ -208,18 +216,24 @@ export default function Live() {
         <>
           <Card>
             <T variant="label">
-              {denied
-                ? "Location is off for SamePace"
-                : away === null
-                  ? "Finding you…"
-                  : inside
-                    ? "You’re at the meeting point"
-                    : `You’re about ${distanceLabel(away)} away`}
+              {!inWindow
+                ? now < +from
+                  ? `Check-in opens at ${formatTime(from)}`
+                  : `Check-in closed at ${formatTime(to)}`
+                : denied
+                  ? "Location is off for SamePace"
+                  : away === null
+                    ? "Finding you…"
+                    : inside
+                      ? "You’re at the meeting point"
+                      : `You’re about ${distanceLabel(away)} away`}
             </T>
             <T variant="caption" color="textSecondary">
-              {denied
-                ? "Turn it on in Settings, or use the backup code below."
-                : `Check-in works within ${FENCE_LABEL} of the meeting point. Your location is only read while this screen is open.`}
+              {!inWindow
+                ? `When it’s open, you check in within ${FENCE_LABEL} of the meeting point. Your location is only read then, while this screen is open.`
+                : denied
+                  ? "Turn it on in Settings, or use the backup code below."
+                  : `Check-in works within ${FENCE_LABEL} of the meeting point. Your location is only read while this screen is open.`}
             </T>
             {denied ? (
               <Button
