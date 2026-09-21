@@ -7,6 +7,7 @@ import { ActionCard } from "@/components/assistant-kit";
 import { Spacing } from "@/constants/theme";
 import { Button, Card, Chip, Field, Notice, Row, T } from "@/components/ui";
 import { storeFitnessDraft } from "@/lib/assistant/draft-handoff";
+import { storeWorkoutPlanDraft } from "@/lib/workout-plans/draft-handoff";
 import type { ApiSession } from "@/lib/api";
 import type { WeightUnit } from "../../../../shared/fitness";
 
@@ -25,6 +26,18 @@ export type ReviewableWorkoutDraft = {
   }[];
 };
 type Fields = { name: string; sets: string; reps: string; weight: string; unit: WeightUnit | null };
+function draftNumber(text: string, max: number, whole: boolean, label: string) {
+  if (!text.trim()) return null;
+  const value = Number(text);
+  if (
+    !Number.isFinite(value) ||
+    value < (whole ? 1 : 0) ||
+    value > max ||
+    (whole && !Number.isInteger(value))
+  )
+    throw new Error(`Check ${label} before continuing.`);
+  return value;
+}
 export function DraftReview({
   draft,
   ownerId,
@@ -41,7 +54,7 @@ export function DraftReview({
   const [error, setError] = useState<string | null>(null);
   const [sourceVisible, setSourceVisible] = useState(false);
   const [exercises, setExercises] = useState<Fields[]>(() =>
-    draft.exercises.slice(0, 10).map((exercise) => ({
+    draft.exercises.slice(0, 12).map((exercise) => ({
       name: exercise.name,
       sets: exercise.sets?.toString() ?? "",
       reps: exercise.reps?.toString() ?? "",
@@ -55,18 +68,6 @@ export function DraftReview({
     try {
       if (!session.isCurrent()) return;
       if (!exercise.name.trim()) throw new Error("Enter the exercise name first.");
-      const number = (text: string, max: number, whole: boolean, label: string) => {
-        if (!text.trim()) return null;
-        const value = Number(text);
-        if (
-          !Number.isFinite(value) ||
-          value < (whole ? 1 : 0) ||
-          value > max ||
-          (whole && !Number.isInteger(value))
-        )
-          throw new Error(`Check ${label} before continuing.`);
-        return value;
-      };
       const id = Crypto.randomUUID();
       storeFitnessDraft(
         id,
@@ -76,12 +77,12 @@ export function DraftReview({
           intent: draft.intent,
           exerciseName: exercise.name.trim(),
           note: `${exercise.name.trim()}${note.trim() ? ` · ${note.trim()}` : ""}`.slice(0, 1000),
-          sets: number(exercise.sets, 50, true, "the number of sets"),
-          reps: number(exercise.reps, 1000, true, "the repetitions"),
+          sets: draftNumber(exercise.sets, 50, true, "the number of sets"),
+          reps: draftNumber(exercise.reps, 1000, true, "the repetitions"),
           weight:
             exercise.unit === "bodyweight"
               ? null
-              : number(exercise.weight, 2000, false, "the weight"),
+              : draftNumber(exercise.weight, 2000, false, "the weight"),
           unit: exercise.unit,
         },
         session.isCurrent,
@@ -89,6 +90,36 @@ export function DraftReview({
       router.push({ pathname: "/fitness", params: { draftId: id } });
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Check the draft and try again.");
+    }
+  };
+  const reviewPlan = () => {
+    try {
+      if (!session.isCurrent()) return;
+      const id = Crypto.randomUUID();
+      const items = exercises.map((exercise) => {
+        if (!exercise.name.trim()) throw new Error("Enter each exercise name first.");
+        return {
+          name: exercise.name.trim(),
+          sets: draftNumber(exercise.sets, 20, true, "sets (up to 20 per exercise)"),
+          reps: draftNumber(exercise.reps, 1000, true, "the repetitions"),
+          weight:
+            exercise.unit === "bodyweight"
+              ? null
+              : draftNumber(exercise.weight, 2000, false, "the weight"),
+          unit: exercise.unit,
+        };
+      });
+      if (items.reduce((sum, item) => sum + (item.sets ?? 1), 0) > 120)
+        throw new Error("Use at most 120 planned sets. Review the set counts before continuing.");
+      storeWorkoutPlanDraft(
+        id,
+        ownerId,
+        { title: draft.title, note, exercises: items },
+        session.isCurrent,
+      );
+      router.push({ pathname: "/workout-plan/new", params: { draftId: id } });
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Check the plan and try again.");
     }
   };
   return (
@@ -120,6 +151,14 @@ export function DraftReview({
         maxLength={1000}
         multiline
       />
+      {exercises.length > 0 && (
+        <ActionCard
+          icon={ClipboardList}
+          title="Keep the whole workout together"
+          note="Review all exercises, add instructions and rest, then save a reusable plan. You can share it with buddies through a session."
+          primary={{ label: "Review as a workout plan", onPress: reviewPlan }}
+        />
+      )}
       {exercises.map((exercise, index) => (
         <View key={index} style={{ gap: Spacing.two }}>
           <T variant="label">Exercise {index + 1}</T>
@@ -177,7 +216,7 @@ export function DraftReview({
           activity in Apple Health.
         </Notice>
       )}
-      {exercises.length < 10 && (
+      {exercises.length < 12 && (
         <Button
           label="Add an exercise by hand"
           variant="soft"

@@ -1104,7 +1104,7 @@ async function sessionProfileIds(tx: Sql, sessionId: string): Promise<string[]> 
 }
 
 /** Profile reservations precede session/seat locks, including settlement writes. */
-async function lockSession(
+export async function lockSession(
   tx: Sql,
   sessionId: string,
   joining: string[] = [],

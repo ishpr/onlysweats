@@ -1,4 +1,5 @@
 import type { Activity } from "../src/lib/pace/types.ts";
+import type { AIWorkoutPlanDraft } from "./workout-plans.ts";
 
 /** Private assistant contract; never an A2A message or permission to act. */
 export const CHAT_NOTICE_VERSION = "private-assistant-v1" as const;
@@ -23,12 +24,21 @@ export type ChatPreferenceDraft = {
 };
 export type ChatAction = {
   id: string;
-  kind: "preferences" | "discovery" | "negotiation" | "session" | "workout" | "fitness";
+  kind:
+    | "preferences"
+    | "discovery"
+    | "negotiation"
+    | "session"
+    | "workout"
+    | "fitness"
+    | "workout_plan";
   label: string;
   description: string;
   targetId?: string;
   /** Suggestions only; present solely on preference review actions. */
   preferenceDraft?: ChatPreferenceDraft;
+  /** An unsaved suggestion. Opening the editor never records completed exercise. */
+  workoutPlanDraft?: AIWorkoutPlanDraft;
 };
 export type ChatMessage = {
   id: string;
@@ -45,6 +55,8 @@ export type ChatTurnInput = {
   text: string;
   consentGeneration: string;
   historyGeneration: string;
+  /** Omitted by older clients, which cannot render structured plan cards. */
+  workoutPlanDrafts?: boolean;
 };
 export type ChatEvent =
   | { type: "start"; requestId: string }

@@ -20,6 +20,7 @@ import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
 import { createAssistantRun } from "@/lib/assistant/run";
 import { createChatStreamParser, isChatMessage } from "@/lib/assistant/stream";
+import { storeGeneratedWorkoutPlanDraft } from "@/lib/workout-plans/draft-handoff";
 import {
   CHAT_CONSENT_NOTICE,
   CHAT_FITNESS_NOTICE,
@@ -55,7 +56,9 @@ export function CloudChat({
     gcTime: 0,
     retry: false,
     queryFn: async ({ signal }) => {
-      const result = await session.request<ChatHistory>("/assistant/chat", { signal });
+      const result = await session.request<ChatHistory>("/assistant/chat?workoutPlanDrafts=true", {
+        signal,
+      });
       if (
         !result?.settings ||
         !Array.isArray(result.messages) ||
@@ -158,6 +161,7 @@ function CloudConversation({
       text: text.trim(),
       consentGeneration: settings.consentGeneration,
       historyGeneration: settings.historyGeneration,
+      workoutPlanDrafts: true,
     };
     if (!input.text || input.text.length > 2000) return;
     setBusy(true);
@@ -247,6 +251,13 @@ function CloudConversation({
       case "fitness":
         router.push("/fitness");
         break;
+      case "workout_plan": {
+        if (!action.workoutPlanDraft) return;
+        const id = Crypto.randomUUID();
+        storeGeneratedWorkoutPlanDraft(id, ownerId, action.workoutPlanDraft, session.isCurrent);
+        router.push({ pathname: "/workout-plan/new", params: { draftId: id } });
+        break;
+      }
     }
   };
   const visible = history.error ? [] : (history.data?.messages ?? []);
@@ -257,6 +268,7 @@ function CloudConversation({
     session: CalendarDays,
     workout: Activity,
     fitness: ClipboardList,
+    workout_plan: ClipboardList,
   };
   return (
     <View style={{ gap: Spacing.three }}>

@@ -96,6 +96,12 @@ function Fitness({ member, session }: PrivateMemberProps) {
         now={now}
         onHealth={() => router.push("/health")}
       />
+      <ActionCard
+        icon={ClipboardCheck}
+        title="Workout plans & progress"
+        note="Build a full routine, share it for a meetup, and record each set as you go."
+        primary={{ label: "Open workout plans", onPress: () => router.push("/workout-plans") }}
+      />
       {params.draftId && !importedDraft && (
         <Notice>
           This local draft is no longer available. Enter your workout below, or return to the

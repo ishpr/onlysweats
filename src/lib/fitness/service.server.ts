@@ -4,6 +4,7 @@ import { FITNESS_PILOT_NOTICE_VERSION } from "../../../shared/fitness-outcomes.t
 import type { Sql } from "../db.ts";
 import { getConnection, getWorkout } from "../health/service.server.ts";
 import { HealthError } from "../health/contracts.ts";
+import { readPlanForExport, readRunForExport } from "../workout-plans/service.server.ts";
 import {
   FITNESS_AI_NOTICE_VERSION,
   type ExerciseDraft,
@@ -554,6 +555,8 @@ export async function exportFitness(
       union all select 'strength_log' as kind, id from fitness_strength_logs where user_id = ${userId}
       union all select 'workout_correction' as kind, workout_id as id from fitness_workout_corrections where user_id = ${userId}
       union all select 'workout_assessment' as kind, workout_id as id from fitness_workout_assessments where user_id = ${userId}
+      union all select 'workout_plan' as kind, id from workout_plans where user_id = ${userId}
+      union all select 'workout_run' as kind, id from workout_runs where user_id = ${userId}
     ) entries where (${cursor === null} or (kind, id) > (${cursor?.[0] ?? ""}, ${cursor?.[1] ?? "00000000-0000-0000-0000-000000000000"}::uuid))
       order by kind, id limit ${page.limit + 1}`;
     const records: FitnessExportRecord[] = [];
@@ -573,6 +576,10 @@ export async function exportFitness(
           kind: "workout_correction",
           value: (await readCorrection(tx, userId, row.id))!,
         });
+      } else if (row.kind === "workout_plan") {
+        records.push({ kind: "workout_plan", value: await readPlanForExport(tx, userId, row.id) });
+      } else if (row.kind === "workout_run") {
+        records.push({ kind: "workout_run", value: await readRunForExport(tx, userId, row.id) });
       } else {
         const [assessment] =
           await tx<AssessmentRow>`select request, result from fitness_workout_assessments where user_id = ${userId} and workout_id = ${row.id}`;
