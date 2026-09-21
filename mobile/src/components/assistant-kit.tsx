@@ -38,6 +38,7 @@ export function Segmented<V extends string>({
   label: string;
 }) {
   const theme = useTheme();
+  const light = useColorScheme() === "light";
   return (
     <View
       accessibilityRole="radiogroup"
@@ -53,15 +54,21 @@ export function Segmented<V extends string>({
             accessibilityState={{ selected }}
             accessibilityLabel={text}
             onPress={() => onChange(option)}
-            style={[styles.segment, selected && { backgroundColor: theme.primary }]}
+            style={[
+              styles.segment,
+              // A switch is not a call to action: the chosen side is a quiet raised pill,
+              // so the screen's one green button stays the loudest thing on it.
+              selected && [
+                styles.segmentOn,
+                { backgroundColor: light ? theme.background : withAlpha(theme.text, 0.16) },
+              ],
+            ]}
           >
-            {Icon ? (
-              <Icon size={15} color={selected ? theme.onPrimary : theme.textSecondary} />
-            ) : null}
+            {Icon ? <Icon size={15} color={selected ? theme.text : theme.textSecondary} /> : null}
             <T
               variant="label"
               numberOfLines={1}
-              style={{ color: selected ? theme.onPrimary : theme.textSecondary }}
+              style={{ color: selected ? theme.text : theme.textSecondary }}
             >
               {text}
             </T>
@@ -312,6 +319,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
     paddingHorizontal: Spacing.two,
+  },
+  segmentOn: {
+    shadowColor: "#0F1419",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   mine: { alignItems: "flex-end" },
   theirs: { flexDirection: "row", alignItems: "flex-start", gap: Spacing.one },

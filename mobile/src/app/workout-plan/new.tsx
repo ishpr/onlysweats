@@ -50,7 +50,6 @@ function NewWorkoutPlan({ member, session }: PrivateMemberProps) {
   return (
     <Screen edges={["bottom"]}>
       <Stack.Screen options={{ title: "Create workout plan" }} />
-      <T variant="title">Make it yours.</T>
       <T color="textSecondary">
         Build a private template with exercises and instructions your buddy can follow with you.
       </T>
