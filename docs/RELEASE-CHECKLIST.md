@@ -1,82 +1,43 @@
 # Fitness and assistant release
 
-This release combines the redesigned mobile navigation with Apple Health imports,
-private exercise logs, editable Jev suggestions, and member-approved assistant
-planning. Use one iPhone development-client build, then keep receiving JavaScript
-updates through Expo. The device profile uses `https://samepace.app` for its API.
+SamePace includes Apple Health imports, private exercise logs, reviewed Jev assistance, local/cloud conversation, member-approved A2A coordination, reusable workout plans and separate actual results for each buddy. The maintained [vision roadmap](VISION-ROADMAP.md) distinguishes implemented software from launch acceptance.
 
-The design branch was integrated through `09fa889`, with the themed launch-screen
-commit `d00de41` applied separately. The later Home health card was adapted to the
-existing account-bound sync. Its second native reader and readiness heuristics
-were not included. Rebase subsequent design work on this release before merging
-so it does not reintroduce duplicate connection controls or conflicting privacy
-copy.
+## Install and connect
+
+Install the signed physical-iPhone [build e01757e4](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/e01757e4-d659-442b-861a-dd611db94636). This `device-phone` client includes native workout-plan generation, HealthKit/background delivery, App Shortcuts and widgets. It excludes the unprovisioned Watch app and unentitled PCC integration. Earlier client 8594a56c lacks native workout-plan generation.
+
+Connect the installed development client to the intended release checkout's Metro server with `EXPO_PUBLIC_API_URL=https://samepace.app`. Compatible JavaScript changes continue through Expo; a server running in another checkout serves that checkout's code. For the current handoff, the release server uses port 8098. Remove `EXPO_PUBLIC_DEV_TOKEN` and disable dotenv loading for the physical-phone server. Do not use a simulator's synthetic session on a real member's phone.
+
+The normal `device` build profile includes Watch and requires registered, provisioned paired hardware. Follow [physical iPhone and Watch acceptance](INTELLIGENCE-ACCEPTANCE.md) before claiming recording, pairing, sensor or battery acceptance.
 
 ## Server configuration
 
-- Production and preview have `HEALTH_SYNC_ENABLED`, `A2A_ENABLED`, and
-  `JEV_ENABLED` enabled. New deployments must complete before changed environment
-  settings take effect.
-- `TYPESAFE_API_KEY` is a Vercel Secret in both environments. Local server
-  development reads an ignored, owner-only root `.env.local`. The key must never
-  be placed in mobile configuration or a `VITE_` / `EXPO_PUBLIC_` variable.
-- Vercel preview uses a separate schema-only Neon branch and separate auth secret.
-  It contains no copied production accounts or health records. Release migrations
-  were rehearsed there and on disposable PostgreSQL 17.
-- Migrations serialize with a PostgreSQL advisory lock. Production applies pending
-  migrations during the deployment build.
+- Production has `HEALTH_SYNC_ENABLED`, `A2A_ENABLED` and `JEV_ENABLED` enabled. Environment changes take effect on a subsequent deployment.
+- TypeSafe credentials remain server-only Vercel secrets and protected, ignored local files. Never put them in mobile configuration or a `VITE_` / `EXPO_PUBLIC_` variable.
+- Preview has an isolated schema-only database and separate authentication secret. Rehearse migrations and synthetic member flows there; do not copy production accounts or health records.
+- Migrations serialize with a PostgreSQL advisory lock and run during deployment. Structured workouts require `0029_workout_plans.sql`.
+- Cloud conversation remains disabled pending Gateway access/credits and live evaluation. Its configured provider requires zero data retention and no prompt training; do not weaken those settings to make a probe pass.
+- Stripe collection and billing/Persona enforcement remain off in production. Sandbox setup and provider tests do not constitute a live launch decision.
 
 ## Release verification
 
-Final local verification on September 21: 503 tests passed, with the optional
-PostgreSQL test skipped in the ordinary suite and passed separately against real
-PostgreSQL 17. Root and mobile type checks/lint passed (two existing root lint
-warnings), as did the web build, iOS/web exports, disposable-account HTTP smoke,
-and interactive light/dark mobile checks. Exact-key scans found no provider key
-in source or generated bundles; mobile exports also exclude the synthetic login.
+Use the dated evidence for the current implementation: [intelligence checks](evaluations/intelligence-release-2026-09-21.md), [shared workout checks and package audit](evaluations/shared-workouts-release-2026-09-21.md), and [actual local model examples and limitations](evaluations/workout-plan-local-v1-2026-09-21.md). Historical checks apply to the versions they name; they do not prove later screens have been exercised on hardware.
 
-Run the root test suite, root/mobile type checks and lint, the production web
-build, and the mobile export. Run the optional PostgreSQL acceptance test with a
-disposable loopback database via `SAMEPACE_TEST_DATABASE_URL`.
+For code changes, run relevant tests, root/mobile types and lint, web build and mobile export. Exercise database races on an explicitly disposable PostgreSQL database. `scripts/check-workout-plans-http.mjs` runs the structured-workout flow against its own loopback server and in-memory database, creates synthetic members and deletes them afterward. Its passing result does not prove the physical interface works.
 
-`node scripts/release-http-smoke.mjs` checks a local server (default port 8091) with
-its own disposable member and deletes that member afterward. It never calls Jev.
-See [Jev fitness](JEV-FITNESS.md) for the separate live synthetic evaluations,
-including the initial failures and held-out results.
+## Physical member flow
 
-Before a device build, remove `EXPO_PUBLIC_DEV_TOKEN` and synthetic test accounts
-from the mobile environment. Build the `device` profile once. Connect the installed
-development client to the combined release worktree's Metro server; an existing
-server in another checkout serves that checkout's JavaScript, not this release.
+Use disposable accounts and consenting participants. Record the installed build, server commit, device/OS and observed outcomes.
 
-## Physical iPhone acceptance
+1. Sign in and select Apple Health permissions. Import a known source workout; compare its time, distance, duration, readings and units with Health. Resync and verify source changes/deletions, interrupted sync and denied readings without duplicates or invented values.
+2. Correct a title/note, resync and verify the correction survives. Export through the iOS share sheet. Separately create, correct and delete a manual exercise. Opt into Jev, review a draft and save explicitly; revoke that permission and confirm manual logging remains available.
+3. Create a private routine with multiple exercises, instructions, varying sets, repetition/time targets and rest. Review an on-device suggestion and a photographed prescription. Check every requested phase and numeric target; neither path proves exercise happened.
+4. Coordinate a meetup through A2A using mutual proposal confirmation and separate booking-term approval. Confirm exactly one booking. As host, attach the first reviewed routine before the session begins, including when a buddy has already booked.
+5. On both devices, review the same fixed plan and revision. Start each member's private record. Enter different actual quantities, skip a set and leave one unrecorded. Finish a partial workout and confirm no planned values became actual results or attendance credit.
+6. Turn progress sharing on and off. The other member should see only the chosen status/set counts; private quantities, notes and health readings stay hidden. Saving a private plan copy is explicit; changing the original template must not rewrite a shared snapshot.
+7. Interrupt connectivity while entering a set. Recover the pending form explicitly, compare any changed server revision and retry. One pending form can be recovered; the application does not promise an offline queue for a whole workout. Correct or delete the saved result and verify the fitness summary/export reflects the change.
+8. Sign out/switch accounts, exercise accessibility and confirm private history, pending fields and AI output do not appear under another member. Test disconnect/purge/account deletion with disposable accounts.
 
-1. Sign in as the intended member and open You → Apple Health. Allow the desired
-   read permissions. Import a known workout with available heart-rate data and
-   compare the displayed source, time, distance, duration, and units with Health.
-2. Resync, change or delete a source record, and confirm no duplicates. Try locked
-   phone / interrupted sync and retry. Missing or withheld data must remain absent.
-3. Save a title or note correction, resync, and confirm the correction survives.
-   Export records through the iOS share sheet and inspect the resulting JSON.
-4. Create, edit, and delete a manual exercise. Opt into Jev separately, request a
-   draft, review it, and save explicitly. Revoke consent and check manual logging
-   remains available. A draft never creates a record by itself.
-5. Sign out or switch accounts and confirm no private cached records remain.
-   Verify disconnect, purge, and account deletion on a disposable account.
-6. With a consenting eligible partner, share entered availability, review a
-   proposal, confirm the plan, then separately approve the displayed booking terms
-   on both accounts. Confirm one session/booking and the expected notifications.
+## Remaining launch work
 
-## Remaining acceptance and product decisions
-
-The code is not a claim that physical-device behavior or external-provider setup
-has already been accepted. Complete sign-in/deep links, APNs, actual HealthKit
-source changes, real-user Jev correction/time-saved measurement, and a database
-restore rehearsal. Neon currently retains six hours of history; agree the required
-retention policy before broad rollout.
-
-The assistant is member-initiated and bounded. Autonomous negotiation, new-person
-matching, external federation, calendar connections, Watch live recording, Android
-Health Connect, payment collection, and identity verification remain separate
-deliverables. The full list and decision points are in the
-[vision roadmap](VISION-ROADMAP.md).
+Actual model quality, iPhone/Watch behavior, cloud access, provider edge cases, store configuration and operating ownership remain in the [vision roadmap](VISION-ROADMAP.md). A synthetic cloud restore rehearsal passed; production-scale recovery, retention policy and responsibility still require acceptance. No fixture result establishes general accuracy, physiological suitability or public-launch readiness.

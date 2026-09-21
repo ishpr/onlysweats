@@ -13,6 +13,8 @@ SamePace now connects a reusable routine to a buddy session and each member's pr
 
 Saved results can be corrected with revision checks or deleted. Fitness export includes private plans and workout records. These records remain distinct from HealthKit observations and booking attendance: no calorie estimates, attendance credit, duplicate HealthKit writes or automatic completion is produced.
 
+The fitness log's seven-day summary includes actual saved sets from both individual exercise logs and structured workout results, including unfinished workouts with completed sets. It is independent of which history page is open. Days use the device's calendar time zone, with sets attributed to their log/workout start day; no per-set timestamps are inferred. Skipped and unrecorded sets stay excluded. Reps, entered set time and known external-load volume show their coverage; missing quantities stay unknown and body mass is never estimated.
+
 One pending result form can be recovered from protected device storage for up to 24 hours. Recovery is bound to the signed-in member and workout, requires explicit review, and never overwrites a newer server revision automatically. Sign-out clears it. This preserves interrupted edits; saving results still requires connectivity and it is not an offline queue for an entire workout.
 
 ## AI boundaries

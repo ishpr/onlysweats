@@ -32,9 +32,7 @@ module, so the buttons hide themselves there):
 npx eas build --profile development --platform ios
 ```
 
-For a physical iPhone, use the `device` profile instead. It includes the native
-HealthKit import, local Apple intelligence, Shortcuts, Watch recording and export sharing, uses the live SamePace API, and preserves
-Expo live reload. See [the release checklist](../docs/RELEASE-CHECKLIST.md).
+For a physical iPhone, install [build e01757e4](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/e01757e4-d659-442b-861a-dd611db94636), built with the `device-phone` profile. It includes native HealthKit import, local Apple intelligence and workout-plan generation, Shortcuts, widgets and export sharing, uses the live SamePace API, and preserves Expo live reload. It excludes the unprovisioned Watch app. Use `device` only when building the combined phone/Watch package with registered hardware and signing profiles. See [the release checklist](../docs/RELEASE-CHECKLIST.md).
 
 Then `npx expo start` opens the dev build; `npx expo start --go` still opens Expo Go.
 
@@ -159,6 +157,8 @@ See [the integration guide](../docs/APPLE-HEALTH.md) for supported data, privacy
 ## Private assistant
 
 `/assistant` separates private on-device/cloud conversation from planning and approvals. Local photo/text drafts open the editable exercise log; nothing is automatically completed or saved. Cloud conversation and workout-summary sharing require separate consent, and provider keys remain server-side. A new native binary is required for local intelligence, Shortcuts, background HealthKit observation and Watch recording. See [intelligence architecture](../docs/INTELLIGENCE.md) and [physical acceptance](../docs/INTELLIGENCE-ACCEPTANCE.md).
+
+`/workout-plans` contains reusable private routines and structured workout history. Manual entry, reviewed photo/text extraction and on-device AI can supply a plan with instructions and per-set targets. Hosts attach a fixed copy to a session; each buddy reviews that exact version, starts a private workout record and enters actual results. Progress sharing is optional and exposes counts only. See [shared workout plans](../docs/WORKOUT-PLANS.md).
 
 ## Remaining acceptance
 

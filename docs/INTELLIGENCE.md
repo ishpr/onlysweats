@@ -6,18 +6,18 @@ The assistant has two explicit conversation modes: **On this iPhone** and **Clou
 
 | Layer | Implemented responsibility |
 | --- | --- |
-| Apple on-device Foundation Models | Private, memory-only conversation; editable text/photo exercise drafts; factual recaps of explicitly supplied workout summaries. Eligible devices on iOS 26+; unavailable states retain manual entry. |
+| Apple on-device Foundation Models | Private, memory-only conversation; editable text/photo exercise drafts; generated workout plans with exercises, instructions and set targets; factual recaps of explicitly supplied workout summaries. Eligible devices on iOS 26+; unavailable states retain manual entry. |
 | Vision | Local OCR of a selected or captured workout photo. Exact evidence and deterministic unit/count parsing constrain draft fields. This is photo-to-plan, not measured repetitions or continuous form assessment. |
 | Vercel AI Gateway | Authenticated streamed conversation, bounded owner-scoped read tools, and review cards. Separate member permission controls imported workout summaries. |
 | Jev / TypeSafe | Existing separately consented typed exercise and workout-note judgments. It does not generate this chat. |
 | A2A | Existing scoped, revocable planning negotiation and durable coordination. Both people still approve the plan and booking terms. It receives no raw health records or private chat history. |
 | Application code | Measurements, arithmetic, consent, identity, revisions, quotas, idempotency, action construction and execution. |
 
-The app never transfers a local transcript or photo into the cloud conversation automatically. Changing modes cancels active work. Local drafts move to the fitness editor through an account-bound, single-use in-memory handoff; sensitive text is not placed in navigation URLs. Saving requires review, an explicit completion choice, and a member-entered start time. A photographed prescription does not prove exercise happened.
+The app never transfers a local transcript or photo into the cloud conversation automatically. Changing modes cancels active work. Local drafts move to an editor through an account-bound, single-use in-memory handoff; sensitive text is not placed in navigation URLs. Saving completed exercise requires review, an explicit completion choice, and a member-entered start time. Saving a future workout plan requires review but records no completed activity. A photographed prescription does not prove exercise happened. See [shared workout plans](WORKOUT-PLANS.md) for plan authoring, buddy sharing and actual set recording.
 
 ## Cloud configuration
 
-Apply migrations `0027_conversation.sql` and `0028_health_zones.sql` through the normal deployment migration process. Server-only configuration:
+Apply migrations through `0029_workout_plans.sql` using the normal deployment migration process. Server-only configuration:
 
 | Variable | Purpose |
 | --- | --- |
@@ -32,6 +32,8 @@ Gateway calls require zero data retention and disallow prompt training. The adap
 
 On September 21, 2026, deployment OIDC authentication and credit lookup worked, but three synthetic model probes were denied because paid Gateway credits had not been added. A $20 one-time purchase was requested separately and is not authorized by this document. No real member content was used in those probes. Keep the feature disabled until the billing/provider test succeeds.
 
+A later same-day readiness check used one synthetic request with a 16-token maximum, no retries and both privacy flags. It still returned HTTP 403, `paid_credits_required`. The account reported a $5 balance and $0 used before and after; that displayed balance alone does not prove access to this provider configuration. No purchase or feature activation occurred.
+
 ## Private API and limits
 
 All endpoints use the normal signed-in member session under `/api/v1`, with no-store responses. A2A delegation tokens do not authenticate them.
@@ -43,11 +45,11 @@ All endpoints use the normal signed-in member session under `/api/v1`, with no-s
 | `DELETE /assistant/chat` | Removes conversation, rotates history generation, and invalidates active replies. |
 | `POST /assistant/chat` | NDJSON `start`, `delta`, `action`, `done` or safe `error`; requires UUID request ID and current consent/history generations. |
 
-Limits: 2,000 input characters, 16 KiB request body, 20 context messages / 16,000 context characters, 1,200 generated tokens, 12,000 result characters, six read/review tool calls, three model steps, twelve deduplicated cards, 45-second server deadline, and fifty attempted turns per UTC day. These bounds constrain spending; they are not a precise dollar budget.
+Limits: 2,000 input characters, 16 KiB request body, 20 context messages / 16,000 context characters, 2,400 generated tokens for clients supporting workout-plan drafts (1,200 for older clients), 12,000 result characters, six read/review tool calls, three model steps, twelve deduplicated cards, 45-second server deadline, and fifty attempted turns per UTC day. These bounds constrain spending; they are not a precise dollar budget.
 
 One reply is active per member. Each attempt has its own fenced lease; a late prior attempt cannot release a retry's lease or save over it. Repeating a completed request returns its saved result without another provider call. Failed or cancelled replies do not save partial assistant text. The client holds action cards until a valid complete result, checks account/generation continuity, and drops stale output.
 
-The model can read current entered planning preferences and an aggregate compatible-partner count, view up to eight real public sessions, offer safe review routes, and propose a small editable preference draft. Tools do not accept arbitrary URLs or database operations. Their exceptions are replaced with fixed messages before the AI SDK can serialize them into a model prompt. Tool failures stop generation.
+The model can read current entered planning preferences and an aggregate compatible-partner count, view up to eight real public sessions, offer review routes, and propose editable preference or workout-plan drafts. A capable client receives at most one unsaved workout-plan card per reply; one validated, bounded prior draft can supply context for follow-up edits. Code converts explicit time units and assigns identifiers. These tools do not read saved manual workout results, accept arbitrary URLs or perform database writes. Their exceptions are replaced with fixed messages before the AI SDK can serialize them into a model prompt. Tool failures stop generation.
 
 ## Health privacy and retention
 
@@ -65,7 +67,7 @@ HealthKit notifications queue changes locally; automatic uploads resume in the s
 
 See [Apple Health](APPLE-HEALTH.md), [native intelligence](../mobile/modules/samepace-intelligence/README.md), [Watch recorder](../mobile/watch/README.md), and [physical acceptance](INTELLIGENCE-ACCEPTANCE.md).
 
-The `device-phone` EAS profile excludes the Watch target until a physical Watch is registered and provisioned. It still includes iOS 27 HealthKit, local intelligence, App Shortcuts and widgets. The normal `device` profile includes Watch. Both are development clients, so use the intended Metro server; a simulator's synthetic session must never be used for the physical-phone handoff. The signed Xcode 27 iPhone-first package is available as [Expo build 8594a56c](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/8594a56c-914d-47e4-8e8b-f5820e4f916a).
+The `device-phone` EAS profile excludes the Watch target until a physical Watch is registered and provisioned. It still includes iOS 27 HealthKit, local intelligence, App Shortcuts and widgets. The normal `device` profile includes Watch. Both are development clients, so use the intended Metro server; a simulator's synthetic session must never be used for the physical-phone handoff. Install the signed Xcode 27 [iPhone build e01757e4](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/e01757e4-d659-442b-861a-dd611db94636), which includes native workout-plan generation. The earlier 8594a56c client lacks that method. Compatible JavaScript updates continue through Expo after installation. See the [package and release evidence](evaluations/shared-workouts-release-2026-09-21.md).
 
 For model assessment, the [50-case synthetic harness](evaluations/conversation-v1.md) runs offline unless explicitly invoked with `--run`. Mechanical fixture checks and human assessment of model answers are separate.
 

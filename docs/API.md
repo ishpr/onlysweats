@@ -522,6 +522,7 @@ All paths below are under `/api/v1`. Member authentication, owner isolation, bou
 
 | Route | Contract |
 | --- | --- |
+| `GET /fitness/summary` | Required `timeZone` (IANA name, including `UTC`) → `{summary: FitnessActivitySummary}`; seven local calendar days of explicit manual results, independent of history pagination. |
 | `GET /fitness/plans` | `limit`, `cursor` → `{plans,nextCursor}`; private templates. |
 | `POST /fitness/plans` | `CreateWorkoutPlanInput` with client UUID → `{plan}`; same-content retries are idempotent. |
 | `GET /fitness/plans/:id` | Owner-only `{plan}`. |
@@ -538,6 +539,8 @@ All paths below are under `/api/v1`. Member authentication, owner isolation, bou
 | `DELETE /fitness/runs/:id` | Remove own results and shared progress summary. |
 
 Types and bounds are in `shared/workout-plans.ts` and `src/lib/workout-plans/contracts.ts`. `GET /fitness/export` includes paginated `workout_plan` and `workout_run` records. No run changes attendance, booking credits or HealthKit measurements.
+
+`FitnessActivitySummary` is defined in `shared/fitness-summary.ts`. It combines saved legacy exercise sets and explicitly completed structured-workout sets, including results in an unfinished workout. Skipped/planned/unrecorded sets, future entries and HealthKit observations are excluded. Entries use their log/workout start date in the requested time zone; the API does not invent per-set timestamps. Seven exact local calendar-day ranges account for daylight-saving changes. Reps, recorded seconds and known external load × reps each include their contributing-set count; absent values are null. Bodyweight and missing load/reps do not contribute to external-load volume. Corrections and deletion affect the next read. Suspended owners retain read access, and delegated-agent tokens remain unauthorized.
 
 Cloud chat clients supporting structured plans send `workoutPlanDrafts:true` in a turn and `?workoutPlanDrafts=true` when reading history. The optional `draftWorkoutPlan` model tool only creates a private review card, never a saved or shared plan. Older clients do not receive this action kind.
 
