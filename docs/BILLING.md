@@ -1,6 +1,65 @@
 # Hosted billing
 
-The Stripe adapter, member billing screen, fee support queue, webhook intake, reconciliation worker, and membership gates are implemented. Payments are **off by default**. No Stripe account, live credentials, or real payment acceptance has been supplied or tested for this release. Local tests use synthetic provider state and a local HTTP server exercising the official `stripe` SDK (22.6.2 in the lockfile).
+The Stripe adapter, member billing screen, fee support queue, webhook intake, reconciliation worker, and membership gates are implemented. Payments are **off by default**. Stripe test mode is configured on an isolated Vercel Preview; production collection and membership enforcement remain off. Live credentials and real payment acceptance have not been supplied or tested. Local tests use synthetic provider state and a local HTTP server exercising the official `stripe` SDK (22.6.2 in the lockfile).
+
+## Configured test environment
+
+The Servesys Corporation Stripe account has the following test-mode resources:
+
+| Resource           | ID / configuration                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Membership product | `prod_VIZMIk3NKzOllT` — SamePace Membership                                                                                    |
+| Recurring price    | `price_1UHyDWLmLwBE307y1wU8vBtO` — USD 1200 every month                                                                        |
+| Customer portal    | `bpc_1UHyG5LmLwBE307ykPCY1NCK` — payment-method updates, invoice history and cancellation at period end; plan changes disabled |
+| Active webhook     | `we_1UHyeOLmLwBE307yb9IKG4ga` — the 18 events below, API version `2026-08-26.dahlia`                                           |
+
+Test credentials are server-side, restricted to Vercel Preview branch
+`codex/persona-provider-setup`, with a separate Preview database and cron secret.
+The stable test host is
+`samepace-git-codex-backlog-completion-servesys-labs.vercel.app`.
+Its webhook uses a dedicated project protection-bypass token; the endpoint still
+requires Stripe's signature and application routes still require member sign-in.
+Do not publish the token-bearing webhook URL. The earlier endpoint
+`we_1UHyJZLmLwBE307yD33lApHB` is disabled.
+
+A disposable synthetic member completed a hosted Stripe test-card checkout for
+$12. The real signed provider webhook arrived, reconciliation processed four
+events and one account without errors, and the membership became active with a
+future period end. The app-created portal showed the paid invoice and allowed
+cancellation; its confirmation retained access until October 20, 2026.
+No real card or member health record was used.
+
+This test exposed a Stripe response variant: the portal set `cancel_at` to the
+paid period end while `cancel_at_period_end` remained false. The adapter now
+recognizes that scheduled cancellation and caps access at an earlier
+`cancel_at`, without extending the paid period. The deployed correction was
+verified against the actual test subscription: the app reported scheduled
+cancellation while membership remained active through its paid period.
+
+Cleanup then invalidated the test member's session, removed its sign-in record,
+scrubbed its profile and completed the provider-deletion job with zero worker
+errors. Stripe confirmed the test customer was deleted and its subscription
+canceled. No outstanding test subscription or pending provider event remained.
+
+A separate synthetic member completed hosted **3-D Secure 2** acceptance on
+September 21, 2026 UTC. The first attempt returned
+`payment_intent_authentication_failure`: no payment succeeded, no subscription
+existed and app membership stayed inactive. Retrying the same open Checkout
+then completed the challenge and the $12 test payment. Stripe's successful
+charge reported `authentication_flow=challenge`, `result=authenticated` and
+version `2.1.0`. The signed Checkout webhook arrived, reconciliation processed
+four events and one account without errors, and app membership became active.
+Account deletion then invalidated the session, scrubbed the profile, deleted
+the Stripe customer and cancelled its subscription. The deletion worker and
+late subscription event completed without errors. Across both Stripe fixtures,
+no active account, sign-in record, pending deletion job or pending provider
+event remained; temporary credentials and hosted URLs were removed.
+
+The browser return reached Vercel's Preview sign-in gate. This proves the
+provider redirect was issued, not a complete physical-device return flow.
+Failed renewal, refunds, event replay/reordering and outage recovery still
+need actual-provider acceptance. A successful test payment does not authorize
+live collection or establish the cluster-density gate for launch.
 
 ## Operator setup
 
@@ -63,7 +122,7 @@ Checkout identities are committed before external calls. Customer, checkout, cre
 
 Inspect the cron's billing error counts and pending `billing_webhook_events`, `billing_deletion_queue`, `billing_credit_exports`, and `billing_checkouts`. A `review_required` checkout or failed refund requires an operator to inspect Stripe and the matching internal operation; this release has no generic dashboard button that safely resolves every provider ambiguity. Do not clear references or start another charge without reconciling the original. Stripe's idempotency retention is finite, so durable metadata checks are necessary: [idempotent requests](https://docs.stripe.com/api/idempotent_requests), [refunds](https://docs.stripe.com/api/refunds/create).
 
-Before enabling a live cluster, complete test-mode hosted checkout/3DS, cancellation, failed renewal, duplicate and reordered webhook delivery, dispute/waiver/refund, deleted-customer delayed refund, worker outage/recovery, and physical-device browser return acceptance using the actual account. Verify the cron plan can meet the ten-minute schedule and the worker capacity keeps reconciliation within 24 hours. The current worker processes at most ten accounts, ten events and ten deletions per scheduled invocation (plus bounded per-account operations); scale scheduling/throughput before growth exceeds that capacity.
+Hosted checkout/3DS, portal cancellation and account deletion passed the bounded test-mode checks above. Before enabling a live cluster, complete failed renewal, duplicate and reordered webhook delivery, dispute/waiver/refund, deleted-customer delayed refund, worker outage/recovery, and physical-device browser return acceptance using the actual account. Verify the cron plan can meet the ten-minute schedule and the worker capacity keeps reconciliation within 24 hours. The current worker processes at most ten accounts, ten events and ten deletions per scheduled invocation (plus bounded per-account operations); scale scheduling/throughput before growth exceeds that capacity.
 
 Business account activation, settlement details, refund/support policy, recurring-payment disclosures, tax obligations and live deployment approval remain operator work. Automatic tax, promotions, alternate plans, and other currencies are not implemented. Do not enable live payments until those product and operational decisions are complete.
 

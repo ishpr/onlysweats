@@ -356,8 +356,8 @@ function Console() {
       {operations && (
         <Panel title="Service reliability">
           <p className="text-sm text-muted">
-            Last 24 hours. Counts and timings only. Health sync is manual; an older sync does not by
-            itself indicate a failure.
+            Request timings cover the last 24 hours. Pending work and review counts show the current
+            queues. Health sync is manual; an older sync does not by itself indicate a failure.
           </p>
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label="Health connections" value={operations.counts.health_connections} />
@@ -376,6 +376,14 @@ function Console() {
             <Stat
               label="Failed Persona deletions"
               value={operations.counts.failed_persona_redactions}
+            />
+            <Stat
+              label="Pending verification requests"
+              value={operations.counts.pending_persona_creations}
+            />
+            <Stat
+              label="Verification requests needing review"
+              value={operations.counts.persona_creation_review_required}
             />
             <Stat label="Open fee disputes" value={operations.counts.open_fee_disputes} />
             <Stat label="Pending fee refunds" value={operations.counts.pending_fee_refunds} />

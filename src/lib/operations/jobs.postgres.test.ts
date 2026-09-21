@@ -10,6 +10,7 @@ import * as blocks from "../pace/training-blocks.server.ts";
 import * as notify from "../pace/notify.server.ts";
 import * as apple from "../auth/apple-revoke.server.ts";
 import * as verification from "../pace/verification.server.ts";
+import * as safety from "../pace/safety.server.ts";
 import { clusterDate } from "../pace/rules.ts";
 
 const url = process.env.SAMEPACE_TEST_DATABASE_URL;
@@ -540,8 +541,9 @@ test(
     database(async (sql) => {
       const now = Date.now();
       const ref = "inq_synthetic_only";
-      const env = { PERSONA_API_KEY: "synthetic-no-network" };
-      await sql`insert into persona_redaction_jobs (provider_ref, next_attempt_at) values (${ref}, ${new Date(now)})`;
+      const env = { PERSONA_API_KEY: "persona_sandbox_synthetic_no_network" };
+      await sql`insert into persona_redaction_jobs (provider_ref, provider_environment, next_attempt_at)
+        values (${ref}, 'sandbox', ${new Date(now)})`;
       // Storage-only setup here models the durable deletion obligation after account removal.
       const began = gate();
       const oldReply = gate();
@@ -589,7 +591,8 @@ test(
         fetch: async () => assert.fail("redacted inquiry cannot replay"),
       });
       const retryRef = "inq_synthetic_retry";
-      await sql`insert into persona_redaction_jobs (provider_ref, next_attempt_at) values (${retryRef}, ${new Date(now)})`;
+      await sql`insert into persona_redaction_jobs (provider_ref, provider_environment, next_attempt_at)
+        values (${retryRef}, 'sandbox', ${new Date(now)})`;
       await verification.retryPersonaRedactions(sql, now, {
         env,
         fetch: async () => {
@@ -618,5 +621,178 @@ test(
       );
       assert.equal(calls, 3, "already absent inquiry resolves exactly one recovery claim");
       assert.equal((await sql`select provider_ref from persona_redaction_jobs`).length, 0);
+    }),
+);
+
+const personaEnv = {
+  PERSONA_API_KEY: "persona_sandbox_synthetic_no_network",
+  PERSONA_TEMPLATE_MEMBER: "itmpl_synthetic_member",
+  PERSONA_TEMPLATE_GOVERNMENT_ID: "itmpl_synthetic_govid",
+};
+function createdInquiry(ref: string, now: number) {
+  return Response.json({
+    data: {
+      type: "inquiry",
+      id: ref,
+      attributes: {
+        status: "created",
+        "reference-id": null,
+        "updated-at": new Date(now).toISOString(),
+      },
+      relationships: {
+        account: { data: null },
+        "inquiry-template": {
+          data: { type: "inquiry-template", id: personaEnv.PERSONA_TEMPLATE_MEMBER },
+        },
+      },
+    },
+    meta: { "session-token": "synthetic-session-never-transmitted" },
+  });
+}
+
+test(
+  "real Postgres jobs: concurrent Persona starts persist before HTTP and deletion scrubs late success",
+  options,
+  async () =>
+    database(async (sql) => {
+      const now = Date.now();
+      const id = await member(sql);
+      const began = gate();
+      const reply = gate();
+      let createCalls = 0;
+      const doFetch: typeof fetch = async (input, init) => {
+        assert.equal(String(input), "https://api.withpersona.com/api/v1/inquiries");
+        assert.equal(init?.method, "POST");
+        const key = new Headers(init?.headers).get("Idempotency-Key");
+        assert.ok(key && !key.includes(id));
+        assert.deepEqual(JSON.parse(String(init?.body)), {
+          data: { attributes: { "inquiry-template-id": personaEnv.PERSONA_TEMPLATE_MEMBER } },
+          meta: { "auto-create-inquiry-session": true, "auto-create-account": false },
+        });
+        createCalls++;
+        began.resolve();
+        await reply.promise;
+        return createdInquiry("inq_deletion_race", now);
+      };
+      const started = verification
+        .startVerification(sql, id, "member", now, { env: personaEnv, fetch: doFetch })
+        .then(
+          (value) => ({ value }),
+          (error) => ({ error }),
+        );
+      try {
+        await began.promise;
+        const [intent] = await sql<{
+          id: string;
+          profile_id: string;
+          first_dispatched_at: Date | null;
+        }>`
+        select id, profile_id, first_dispatched_at from persona_creation_intents where profile_id = ${id}`;
+        assert.ok(
+          intent?.first_dispatched_at,
+          "intent and dispatch committed before HTTP returned",
+        );
+        const others = await Promise.allSettled(
+          Array.from({ length: 7 }, () =>
+            verification.startVerification(sql, id, "member", now, {
+              env: personaEnv,
+              fetch: doFetch,
+            }),
+          ),
+        );
+        assert.ok(others.every((result) => result.status === "rejected"));
+        assert.equal(createCalls, 1, "one external create while the lease is live");
+        await safety.deleteAccount(sql, id, now + 1);
+        const [scrubbed] = await sql<{
+          profile_id: string | null;
+          tier: string | null;
+          cancel_requested: boolean;
+        }>`
+        select profile_id, tier, cancel_requested from persona_creation_intents where id = ${intent.id}`;
+        assert.deepEqual(scrubbed, { profile_id: null, tier: null, cancel_requested: true });
+      } finally {
+        reply.resolve();
+      }
+      const result = await started;
+      assert.ok("error" in result, "no hosted URL escapes after deletion");
+      assert.equal((await sql`select id from verifications where profile_id = ${id}`).length, 0);
+      assert.equal((await sql`select id from persona_creation_intents`).length, 0);
+      const [job] = await sql<{
+        provider_environment: string;
+      }>`select provider_environment from persona_redaction_jobs
+      where provider_ref = 'inq_deletion_race'`;
+      assert.equal(job.provider_environment, "sandbox");
+    }),
+);
+
+test(
+  "real Postgres jobs: Persona lease recovery reuses one request and fences the original late reply",
+  options,
+  async () =>
+    database(async (sql) => {
+      const now = Date.now();
+      const id = await member(sql);
+      const began = gate();
+      const oldReply = gate();
+      const keys = new Set<string>();
+      const bodies = new Set<string>();
+      let createCalls = 0;
+      const doFetch: typeof fetch = async (input, init) => {
+        assert.equal(String(input), "https://api.withpersona.com/api/v1/inquiries");
+        assert.equal(init?.method, "POST");
+        keys.add(new Headers(init?.headers).get("Idempotency-Key")!);
+        bodies.add(String(init?.body));
+        createCalls++;
+        if (createCalls === 1) {
+          began.resolve();
+          await oldReply.promise;
+        }
+        return createdInquiry("inq_lease_race", now);
+      };
+      const original = verification
+        .startVerification(sql, id, "member", now, { env: personaEnv, fetch: doFetch })
+        .then(
+          (value) => ({ value }),
+          (error) => ({ error }),
+        );
+      try {
+        await began.promise;
+        await contend(
+          sql,
+          (tx) => tx`select id from profiles where id = ${id} for update`,
+          () =>
+            Promise.all(
+              Array.from({ length: 8 }, () =>
+                verification.recoverPersonaCreations(sql, now + 61_000, {
+                  env: personaEnv,
+                  fetch: doFetch,
+                }),
+              ),
+            ),
+        );
+        assert.equal(
+          createCalls,
+          2,
+          "one original and one idempotent recovery despite eight workers",
+        );
+        assert.equal(keys.size, 1, "recovery replays the original opaque key");
+        assert.equal(bodies.size, 1, "recovery replays the exact stored request");
+        assert.equal((await sql`select id from verifications where profile_id = ${id}`).length, 1);
+      } finally {
+        oldReply.resolve();
+      }
+      const result = await original;
+      assert.ok("error" in result, "the stale worker cannot issue a hosted URL");
+      assert.equal(
+        (await sql`select id from verifications where provider_ref = 'inq_lease_race'`).length,
+        1,
+      );
+      assert.equal((await sql`select id from persona_creation_intents`).length, 0);
+      assert.equal(
+        (
+          await sql`select provider_ref from persona_redaction_jobs where provider_ref = 'inq_lease_race'`
+        ).length,
+        0,
+      );
     }),
 );

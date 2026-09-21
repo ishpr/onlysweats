@@ -330,6 +330,17 @@ governmentId, idRequired }`; each tier is `none`, `pending`, `needs_review`,
   once per event id. A stray late event can't undo a decision; a reviewer's later
   decline can, and clears the badge.
 - Deleting an account atomically queues Persona redaction before removing local checks and badges. Leased retries retain the provider reference until deletion is confirmed; missing credentials or provider failures do not discard the obligation. Timestamp-ordered webhooks cannot revive deleted members or superseded checks.
+- New accountless checks use a versioned local binding from inquiry ID to member,
+  tier, template and environment. A provider reference may be absent on these
+  checks only; a supplied mismatch, unknown/old inquiry, wrong template,
+  mismatched/unknown environment, or any Account relationship is rejected.
+  Dynamic Flow `inquiry-template` and explicit null `account` relationships must
+  be retained in webhook payloads. Legacy rows keep strict reference matching.
+- Creation intent and idempotency data are committed before the provider call.
+  Lost responses survive account deletion without retaining a member identifier
+  in the replay body. Unknown creates older than 23 hours and unexpected Accounts
+  remain operator review obligations. Unknown-environment legacy deletion jobs
+  stay pending rather than being discarded on a wrong-environment `404`.
 
 **Setting it up.** In Persona: two inquiry templates — phone + selfie, and
 government ID + selfie — each with a workflow that approves or declines the
@@ -339,6 +350,18 @@ Vercel: `PERSONA_API_KEY`, `PERSONA_TEMPLATE_MEMBER`,
 `PERSONA_TEMPLATE_GOVERNMENT_ID`, `PERSONA_WEBHOOK_SECRET` (comma-separate two
 while rotating), then `VERIFICATION_ENFORCED=1` once members have had time to
 verify. With no key, outside production, a `dev` provider stands in.
+
+Sandbox Persona keys are refused in production, including signed webhook
+updates and refreshes: simulated results cannot award a production badge. An
+explicit `VERCEL_ENV=preview` permits a sandbox key even though Vercel sets
+`NODE_ENV=production` for preview builds. Without that explicit preview setting,
+`NODE_ENV=production` refuses sandbox keys; `VERCEL_ENV=production` always does.
+Production requires Persona's documented `persona_production_` key prefix;
+placeholder or unrecognized keys cannot enable signed webhook writes either.
+Use a separate preview database and webhook secret. The development approval
+endpoint remains disabled in all production builds, including previews. Missing
+or rejected provider configuration preserves queued redaction obligations.
+See [Persona setup and acceptance](PERSONA.md) before enabling enforcement.
 
 **Background checks are not built.** The `background` tier is reserved in the
 schema and nothing starts one. In the US a criminal-record check is a consumer
@@ -488,8 +511,8 @@ Discovery compares a bounded pool of 30 candidates, rotated hourly. Both members
 
 ## Provider activation and later work
 
-- **Stripe activation.** Hosted membership ($12/month after two completed sessions), explicit fee checkout, disputes, refunds and deletion retries are implemented. The user's Stripe account is not set up. Collection remains disabled until credentials, the price/portal configuration and the explicit cluster-density gate are configured and tested. Enforcement has its own off-by-default flag. Existing commitments can still be attended or cancelled; new recurrence waits if enforcement is enabled and membership is missing.
-- **Persona activation.** Code is integrated, including ordered status updates and deletion retries. The user's Persona account/templates are not set up. Production verification remains unavailable and enforcement stays off.
+- **Stripe activation.** Hosted membership ($12/month after two completed sessions), explicit fee checkout, disputes, refunds and deletion retries are implemented. The isolated Preview has test credentials, a price, a restricted portal and signed webhooks. Hosted test payment, failed authentication followed by successful 3DS, membership activation, portal cancellation and account/provider cleanup passed. Production collection and enforcement remain off; remaining failure/recovery cases, physical-device returns and the launch cluster-density gate remain pending. Existing commitments can still be attended or cancelled; new recurrence waits if enforcement is enabled and membership is missing. See [billing setup and acceptance](BILLING.md).
+- **Persona activation.** Shared templates, Sandbox workflows, an inquiry-only API key and a filtered Preview webhook are configured. Actual signed Sandbox lifecycle events passed both template bindings and member review/decline/approval, with the government-ID completion simulation triggering workflow approval. Account deletion and both inquiry redactions passed. Phone/selfie/ID checks, hosted returns, approval revocation, duplicate/out-of-order events and Case retention remain pending. Production application credentials remain unconfigured and enforcement stays off. See [Persona setup and acceptance](PERSONA.md).
 - Gym sessions matched on `gym_id`, `route_url` in the app.
 - Background checks — see _Verification_ for scope.
 

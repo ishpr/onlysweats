@@ -45,7 +45,20 @@ const rejects = (p: Promise<unknown>, status: number, re?: RegExp, code?: string
 
 // Inquiry ids are unique at Persona, so they are across these fakes too.
 let made = 0;
+const templates = new Map<string, string>();
 const inquiryOf = (url: string | null) => new URL(url!).searchParams.get("inquiry-id")!;
+type FakeInquiryResponse = {
+  data: {
+    id: string;
+    type: string;
+    attributes: { status: string; "reference-id"?: string | null; "updated-at": string };
+    relationships: {
+      account?: { data: { id: string; type: string } | null };
+      "inquiry-template"?: { data: { id?: string; type: string } };
+    };
+  };
+  meta: { "session-token"?: string };
+};
 
 /** A Persona that remembers what it was asked. */
 function fakePersona() {
@@ -58,6 +71,8 @@ function fakePersona() {
   }[] = [];
   const statuses = new Map<string, string>();
   const references = new Map<string, string>();
+  const created = new Map<string, string>();
+  const control: { edit?: (response: FakeInquiryResponse) => void } = {};
   const doFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     const path = url.pathname.replace("/api/v1", "");
@@ -70,26 +85,39 @@ function fakePersona() {
       auth: headers.get("authorization"),
       idempotency: headers.get("idempotency-key"),
     });
-    const reply = (id: string, token?: string) =>
-      new Response(
-        JSON.stringify({
-          data: {
-            id,
-            attributes: {
-              status: statuses.get(id) ?? "created",
-              "reference-id": references.get(id),
-              "updated-at": new Date(Date.now() + calls.length).toISOString(),
-            },
+    const reply = (id: string, token?: string) => {
+      const body: FakeInquiryResponse = {
+        data: {
+          id,
+          type: "inquiry",
+          attributes: {
+            status: statuses.get(id) ?? "created",
+            "reference-id": references.get(id),
+            "updated-at": new Date(Date.now() + calls.length).toISOString(),
           },
-          meta: token ? { "session-token": token } : {},
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+          relationships: {
+            account: { data: null },
+            "inquiry-template": { data: { type: "inquiry-template", id: templates.get(id) } },
+          },
+        },
+        meta: token ? { "session-token": token } : {},
+      };
+      control.edit?.(body);
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
     if (method === "POST" && path === "/inquiries") {
+      const key = headers.get("idempotency-key")!;
+      const existing = created.get(key);
+      if (existing) return reply(existing, `sess_replayed_${existing}`);
       made += 1;
       const id = `inq_${made}`;
+      created.set(key, id);
       statuses.set(id, "created");
       references.set(id, JSON.parse(String(init?.body)).data.attributes["reference-id"]);
+      templates.set(id, JSON.parse(String(init?.body)).data.attributes["inquiry-template-id"]);
       return reply(id, `sess_${made}`);
     }
     const [, , id, action] = path.split("/");
@@ -102,7 +130,7 @@ function fakePersona() {
     }
     return new Response("?", { status: 404 });
   }) as typeof fetch;
-  return { calls, statuses, deps: { env: PERSONA, fetch: doFetch } };
+  return { calls, statuses, references, control, deps: { env: PERSONA, fetch: doFetch } };
 }
 
 const sign = (body: string, at: number, secret = SECRET) =>
@@ -113,7 +141,7 @@ const sign = (body: string, at: number, secret = SECRET) =>
 let eventN = 0;
 function event(
   inquiryId: string,
-  referenceId: string,
+  referenceId: string | null,
   status: string,
   id?: string,
   createdAt?: number,
@@ -131,6 +159,12 @@ function event(
             type: "inquiry",
             id: inquiryId,
             attributes: { status, "reference-id": referenceId },
+            relationships: {
+              account: { data: null },
+              "inquiry-template": {
+                data: { type: "inquiry-template", id: templates.get(inquiryId) ?? "itmpl_member" },
+              },
+            },
           },
         },
       },
@@ -230,7 +264,123 @@ describe("the stand-in, outside production", () => {
 });
 
 describe("Persona", () => {
-  it("creates an inquiry with nothing but the member’s id, and resumes it rather than paying twice", async () => {
+  it("allows sandbox keys only locally or in an explicit Vercel preview", () => {
+    const cases: [Record<string, string>, "persona" | null][] = [
+      [{}, "persona"],
+      [{ NODE_ENV: "development" }, "persona"],
+      [{ NODE_ENV: "test" }, "persona"],
+      [{ NODE_ENV: "production" }, null],
+      [{ VERCEL_ENV: "production" }, null],
+      [{ VERCEL_ENV: "production", NODE_ENV: "development" }, null],
+      [{ VERCEL_ENV: "production", NODE_ENV: "production" }, null],
+      [{ VERCEL_ENV: "preview", NODE_ENV: "production" }, "persona"],
+      [{ VERCEL_ENV: "development", NODE_ENV: "production" }, null],
+    ];
+    for (const [env, expected] of cases) {
+      assert.equal(v.providerFor({ ...PERSONA, ...env }), expected, JSON.stringify(env));
+    }
+    assert.equal(
+      v.providerFor({
+        ...PERSONA,
+        PERSONA_API_KEY: " persona_sandbox_test ",
+        NODE_ENV: "production",
+      }),
+      null,
+      "whitespace cannot bypass the environment guard",
+    );
+    assert.equal(
+      v.providerFor({ NODE_ENV: "production", VERCEL_ENV: "preview" }),
+      null,
+      "an explicit preview does not enable the dev approval endpoint in production builds",
+    );
+  });
+
+  it("blocks sandbox starts, refresh approvals and signed webhooks in production", async () => {
+    const id = await member("SandboxIsolation");
+    const p = fakePersona();
+    const started = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(started.url);
+    p.statuses.set(inquiry, "approved");
+    const callsBefore = p.calls.length;
+    const now = Date.now();
+    const body = event(inquiry, id, "approved", "evt_sandbox_production", now);
+    for (const configuration of [
+      { ...PERSONA, NODE_ENV: "production" },
+      { ...PERSONA, VERCEL_ENV: "production" },
+      { ...PERSONA, NODE_ENV: "production", PERSONA_API_KEY: "placeholder" },
+      { ...PERSONA, VERCEL_ENV: "production", PERSONA_API_KEY: "persona_sandox_typo" },
+      { ...PERSONA, NODE_ENV: "production", PERSONA_API_KEY: "" },
+    ]) {
+      const deps = { ...p.deps, env: configuration };
+      await rejects(v.startVerification(sql, id, "government_id", now, deps), 409, /isn’t open/);
+      await rejects(v.startVerification(sql, id, "member", now, deps), 409, /isn’t open/);
+      const refreshed = await v.refreshVerification(sql, id, started.id, now, deps);
+      assert.equal(refreshed.available, false);
+      assert.equal(refreshed.member, "pending");
+      assert.deepEqual(await v.handlePersonaWebhook(sql, body, sign(body, now), now, deps), {
+        status: 401,
+        outcome: "provider_unavailable",
+      });
+      await rejects(v.devComplete(sql, id, started.id, "approved", now, deps), 404);
+    }
+    assert.equal(p.calls.length, callsBefore, "no sandbox API request escaped the guard");
+    assert.equal((await svc.people(sql, [id]))[0].identityVerified, false);
+    assert.equal(
+      (await sql`select id from verification_events where id = 'evt_sandbox_production'`).length,
+      0,
+    );
+    await safety.deleteAccount(sql, id);
+    assert.deepEqual(
+      await v.retryPersonaRedactions(
+        sql,
+        Date.now(),
+        {
+          ...p.deps,
+          env: { ...PERSONA, VERCEL_ENV: "production" },
+        },
+        [inquiry],
+      ),
+      { redacted: 0, failed: 0 },
+    );
+    assert.equal(
+      p.calls.length,
+      callsBefore,
+      "misconfigured production does not call sandbox for deletion",
+    );
+    assert.equal(
+      (await sql`select provider_ref from persona_redaction_jobs where provider_ref = ${inquiry}`)
+        .length,
+      1,
+      "the deletion obligation survives invalid credentials",
+    );
+  });
+
+  it("accepts sandbox preview decisions and real-key production decisions", async () => {
+    for (const env of [
+      { ...PERSONA, VERCEL_ENV: "preview", NODE_ENV: "production" },
+      {
+        ...PERSONA,
+        PERSONA_API_KEY: "persona_production_test",
+        VERCEL_ENV: "production",
+        NODE_ENV: "production",
+      },
+    ]) {
+      const id = await member("AllowedEnvironment");
+      const p = fakePersona();
+      const deps = { ...p.deps, env };
+      const started = await v.startVerification(sql, id, "member", Date.now(), deps);
+      const now = Date.now();
+      const body = event(inquiryOf(started.url), id, "approved", undefined, now);
+      assert.equal(
+        (await v.handlePersonaWebhook(sql, body, sign(body, now), now, deps)).outcome,
+        "approved",
+      );
+      assert.equal((await v.getVerification(sql, id, deps)).member, "approved");
+      assert.equal((await svc.people(sql, [id]))[0].identityVerified, true);
+    }
+  });
+
+  it("creates an accountless inquiry without sending a member identifier, and resumes it", async () => {
     const bob = await member("Bob");
     const p = fakePersona();
     const started = await v.startVerification(sql, bob, "member", Date.now(), p.deps);
@@ -238,8 +388,8 @@ describe("Persona", () => {
     const [create] = p.calls;
     assert.equal(create.auth, "Bearer persona_sandbox_test");
     assert.deepEqual(create.body, {
-      data: { attributes: { "inquiry-template-id": "itmpl_member", "reference-id": bob } },
-      meta: { "auto-create-inquiry-session": true },
+      data: { attributes: { "inquiry-template-id": "itmpl_member" } },
+      meta: { "auto-create-inquiry-session": true, "auto-create-account": false },
     });
     const url = new URL(started.url!);
     assert.equal(url.origin, "https://inquiry.withpersona.com");
@@ -373,13 +523,27 @@ describe("verification delivery reliability", () => {
   it("serializes concurrent starts and sends an idempotent provider create", async () => {
     const id = await member("Concurrent");
     const p = fakePersona();
-    const started = await Promise.all(
+    const results = await Promise.allSettled(
       Array.from({ length: 4 }, () => v.startVerification(sql, id, "member", Date.now(), p.deps)),
     );
+    const started = results
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => result.value);
+    assert.ok(started.length > 0);
+    for (const result of results)
+      if (result.status === "rejected") {
+        assert.ok(result.reason instanceof svc.PaceError);
+        assert.equal(result.reason.status, 409);
+      }
     assert.equal(new Set(started.map((x) => x.id)).size, 1);
     const creates = p.calls.filter((x) => x.path === "/inquiries");
     assert.equal(creates.length, 1);
-    assert.equal(creates[0].idempotency, `samepace:${id}:member:1`);
+    assert.ok(creates[0].idempotency);
+    assert.equal(creates[0].idempotency.includes(id), false);
+    assert.equal(
+      (await v.startVerification(sql, id, "member", Date.now(), p.deps)).id,
+      started[0].id,
+    );
   });
 
   it("an older approval cannot undo a newer decline or alter a newer inquiry", async () => {
@@ -423,6 +587,365 @@ describe("verification delivery reliability", () => {
     );
     await rejects(v.startVerification(sql, id, "member", Date.now(), p.deps), 403);
     assert.equal((await deliver(event(inquiry, id, "approved"))).outcome, "unknown_inquiry");
+  });
+});
+
+describe("accountless inquiry binding", () => {
+  it("pins owner, tier, template and environment before a null-reference approval can apply", async () => {
+    const id = await member("LocalBinding");
+    const p = fakePersona();
+    const started = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(started.url);
+    const [row] = await sql`select * from verifications where id = ${started.id}`;
+    assert.equal(row.binding_version, 1);
+    assert.equal(row.profile_id, id);
+    assert.equal(row.provider_template_id, "itmpl_member");
+    assert.equal(row.provider_environment, "sandbox");
+    assert.equal(
+      (await sql`select id from persona_creation_intents where profile_id = ${id}`).length,
+      0,
+    );
+    const approved = event(inquiry, null, "approved", `evt_binding_${id}`);
+    for (const edit of [
+      (body: ReturnType<typeof JSON.parse>) => {
+        body.data.attributes.payload.data.relationships["inquiry-template"].data.id = "itmpl_govid";
+      },
+      (body: ReturnType<typeof JSON.parse>) => {
+        delete body.data.attributes.payload.data.relationships["inquiry-template"];
+      },
+      (body: ReturnType<typeof JSON.parse>) => {
+        delete body.data.attributes.payload.data.relationships.account;
+      },
+      (body: ReturnType<typeof JSON.parse>) => {
+        body.data.attributes.payload.data.attributes["reference-id"] = "someone_else";
+      },
+    ]) {
+      const body = JSON.parse(approved);
+      edit(body);
+      assert.equal((await deliver(JSON.stringify(body))).outcome, "unknown_inquiry");
+      assert.equal((await svc.people(sql, [id]))[0].identityVerified, false);
+    }
+    assert.equal(
+      (await deliver(approved)).outcome,
+      "approved",
+      "invalid deliveries cannot consume the valid event ID",
+    );
+    assert.equal((await svc.people(sql, [id]))[0].identityVerified, true);
+  });
+
+  it("does not reinterpret an injected legacy row as an accountless binding", async () => {
+    const id = await member("LegacyBinding");
+    const p = fakePersona();
+    const started = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(started.url);
+    await sql`update verifications set binding_version = 0, provider_template_id = null where id = ${started.id}`;
+    p.statuses.set(inquiry, "approved");
+    await rejects(v.refreshVerification(sql, id, started.id, Date.now(), p.deps), 409);
+    assert.equal((await deliver(event(inquiry, null, "approved"))).outcome, "unknown_inquiry");
+    assert.equal((await svc.people(sql, [id]))[0].identityVerified, false);
+    assert.equal(
+      (await deliver(event(inquiry, id, "approved"))).outcome,
+      "approved",
+      "legacy still needs an exact provider reference",
+    );
+  });
+
+  it("rejects old inquiries on refresh and webhook after a newer attempt exists", async () => {
+    const id = await member("SupersededNull");
+    const p = fakePersona();
+    const first = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const oldInquiry = inquiryOf(first.url);
+    await deliver(event(oldInquiry, null, "declined"));
+    const second = await v.startVerification(sql, id, "member", Date.now() + 1, p.deps);
+    p.statuses.set(oldInquiry, "approved");
+    await rejects(
+      v.refreshVerification(sql, id, first.id, Date.now(), p.deps),
+      409,
+      /no longer active/,
+    );
+    assert.equal(
+      (await deliver(event(oldInquiry, null, "approved"))).outcome,
+      "superseded_inquiry",
+    );
+    assert.equal((await v.getVerification(sql, id, p.deps)).member, "pending");
+    assert.notEqual(first.id, second.id);
+  });
+
+  it("never promotes a sandbox binding or discards its cleanup using a production key", async () => {
+    const id = await member("EnvironmentBinding");
+    const p = fakePersona();
+    const started = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(started.url);
+    const production = {
+      ...p.deps,
+      env: { ...PERSONA, PERSONA_API_KEY: "persona_production_test", VERCEL_ENV: "production" },
+    };
+    const before = p.calls.length;
+    await rejects(
+      v.refreshVerification(sql, id, started.id, Date.now(), production),
+      409,
+      /different verification environment/,
+    );
+    const now = Date.now();
+    const body = event(inquiry, null, "approved", undefined, now);
+    assert.equal(
+      (await v.handlePersonaWebhook(sql, body, sign(body, now), now, production)).outcome,
+      "unknown_inquiry",
+    );
+    assert.equal(p.calls.length, before);
+    assert.equal((await svc.people(sql, [id]))[0].identityVerified, false);
+    await safety.deleteAccount(sql, id);
+    assert.deepEqual(await v.retryPersonaRedactions(sql, Date.now(), production, [inquiry]), {
+      redacted: 0,
+      failed: 0,
+    });
+    assert.equal(
+      (await sql`select provider_ref from persona_redaction_jobs where provider_ref = ${inquiry}`)
+        .length,
+      1,
+    );
+    assert.equal(p.calls.length, before);
+    assert.equal((await v.retryPersonaRedactions(sql, Date.now(), p.deps, [inquiry])).redacted, 1);
+  });
+
+  it("durably cleans a rejected create and retains unexpected Account evidence for review", async () => {
+    const id = await member("RejectedCreate");
+    const p = fakePersona();
+    p.control.edit = (body) => {
+      body.data.relationships["inquiry-template"]!.data.id = "itmpl_govid";
+    };
+    await rejects(v.startVerification(sql, id, "member", Date.now(), p.deps), 409);
+    assert.equal((await sql`select id from verifications where profile_id = ${id}`).length, 0);
+    assert.equal(
+      (await sql`select id from persona_creation_intents where profile_id = ${id}`).length,
+      0,
+    );
+    const providerRef = `inq_${made}`;
+    assert.equal(
+      (
+        await sql`select provider_ref from persona_redaction_jobs where provider_ref = ${providerRef}`
+      ).length,
+      1,
+    );
+    p.control.edit = (body) => {
+      body.data.relationships.account = { data: { type: "account", id: "act_unexpected_create" } };
+    };
+    await rejects(v.startVerification(sql, id, "member", Date.now() + 1, p.deps), 409);
+    const [review] = await sql`select * from persona_creation_intents where profile_id = ${id}`;
+    assert.equal(review.state, "review_required");
+    assert.equal(review.provider_account_ref, "act_unexpected_create");
+    await safety.deleteAccount(sql, id);
+    const [retained] = await sql`select * from persona_creation_intents where id = ${review.id}`;
+    assert.equal(retained.profile_id, null);
+    assert.equal(retained.tier, null);
+    assert.equal(retained.review_reason, "account_detected");
+  });
+
+  it("preserves unknown legacy environments for review instead of trusting the current key", async () => {
+    const id = await member("UnknownEnvironment");
+    const p = fakePersona();
+    const started = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(started.url);
+    await sql`update verifications set binding_version = 0, provider_environment = null where id = ${started.id}`;
+    const calls = p.calls.length;
+    await rejects(v.refreshVerification(sql, id, started.id, Date.now(), p.deps), 409);
+    assert.equal((await deliver(event(inquiry, id, "approved"))).outcome, "unknown_inquiry");
+    assert.equal(p.calls.length, calls);
+    await safety.deleteAccount(sql, id);
+    for (const env of [
+      PERSONA,
+      { ...PERSONA, PERSONA_API_KEY: "persona_production_test", VERCEL_ENV: "production" },
+    ]) {
+      assert.deepEqual(
+        await v.retryPersonaRedactions(sql, Date.now(), { ...p.deps, env }, [inquiry]),
+        { redacted: 0, failed: 0 },
+      );
+    }
+    assert.equal(
+      (
+        await sql`select provider_ref from persona_redaction_jobs where provider_ref = ${inquiry} and provider_environment is null`
+      ).length,
+      1,
+    );
+    assert.equal(
+      p.calls.length,
+      calls,
+      "no current-environment 404 can discharge an unattributed obligation",
+    );
+  });
+
+  it("rejects Account links discovered after binding and preserves opaque review work", async () => {
+    const id = await member("LaterAccount");
+    const p = fakePersona();
+    const started = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(started.url);
+    p.statuses.set(inquiry, "approved");
+    p.control.edit = (body) => {
+      body.data.relationships.account = { data: { type: "account", id: "act_later" } };
+    };
+    await rejects(v.refreshVerification(sql, id, started.id, Date.now(), p.deps), 409);
+    const [review] =
+      await sql`select * from persona_creation_intents where provider_ref = ${inquiry}`;
+    assert.equal(review.profile_id, null);
+    assert.equal(review.state, "review_required");
+    assert.equal(review.provider_account_ref, "act_later");
+    const body = JSON.parse(event(inquiry, null, "approved"));
+    body.data.attributes.payload.data.relationships.account.data = {
+      type: "account",
+      id: "act_later",
+    };
+    assert.equal((await deliver(JSON.stringify(body))).outcome, "account_review_required");
+    assert.equal((await svc.people(sql, [id]))[0].identityVerified, false);
+  });
+
+  it("deletion during a create queues the late inquiry without returning a hosted URL", async () => {
+    const id = await member("DeleteDuringCreate");
+    const p = fakePersona();
+    let entered!: () => void;
+    let release!: () => void;
+    const seen = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const deps = {
+      ...p.deps,
+      fetch: (async (input, init) => {
+        const response = await p.deps.fetch(input, init);
+        if (String(input).endsWith("/inquiries") && init?.method === "POST") {
+          entered();
+          await paused;
+        }
+        return response;
+      }) as typeof fetch,
+    };
+    const finished = rejects(v.startVerification(sql, id, "member", Date.now(), deps), 409);
+    await seen;
+    const [intent] = await sql`select * from persona_creation_intents where profile_id = ${id}`;
+    assert.ok(intent.first_dispatched_at);
+    await safety.deleteAccount(sql, id);
+    release();
+    await finished;
+    const inquiry = `inq_${made}`;
+    assert.equal((await sql`select id from verifications where profile_id = ${id}`).length, 0);
+    assert.equal(
+      (await sql`select id from persona_creation_intents where id = ${intent.id}`).length,
+      0,
+    );
+    assert.equal(
+      (await sql`select provider_ref from persona_redaction_jobs where provider_ref = ${inquiry}`)
+        .length,
+      1,
+    );
+    assert.equal((await deliver(event(inquiry, null, "approved"))).outcome, "unknown_inquiry");
+  });
+
+  it("recovers a lost create after deletion with the same opaque request, then redacts", async () => {
+    const id = await member("LostCreateDeleted");
+    const p = fakePersona();
+    let lost = false;
+    const deps = {
+      ...p.deps,
+      fetch: (async (input, init) => {
+        const response = await p.deps.fetch(input, init);
+        if (!lost && String(input).endsWith("/inquiries") && init?.method === "POST") {
+          lost = true;
+          throw new Error("synthetic lost response");
+        }
+        return response;
+      }) as typeof fetch,
+    };
+    const now = Date.now();
+    await rejects(v.startVerification(sql, id, "member", now, deps), 409);
+    await safety.deleteAccount(sql, id);
+    const [intent] =
+      await sql`select * from persona_creation_intents where idempotency_key = ${p.calls[0].idempotency}`;
+    assert.equal(intent.profile_id, null);
+    assert.equal(intent.cancel_requested, true);
+    assert.equal(JSON.stringify(intent).includes(id), false);
+    const before = made;
+    assert.equal((await v.recoverPersonaCreations(sql, now + 10_000, deps)).reconciled, 1);
+    assert.equal(made, before, "idempotent replay did not create a second inquiry");
+    const creates = p.calls.filter((call) => call.path === "/inquiries");
+    assert.equal(creates.length, 2);
+    assert.deepEqual(creates[0].body, creates[1].body);
+    assert.equal(creates[0].idempotency, creates[1].idempotency);
+    const inquiry = `inq_${before}`;
+    assert.equal((await v.retryPersonaRedactions(sql, now + 10_000, deps, [inquiry])).redacted, 1);
+    assert.equal(
+      (await sql`select id from persona_creation_intents where id = ${intent.id}`).length,
+      0,
+    );
+  });
+});
+
+describe("verification lifecycle races", () => {
+  it("rechecks the decline budget between preflight and durable intent creation", async () => {
+    const id = await member("DeclineBudgetRace");
+    const p = fakePersona();
+    const now = Date.now();
+    const addDecline = async (suffix: string) => {
+      await sql`insert into verifications (id, profile_id, tier, provider, status, created_at, updated_at)
+        values (${`ver_budget_${id}_${suffix}`}, ${id}, 'member', 'dev', 'declined', ${new Date(now - 1000)}, ${new Date(now)})`;
+    };
+    await addDecline("one");
+    await addDecline("two");
+    let transactions = 0;
+    const racing = ((strings: TemplateStringsArray, ...values: unknown[]) =>
+      sql(strings, ...values)) as Sql;
+    racing.query = sql.query;
+    racing.transaction = async (callback) => {
+      if (++transactions === 2) await addDecline("three");
+      return sql.transaction(callback);
+    };
+    await rejects(v.startVerification(racing, id, "member", now, p.deps), 409, /three tries/);
+    assert.equal(p.calls.length, 0);
+    assert.equal(
+      (await sql`select id from persona_creation_intents where profile_id = ${id}`).length,
+      0,
+    );
+  });
+
+  it("a refresh response arriving after deletion cannot restore a badge", async () => {
+    const id = await member("DeleteDuringRefresh");
+    const p = fakePersona();
+    const started = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(started.url);
+    p.statuses.set(inquiry, "approved");
+    let entered!: () => void;
+    let release!: () => void;
+    const seen = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const deps = {
+      ...p.deps,
+      fetch: (async (input, init) => {
+        const response = await p.deps.fetch(input, init);
+        if (init?.method === "GET") {
+          entered();
+          await paused;
+        }
+        return response;
+      }) as typeof fetch,
+    };
+    const finished = rejects(
+      v.refreshVerification(sql, id, started.id, Date.now(), deps),
+      409,
+      /no longer active/,
+    );
+    await seen;
+    await safety.deleteAccount(sql, id);
+    release();
+    await finished;
+    const [owner] =
+      await sql`select deleted_at, identity_verified, verified_member_at from profiles where id = ${id}`;
+    assert.ok(owner.deleted_at);
+    assert.equal(owner.identity_verified, false);
+    assert.equal(owner.verified_member_at, null);
   });
 });
 

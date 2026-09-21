@@ -5,6 +5,71 @@ import Stripe from "stripe";
 import { stripeProvider, stripeUrl } from "./provider.server.ts";
 import { testConfig } from "./test-provider.ts";
 
+test("membership recognizes portal cancellation timestamps without extending paid access", async () => {
+  const periodEnd = 2_000_000_000;
+  const subscription = {
+    id: "sub_portal",
+    status: "active",
+    created: 1,
+    metadata: { samepace_account: "account-portal" },
+    items: {
+      data: [{ price: { id: "price_membership" }, quantity: 1, current_period_end: periodEnd }],
+    },
+    cancel_at: null as number | null,
+    cancel_at_period_end: false,
+  };
+  const sdk = {
+    customers: { retrieve: async () => ({ id: "cus_portal", balance: 0 }) },
+    subscriptions: { list: async () => ({ data: [subscription], has_more: false }) },
+  } as unknown as Stripe;
+  const provider = stripeProvider(testConfig, sdk);
+  for (const scenario of [
+    { label: "no cancellation", cancelAt: null, legacy: false, ends: false, end: periodEnd },
+    {
+      label: "legacy period-end cancellation",
+      cancelAt: null,
+      legacy: true,
+      ends: true,
+      end: periodEnd,
+    },
+    {
+      label: "portal timestamp at period end",
+      cancelAt: periodEnd,
+      legacy: false,
+      ends: true,
+      end: periodEnd,
+    },
+    {
+      label: "earlier cancellation caps access",
+      cancelAt: periodEnd - 3600,
+      legacy: false,
+      ends: true,
+      end: periodEnd - 3600,
+    },
+    {
+      label: "later cancellation does not extend access",
+      cancelAt: periodEnd + 3600,
+      legacy: false,
+      ends: false,
+      end: periodEnd,
+    },
+    {
+      label: "removing cancellation restores renewal",
+      cancelAt: null,
+      legacy: false,
+      ends: false,
+      end: periodEnd,
+    },
+  ]) {
+    subscription.cancel_at = scenario.cancelAt;
+    subscription.cancel_at_period_end = scenario.legacy;
+    const result = await provider.membership("cus_portal", "account-portal", "price_membership");
+    assert.equal(result.status, "active", scenario.label);
+    assert.equal(result.periodEnd, scenario.end, scenario.label);
+    assert.equal(result.cancelAtPeriodEnd, scenario.ends, scenario.label);
+  }
+});
+
 test("official Stripe adapter sends server-owned hosted checkout, portal, credits and idempotent refund requests", async () => {
   const requests: {
     method: string;
