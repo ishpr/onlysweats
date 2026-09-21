@@ -12,6 +12,7 @@ import {
   severTies,
   withdrawEverything,
 } from "./service.server.ts";
+import { withdrawCredits } from "./training-blocks.server.ts";
 import { enqueue } from "./notify.server.ts";
 import type { Person } from "./types.ts";
 
@@ -47,6 +48,8 @@ export async function blockMember(sql: Sql, userId: string, targetId: string, no
       values (${userId}, ${targetId}, ${at(now)})
       on conflict (blocker_id, blocked_id) do nothing`;
     await severTies(tx, userId, targetId, now);
+    // "Helped me stick to it" doesn't survive blocking them. Nobody is told.
+    await withdrawCredits(tx, userId, targetId);
   });
 }
 
@@ -454,6 +457,8 @@ export async function adminResolveReport(
     if ((input.action === "remove_session" || input.action === "suspend_and_remove") && r.session_id) {
       await adminRemoveSession(tx, adminEmail, r.session_id, note, now);
     }
+    // A report that was acted on takes back any goal credit the reporter gave them.
+    if (input.action !== "dismiss") await withdrawCredits(tx, r.reporter_id, r.reported_id);
     await tx`
       update reports set status = ${input.action === "dismiss" ? "dismissed" : "actioned"},
         resolution = ${`${input.action}${note ? `: ${note}` : ""}`},

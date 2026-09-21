@@ -14,7 +14,8 @@ The client never decides seats, check-in or fees.
   types in `src/lib/pace/types.ts`, safety + admin in `src/lib/pace/safety.server.ts`,
   training blocks in
   `src/lib/pace/training-blocks.server.ts`, schema in `migrations/0002_pace.sql`,
-  `0004_safety.sql`, `0007_training_blocks.sql` and `0008_training_block_requests.sql`.
+  `0004_safety.sql`, `0007_training_blocks.sql`, `0008_training_block_requests.sql` and
+  `0009_goal_credits.sql`.
   ("pace" stays the code shorthand; the product name is SamePace.)
 
 ## Auth
@@ -55,7 +56,7 @@ The first authenticated API call creates the caller's profile.
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| GET | `/me` | Profile + `abilities`, `creditCents`, `feesCents`, `strikes`, `frozenUntil`, `freeSessionsLeft`. |
+| GET | `/me` | Profile + `blocksFinished`, `helpedCount`, `abilities`, `creditCents`, `feesCents`, `strikes`, `frozenUntil`, `freeSessionsLeft`. |
 | PATCH | `/me` | `{ name?, neighborhood?, gender?, abilities? }`. `abilities` merges per activity. No bio — by design. |
 | GET | `/venues` | Cluster venues. No exact meeting spot here. |
 | GET | `/sessions?womenOnly=1` | Public, open, upcoming (14 days). Each carries `abilityLabel` and `fitsMe`. Women-only sessions only appear to members they're open to. |
@@ -80,6 +81,8 @@ The first authenticated API call creates the caller's profile.
 | GET | `/training-blocks/:id?invite=` | `{ block, people }`. `block.viewer` is `member`, `pending`, `declined` or `visitor`; only a member gets progress, requests and (if they started it) `inviteCode`. `404` for an unlisted block without the code. |
 | POST | `/training-blocks/:id/join` | `{ inviteCode? }`. Takes a seat on every slot. With `joinMode: "approve"` it files a request instead. |
 | POST | `/training-blocks/:id/requests/:memberId/approve` · `/decline` | Any member answers. |
+| POST | `/training-blocks/:id/credits` | `{ toIds: [] }`. A finisher's one answer to "helped me stick to it?", in the week after the goal date. An empty list is an answer. |
+| POST | `/training-blocks/:id/next` | `{ action: "keep_slots" }`, or `{ action: "next_block", goalKind, eventName?, goalDate }`. Any member, for two weeks after the goal date. |
 | POST | `/training-blocks/:id/clone` | "Start one like it": same goal, date and slots, a week on, as a new `forming` block. `409` while the original still has a seat. |
 | POST | `/training-blocks/:id/slots` | Add a weekly slot, up to 4. Whoever started the block only. Body is a session without `activity`, `capacity`, `visibility`, `joinMode`, `womenOnly` — the block fixes those. |
 | POST | `/training-blocks/:id/leave` | Leave every slot in the block. |
@@ -272,8 +275,22 @@ these routes are `/training-blocks`.)
   women-only one not open to the viewer. A visitor sees the members (they are on
   the block's sessions) but never anyone's progress.
 
-Not built yet: goal credits ("helped me stick to it") and what happens to the
-slots after `closing`.
+- **Goal credits.** For the 7 days after the goal date a member who finished can
+  say "helped me stick to it" about anyone they shared 3 or more check-ins with in
+  the block — regulars and substitutes alike, finished or not. One answer per
+  finisher per block; `block.ending.creditable` is who they may name. A profile
+  shows counts only: `blocksFinished` and `helpedCount`, the number of *distinct*
+  people who have said it, so a pair repeating blocks adds one. Credits never feed
+  ranking. The receiver gets a push that doesn't say who. A credit is taken back,
+  silently, when the giver blocks the receiver or a report the giver made about
+  them is acted on. After 7 days the block is `ended` (`goal_date`).
+- **The slots afterwards.** They stop at the goal date. For 14 days any member can
+  keep them (`keep_slots`: they go back to being plain standing slots, next week
+  on the calendar) or start the next block (`next_block`: same people, same slots
+  and streaks, a new goal and date). After that they end. `block.ending`
+  (`creditsOpen`, `creditable`, `slotsUndecided`) says what is still open to me.
+- A session records which block it belonged to (`sessions.training_block_id`), so
+  a block's history stays put when its slots move on.
 
 ## Words
 
@@ -289,9 +306,7 @@ A hit is a `400` naming the word. The list is `BANNED_WORDS` in `rules.ts`.
 - **Charging.** Membership ($12/mo after two completed sessions, once a cluster
   passes its density gate), card on file, and actually collecting fees. The
   ledger records what is owed; nothing is charged.
-- **Goal credits** and the end-of-block choices (training blocks themselves are
-  built — see *Training blocks*), gym sessions matched on `gym_id`, `route_url` in
-  the app.
+- Gym sessions matched on `gym_id`, `route_url` in the app.
 - **Verification** (phone, selfie liveness, ID for women-only) and fee disputes.
 
 

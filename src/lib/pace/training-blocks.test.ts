@@ -467,3 +467,135 @@ describe("public blocks", () => {
     await blocks.joinTrainingBlock(sql, dan, again.id);
   });
 });
+
+describe("the end of a block", () => {
+  /** A pair's four-week block, played to its goal date and closed. */
+  async function played(plan: Week[], from = Date.now()) {
+    const [kim, lee] = [await member("Kim"), await member("Lee")];
+    const slot = await standingSlot(kim, lee);
+    const block = await blocks.blockFromSeries(
+      sql,
+      kim,
+      slot.id,
+      { goalKind: "race_10k", eventName: "Turkey Trot", goalDate: clusterDate(from + 30 * DAY) },
+      afterMeeting(),
+    );
+    let clock = from;
+    for (const what of plan) clock = (await playWeek(slot.id, kim, lee, clock, what))!;
+    const after = from + 32 * DAY;
+    await blocks.closeDueBlocks(sql, after);
+    return { kim, lee, slot, block, after };
+  }
+  const helped = async (id: string) => (await svc.people(sql, [id]))[0].helpedCount;
+  const view = async (who: string, blockId: string, now: number) =>
+    (await blocks.getTrainingBlock(sql, who, blockId, {}, now)).block;
+
+  it("a finisher says who helped — once, and nobody is told who said it", async () => {
+    const { kim, lee, block, after } = await played(["both", "both", "both", "both"]);
+    const out = await member("Out");
+    const before = await view(kim, block.id, after);
+    assert.deepEqual(before.ending, { creditsOpen: true, creditable: [lee], slotsUndecided: true });
+
+    await rejects(blocks.giveCredits(sql, out, block.id, [lee], after), 404);
+    await rejects(blocks.giveCredits(sql, kim, block.id, [out], after), 409, /enough sessions/);
+    const answered = await blocks.giveCredits(sql, kim, block.id, [lee], after);
+    assert.equal(answered.ending?.creditsOpen, false);
+    await rejects(blocks.giveCredits(sql, kim, block.id, [lee], after), 409, /already answered/);
+
+    const [person] = await svc.people(sql, [lee]);
+    assert.equal(person.helpedCount, 1);
+    assert.equal(person.blocksFinished, 1);
+    const note = (await listNotifications(sql, lee)).notifications.find((n) => n.kind === "goal_credit")!;
+    assert.match(note.body, /Turkey Trot/);
+    assert.doesNotMatch(`${note.title} ${note.body}`, /Kim/);
+  });
+
+  it("not from someone who fell short, not about someone barely there, not after the week", async () => {
+    const short = await played(["both", "joiner_skips", "joiner_skips", "both"]);
+    await rejects(blocks.giveCredits(sql, short.lee, short.block.id, [short.kim], short.after), 409, /finished/);
+    // Kim finished — but two shared sessions isn't three.
+    assert.deepEqual((await view(short.kim, short.block.id, short.after)).ending?.creditable, []);
+    await rejects(blocks.giveCredits(sql, short.kim, short.block.id, [short.lee], short.after), 409, /enough sessions/);
+    // Answering with nobody is an answer.
+    const none = await blocks.giveCredits(sql, short.kim, short.block.id, [], short.after);
+    assert.equal(none.ending?.creditsOpen, false);
+    assert.equal(await helped(short.lee), 0);
+
+    const late = await played(["both", "both", "both", "both"]);
+    const tooLate = late.after + 7 * DAY;
+    await rejects(blocks.giveCredits(sql, late.kim, late.block.id, [late.lee], tooLate), 409, /passed/);
+    const [row] = await sql<{ status: string; ended_reason: string }>`
+      select status, ended_reason from training_blocks where id = ${late.block.id}`;
+    assert.deepEqual(row, { status: "ended", ended_reason: "goal_date" });
+  });
+
+  it("starts the next block with the same people, and counts a repeat buddy once", async () => {
+    const { kim, lee, slot, block, after } = await played(["both", "both", "both", "both"]);
+    await blocks.giveCredits(sql, kim, block.id, [lee], after);
+
+    const goal = { goalKind: "race_half", goalDate: clusterDate(after + 31 * DAY) } as const;
+    await rejects(blocks.nextTrainingBlock(sql, await member("Out"), block.id, goal, after), 404);
+    const next = await blocks.nextTrainingBlock(sql, lee, block.id, goal, after);
+    assert.equal(next.status, "active");
+    assert.deepEqual(next.memberIds.sort(), [kim, lee].sort());
+    assert.equal(next.slots[0].seriesId, slot.id, "the same slot, streak and all");
+    assert.ok(next.slots[0].nextSessionId, "next week is on the calendar");
+    assert.equal((await view(kim, block.id, after)).ending?.slotsUndecided, false);
+    await rejects(blocks.keepBlockSlots(sql, kim, block.id, after), 409, /wound up/);
+    assert.ok((await listNotifications(sql, kim)).notifications.some((n) => n.kind === "block_next"));
+
+    // Every week until there isn't a next one: the goal date decides how many.
+    let clock = after;
+    for (let c: number | null = clock; c !== null; c = await playWeek(slot.id, kim, lee, clock, "both")) {
+      clock = c;
+    }
+    const later = after + 33 * DAY;
+    await blocks.closeDueBlocks(sql, later);
+    assert.deepEqual((await view(kim, next.id, later)).ending?.creditable, [lee], "only this block’s sessions count");
+    await blocks.giveCredits(sql, kim, next.id, [lee], later);
+    assert.equal(await helped(lee), 1, "one person, however many blocks");
+
+    await safety.blockMember(sql, kim, lee);
+    assert.equal(await helped(lee), 0, "blocking them takes it back");
+  });
+
+  it("keeps the slots running as plain standing slots — or lets them end", async () => {
+    const kept = await played(["both", "both", "both", "both"]);
+    await blocks.keepBlockSlots(sql, kept.lee, kept.block.id, kept.after);
+    const [slot] = await svc.listMySeries(sql, kept.kim, kept.after);
+    assert.equal(slot.id, kept.slot.id);
+    assert.equal(slot.trainingBlockId, null);
+    assert.ok(slot.nextSessionId);
+    const listing = (await svc.getSession(sql, kept.kim, slot.nextSessionId!)).session;
+    assert.equal(listing.block, null, "next week belongs to no block");
+    assert.ok((await listNotifications(sql, kept.kim)).notifications.some((n) => n.kind === "block_slots_kept"));
+    // The block's own numbers don't move with sessions that came after it.
+    assert.deepEqual((await view(kept.kim, kept.block.id, kept.after)).my, {
+      planned: 4,
+      kept: 4,
+      keptMiles: 20,
+      finished: true,
+    });
+
+    const left = await played(["both", "both", "both", "both"]);
+    const twoWeeksOn = left.after + 14 * DAY;
+    await blocks.closeDueBlocks(sql, twoWeeksOn);
+    assert.deepEqual(await svc.listMySeries(sql, left.kim, twoWeeksOn), []);
+    await rejects(blocks.keepBlockSlots(sql, left.kim, left.block.id, twoWeeksOn), 409, /wound up/);
+  });
+
+  it("a report that is acted on takes the reporter’s credit back", async () => {
+    const { kim, lee, slot, block, after } = await played(["both", "both", "both", "both"]);
+    await blocks.giveCredits(sql, kim, block.id, [lee], after);
+    assert.equal(await helped(lee), 1);
+    const [session] = await sql<{ id: string }>`
+      select id from sessions where series_id = ${slot.id} order by start_at desc limit 1`;
+    const report = await safety.reportMember(sql, kim, {
+      reportedId: lee,
+      reason: "harassment",
+      sessionId: session.id,
+    });
+    await safety.adminResolveReport(sql, "ops@samepace.app", report.id, { action: "suspend" });
+    assert.equal(await helped(lee), 0);
+  });
+});

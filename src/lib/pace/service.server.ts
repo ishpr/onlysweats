@@ -95,6 +95,8 @@ type ProfileRow = {
   on_time_total: number;
   would_join_yes: number;
   would_join_total: number;
+  blocks_finished: number;
+  helped_count: number;
   frozen_until: Date | null;
   suspended_at: Date | null;
   suspended_reason: string | null;
@@ -251,6 +253,8 @@ function toPerson(r: ProfileRow): Person {
     completedCount: r.completed_count,
     onTimePct: pct(r.on_time_yes, r.on_time_total),
     wouldJoinPct: pct(r.would_join_yes, r.would_join_total),
+    blocksFinished: r.blocks_finished ?? 0,
+    helpedCount: r.helped_count ?? 0,
     abilities: json<MemberAbilities>(r.abilities) ?? {},
   };
 }
@@ -425,8 +429,7 @@ const SESSION_SELECT = `
           where m.block_id = tb.id and m.left_at is null) as members,
         (select count(*) from series s2
           where s2.training_block_id = tb.id and s2.status = 'active') as slots
-      from series se join training_blocks tb on tb.id = se.training_block_id
-      where se.id = s.series_id) x) as block
+      from training_blocks tb where tb.id = s.training_block_id) x) as block
   from sessions s join venues v on v.id = s.venue_id`;
 
 type SessionViewRow = SessionRow & {
@@ -1378,7 +1381,7 @@ export async function checkInCode(
  * regular already confirmed. Each occurrence is a normal session — check-in and
  * no-show rules included.
  */
-async function ensureNextOccurrence(tx: Sql, seriesId: string, now: number): Promise<string | null> {
+export async function ensureNextOccurrence(tx: Sql, seriesId: string, now: number): Promise<string | null> {
   const [series] = await tx<{ status: string; training_block_id: string | null }>`
     select status, training_block_id from series where id = ${seriesId} for update`;
   if (!series || series.status !== "active") return null;
@@ -1418,13 +1421,15 @@ async function ensureNextOccurrence(tx: Sql, seriesId: string, now: number): Pro
   await tx`
     insert into sessions (
       id, host_id, venue_id, activity, title, detail, ability, ability_flex, route_url, start_at,
-      duration_min, capacity, visibility, join_mode, women_only, code, invite_code, series_id
+      duration_min, capacity, visibility, join_mode, women_only, code, invite_code, series_id,
+      training_block_id
     ) values (
       ${id}, ${host}, ${last.venue_id}, ${last.activity}, ${last.title}, ${last.detail},
       ${JSON.stringify(json(last.ability))}::jsonb, ${last.ability_flex}, ${last.route_url},
       ${at(startAt)}, ${last.duration_min}, ${Math.max(last.capacity, members.length)},
       ${last.visibility}, ${last.join_mode}, ${last.women_only}, ${fourDigits()},
-      ${last.visibility === "unlisted" ? inviteToken() : null}, ${seriesId}
+      ${last.visibility === "unlisted" ? inviteToken() : null}, ${seriesId},
+      ${series.training_block_id}
     )`;
   for (const member of members.filter((m) => m !== host)) {
     const bookingId = newId("bk");

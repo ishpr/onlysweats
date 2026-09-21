@@ -8,6 +8,7 @@ import {
   blockWeek,
   blockWeeks,
   canBook,
+  canGiveCredits,
   canJoinBlock,
   canGeoCheckIn,
   canPost,
@@ -16,12 +17,14 @@ import {
   chatOpen,
   cleanText,
   clusterDate,
+  creditable,
   distanceM,
   feeChargeableAt,
   goalLabel,
   nextOccurrence,
   plannedAndKept,
   settle,
+  slotsUndecided,
   validAbility,
   validBlock,
   type BlockFacts,
@@ -390,5 +393,42 @@ describe("joining a training block", () => {
     assert.equal(blockJoinable(block(), 3, today), false, "full");
     assert.equal(blockJoinable(block({ goalDate: plus(20) }), 2, today), false, "too far along");
     assert.equal(blockJoinable(block({ status: "ended" }), 2, today), false);
+  });
+});
+
+describe("the end of a block", () => {
+  const closing = { status: "closing" as const, goalDate: "2026-12-13" };
+  const finisher = { finished: true, answered: false };
+
+  it("opens goal credits to finishers for a week after the goal date", () => {
+    assert.equal(canGiveCredits(closing, finisher, "2026-12-14").ok, true);
+    assert.equal(canGiveCredits(closing, finisher, "2026-12-20").ok, true, "day 7");
+    assert.equal(canGiveCredits(closing, finisher, "2026-12-21").ok, false, "day 8");
+    assert.equal(canGiveCredits({ ...closing, status: "active" }, finisher, "2026-12-14").ok, false);
+    assert.equal(canGiveCredits({ ...closing, status: "ended" }, finisher, "2026-12-14").ok, false);
+    assert.equal(canGiveCredits(closing, { finished: false, answered: false }, "2026-12-14").ok, false);
+    assert.equal(canGiveCredits(closing, { finished: null, answered: false }, "2026-12-14").ok, false);
+    assert.equal(canGiveCredits(closing, { finished: true, answered: true }, "2026-12-14").ok, false);
+  });
+
+  it("makes a buddy creditable after three sessions both checked in to", () => {
+    const sessions = [
+      { checkedIn: ["me", "ann", "sub"] },
+      { checkedIn: ["me", "ann"] },
+      { checkedIn: ["ann", "bob"] }, // I wasn’t there
+      { checkedIn: ["me", "ann", "bob", "sub"] },
+      { checkedIn: ["me", "sub", "sub"] }, // listed twice is still once
+      { checkedIn: ["me"] },
+    ];
+    assert.deepEqual(creditable("me", sessions), ["ann", "sub"], "regulars and substitutes alike");
+    assert.deepEqual(creditable("me", sessions, 4), []);
+    assert.deepEqual(creditable("nobody", sessions), []);
+  });
+
+  it("leaves two weeks to decide about the slots", () => {
+    assert.equal(slotsUndecided("2026-12-13", "2026-12-13"), false, "still the goal date");
+    assert.equal(slotsUndecided("2026-12-13", "2026-12-14"), true);
+    assert.equal(slotsUndecided("2026-12-13", "2026-12-27"), true, "day 14");
+    assert.equal(slotsUndecided("2026-12-13", "2026-12-28"), false);
   });
 });
