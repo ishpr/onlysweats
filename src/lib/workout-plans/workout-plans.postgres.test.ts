@@ -158,10 +158,86 @@ test(
               held.resume();
               const results = await within(both);
               assert.equal(results[0].status, "fulfilled");
-              if (bookingFirst) rejected(results[1], 409);
-              else assert.equal(results[1].status, "fulfilled");
+              if (bookingFirst) {
+                // lockSession detected the roster changed while attachment waited.
+                // Refreshing the same explicit request may now add the first plan.
+                rejected(results[1], 409);
+                await attach(sql);
+              } else assert.equal(results[1].status, "fulfilled");
               const view = await plans.getSessionPlan(sql, buddy, session.id, now);
-              assert.equal(view.plan?.planId ?? null, bookingFirst ? null : plan.id);
+              assert.equal(view.plan?.planId, plan.id);
+              assert.equal(view.canAttach, false);
+            } finally {
+              held.resume();
+              await (both ?? firstSettled);
+            }
+          },
+        );
+      for (const replacementFirst of [false, true])
+        await t.test(
+          `reviewed start versus replacement: ${replacementFirst ? "replacement" : "start"} commits first`,
+          async () => {
+            const host = await fixtureMember(sql),
+              plan = await plans.createPlan(sql, host, fixturePlan(), now);
+            const replacement = await plans.createPlan(
+              sql,
+              host,
+              { ...fixturePlan(), title: "Different prescription" },
+              now,
+            );
+            const session = await fixtureSession(sql, host);
+            await plans.attachSessionPlan(
+              sql,
+              host,
+              session.id,
+              { planId: plan.id, expectedPlanRevision: 1 },
+              now,
+            );
+            const held = holdProfileLock(sql);
+            const start = (client: Sql) =>
+              plans.startRun(
+                client,
+                host,
+                {
+                  id: randomUUID(),
+                  sessionId: session.id,
+                  expectedPlanId: plan.id,
+                  expectedPlanRevision: 1,
+                },
+                runTime,
+              );
+            const replace = (client: Sql) =>
+              client.transaction(async (tx) => {
+                await plans.removeSessionPlan(
+                  tx,
+                  host,
+                  session.id,
+                  { expectedPlanId: plan.id, expectedPlanRevision: 1 },
+                  runTime,
+                );
+                return plans.attachSessionPlan(
+                  tx,
+                  host,
+                  session.id,
+                  { planId: replacement.id, expectedPlanRevision: 1 },
+                  runTime,
+                );
+              });
+            const first = replacementFirst ? replace(held.sql) : start(held.sql);
+            const firstSettled = Promise.allSettled([first]);
+            let both: Promise<PromiseSettledResult<unknown>[]> | undefined;
+            try {
+              const pid = await within(held.locked),
+                second = replacementFirst ? start(sql) : replace(sql);
+              both = Promise.allSettled([first, second]);
+              await blocked(sql, pid);
+              held.resume();
+              const results = await within(both);
+              assert.equal(results[0].status, "fulfilled");
+              rejected(results[1], 409);
+              const view = await plans.getSessionPlan(sql, host, session.id, runTime);
+              assert.equal(view.plan?.planId, replacementFirst ? replacement.id : plan.id);
+              assert.equal(view.myRun?.planId ?? null, replacementFirst ? null : plan.id);
             } finally {
               held.resume();
               await (both ?? firstSettled);
@@ -187,7 +263,12 @@ test(
             const run = await plans.startRun(
               sql,
               buddy,
-              { id: randomUUID(), sessionId: session.id },
+              {
+                id: randomUUID(),
+                sessionId: session.id,
+                expectedPlanId: plan.id,
+                expectedPlanRevision: 1,
+              },
               runTime,
             );
             const held = holdProfileLock(sql);

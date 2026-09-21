@@ -9,6 +9,9 @@ import { blockMember, deleteAccount } from "../pace/safety.server.ts";
 import * as plans from "./service.server.ts";
 import { createPlanInput, updateRunInput } from "./contracts.ts";
 import { exportFitness } from "../fitness/service.server.ts";
+import * as agents from "../agents/service.server.ts";
+import * as assistant from "../agents/assistant.server.ts";
+import { pair, proposal, rpc, HOUR } from "../agents/test-helpers.ts";
 import {
   fixtureMember,
   fixturePlan,
@@ -193,11 +196,11 @@ describe("explicit shared session prescriptions", () => {
     assert.equal((await plans.getSessionPlan(sql, host, session.id, now)).plan, null);
   });
   it("revokes shared access when a buddy leaves or either side blocks", async () => {
-    const { host, buddy, session, booking } = await setup();
+    const { host, buddy, plan, session, booking } = await setup();
     const run = await plans.startRun(
       sql,
       buddy,
-      { id: randomUUID(), sessionId: session.id },
+      { id: randomUUID(), sessionId: session.id, expectedPlanId: plan.id, expectedPlanRevision: 1 },
       runTime,
     );
     await cancelBooking(sql, buddy, booking!.id, now + 1000);
@@ -208,45 +211,202 @@ describe("explicit shared session prescriptions", () => {
     await rejects(plans.getSessionPlan(sql, other.buddy, other.session.id, now), 404);
     assert.ok(host);
   });
-  it("prevents initial attachment once a booking exists and prevents starting early or after cancellation", async () => {
+  it("permits the first plan after booking, freezes it, and prevents starting early or after cancellation", async () => {
     const host = await fixtureMember(sql),
       buddy = await fixtureMember(sql);
     const plan = await plans.createPlan(sql, host, fixturePlan(), now),
       session = await fixtureSession(sql, host);
     await bookSeat(sql, buddy, session.id, {}, now);
+    const first = await plans.attachSessionPlan(
+      sql,
+      host,
+      session.id,
+      { planId: plan.id, expectedPlanRevision: 1 },
+      now,
+    );
+    assert.equal(first.plan?.planId, plan.id);
+    assert.equal(first.canAttach, false);
     await rejects(
-      plans.attachSessionPlan(
+      plans.removeSessionPlan(
         sql,
         host,
         session.id,
-        { planId: plan.id, expectedPlanRevision: 1 },
+        { expectedPlanId: plan.id, expectedPlanRevision: 1 },
         now,
       ),
       409,
     );
     const other = await setup(false);
     await rejects(
-      plans.startRun(sql, other.host, { id: randomUUID(), sessionId: other.session.id }, now),
+      plans.startRun(
+        sql,
+        other.host,
+        {
+          id: randomUUID(),
+          sessionId: other.session.id,
+          expectedPlanId: other.plan.id,
+          expectedPlanRevision: 1,
+        },
+        now,
+      ),
       409,
     );
     await cancelSession(sql, other.host, other.session.id, now);
     await rejects(
-      plans.startRun(sql, other.host, { id: randomUUID(), sessionId: other.session.id }, runTime),
+      plans.startRun(
+        sql,
+        other.host,
+        {
+          id: randomUUID(),
+          sessionId: other.session.id,
+          expectedPlanId: other.plan.id,
+          expectedPlanRevision: 1,
+        },
+        runTime,
+      ),
       409,
     );
   });
 });
 
+it("attaches a first structured plan to a real A2A-proposed, mutually approved booking and starts only its reviewed snapshot", async () => {
+  const fixture = await pair(sql);
+  const proposed = proposal(fixture.now);
+  const preferences = {
+    enabled: true,
+    activity: "run" as const,
+    ability: proposed.plan.ability,
+    durationMin: 60,
+    venueIds: ["katy"],
+    availability: [
+      {
+        startAt: new Date(fixture.now + 24 * HOUR).toISOString(),
+        endAt: new Date(fixture.now + 26 * HOUR).toISOString(),
+      },
+    ],
+    approvedIntent: "Synthetic easy run with a buddy.",
+  };
+  for (const member of [fixture.host, fixture.member])
+    await assistant.setPreferences(sql, member, preferences, fixture.now);
+  const proposalResponse = await rpc(sql, fixture.hostGrant.token, fixture.now, "SendMessage", {
+    message: {
+      messageId: randomUUID(),
+      taskId: fixture.room.id,
+      contextId: fixture.room.id,
+      role: "ROLE_USER",
+      parts: [{ data: proposed, mediaType: "application/json" }],
+    },
+  });
+  const wire = await proposalResponse.json();
+  assert.equal(wire.error, undefined);
+  for (const member of [fixture.host, fixture.member])
+    await agents.confirmProposal(sql, member, fixture.room.id, 1, fixture.now);
+  const { terms } = await assistant.getBookingTerms(
+    sql,
+    fixture.host,
+    fixture.room.id,
+    fixture.now,
+  );
+  const approval = { revision: 1, termsHash: terms.termsHash };
+  await assistant.approveBookingTerms(sql, fixture.host, fixture.room.id, approval, fixture.now);
+  const booked = await assistant.approveBookingTerms(
+    sql,
+    fixture.member,
+    fixture.room.id,
+    approval,
+    fixture.now,
+  );
+  assert.equal(booked.booked, true);
+  const sessionId = booked.sessionId!;
+  const before = await plans.getSessionPlan(sql, fixture.host, sessionId, fixture.now);
+  assert.equal(before.plan, null);
+  assert.equal(before.canAttach, true);
+  const plan = await plans.createPlan(sql, fixture.host, fixturePlan(), fixture.now);
+  await plans.attachSessionPlan(
+    sql,
+    fixture.host,
+    sessionId,
+    { planId: plan.id, expectedPlanRevision: 1 },
+    fixture.now,
+  );
+  const reviewed = await plans.getSessionPlan(sql, fixture.member, sessionId, fixture.now);
+  assert.equal(reviewed.plan?.planId, plan.id);
+  assert.equal(reviewed.canAttach, false);
+  const startedAt = fixture.now + 24 * HOUR;
+  await rejects(
+    plans.startRun(
+      sql,
+      fixture.member,
+      { id: randomUUID(), sessionId, expectedPlanId: randomUUID(), expectedPlanRevision: 1 },
+      startedAt,
+    ),
+    409,
+  );
+  const run = await plans.startRun(
+    sql,
+    fixture.member,
+    {
+      id: randomUUID(),
+      sessionId,
+      expectedPlanId: reviewed.plan!.planId,
+      expectedPlanRevision: reviewed.plan!.planRevision,
+    },
+    startedAt,
+  );
+  assert.deepEqual(run.snapshot, reviewed.plan!.snapshot);
+  assert.deepEqual(run.results, []);
+  assert.equal(run.shareAccountability, false);
+  await rejects(
+    plans.removeSessionPlan(
+      sql,
+      fixture.host,
+      sessionId,
+      { expectedPlanId: plan.id, expectedPlanRevision: 1 },
+      fixture.now,
+    ),
+    409,
+  );
+  const [seat] = await sql<{
+    participant_checked_in_at: Date | null;
+  }>`select participant_checked_in_at from bookings where id = ${booked.bookingId}`;
+  assert.equal(
+    seat.participant_checked_in_at,
+    null,
+    "Following a plan cannot manufacture meetup attendance.",
+  );
+});
+
 describe("member-entered execution and opt-in accountability", () => {
   it("starts with no actuals, deduplicates retries, and refuses future proof, unknown sets and stale updates", async () => {
-    const { buddy, host, session } = await setup();
-    const input = { id: randomUUID(), sessionId: session.id };
+    const { buddy, host, plan, session } = await setup();
+    const input = {
+      id: randomUUID(),
+      sessionId: session.id,
+      expectedPlanId: plan.id,
+      expectedPlanRevision: 1,
+    };
+    await rejects(
+      plans.startRun(sql, buddy, { ...input, expectedPlanId: randomUUID() }, runTime),
+      409,
+    );
+    await rejects(plans.startRun(sql, buddy, { ...input, expectedPlanRevision: 2 }, runTime), 409);
     const run = await plans.startRun(sql, buddy, input, runTime);
+    await rejects(plans.startRun(sql, buddy, { ...input, expectedPlanRevision: 2 }, runTime), 409);
     assert.deepEqual(run.results, []);
     assert.equal(run.shareAccountability, false);
     assert.deepEqual(await plans.startRun(sql, buddy, input, runTime + 1), run);
     await rejects(
-      plans.startRun(sql, buddy, { id: randomUUID(), sessionId: session.id }, runTime),
+      plans.startRun(
+        sql,
+        buddy,
+        {
+          id: randomUUID(),
+          sessionId: session.id,
+          expectedPlanId: plan.id,
+          expectedPlanRevision: 1,
+        },
+        runTime,
+      ),
       409,
     );
     await rejects(plans.getRun(sql, host, run.id), 404);
@@ -290,11 +450,11 @@ describe("member-entered execution and opt-in accountability", () => {
     await rejects(plans.updateRun(sql, buddy, run.id, args, runTime + 2), 409);
   });
   it("shares only chosen summary counts, immediately withdraws sharing, and does not award attendance", async () => {
-    const { host, buddy, session, booking } = await setup();
+    const { host, buddy, plan, session, booking } = await setup();
     const run = await plans.startRun(
       sql,
       buddy,
-      { id: randomUUID(), sessionId: session.id },
+      { id: randomUUID(), sessionId: session.id, expectedPlanId: plan.id, expectedPlanRevision: 1 },
       runTime,
     );
     const args = {
@@ -337,11 +497,11 @@ describe("member-entered execution and opt-in accountability", () => {
     assert.deepEqual((await plans.getSessionPlan(sql, host, session.id)).accountability, []);
   });
   it("corrects completed private records after leaving and removes own records even after blocking", async () => {
-    const { buddy, host, session } = await setup();
+    const { buddy, host, plan, session } = await setup();
     let run = await plans.startRun(
       sql,
       buddy,
-      { id: randomUUID(), sessionId: session.id },
+      { id: randomUUID(), sessionId: session.id, expectedPlanId: plan.id, expectedPlanRevision: 1 },
       runTime,
     );
     run = await plans.updateRun(
@@ -472,7 +632,7 @@ describe("member-entered execution and opt-in accountability", () => {
     const run = await plans.startRun(
       sql,
       buddy,
-      { id: randomUUID(), sessionId: session.id },
+      { id: randomUUID(), sessionId: session.id, expectedPlanId: plan.id, expectedPlanRevision: 1 },
       runTime,
     );
     await deleteAccount(sql, host, now + 1);

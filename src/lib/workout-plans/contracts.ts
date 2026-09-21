@@ -77,14 +77,19 @@ export const startRunInput = z
   .strictObject({
     id: workoutPlanId,
     planId: workoutPlanId.optional(),
+    expectedPlanId: workoutPlanId.optional(),
     expectedPlanRevision: z.number().int().positive().optional(),
     sessionId: z.string().min(1).max(200).optional(),
   })
   .refine(
     (input) =>
       input.sessionId
-        ? input.planId === undefined && input.expectedPlanRevision === undefined
-        : input.planId !== undefined && input.expectedPlanRevision !== undefined,
+        ? input.planId === undefined &&
+          input.expectedPlanId !== undefined &&
+          input.expectedPlanRevision !== undefined
+        : input.planId !== undefined &&
+          input.expectedPlanId === undefined &&
+          input.expectedPlanRevision !== undefined,
     "Choose a session or a library plan with its revision.",
   );
 export const workoutSetResultInput = z

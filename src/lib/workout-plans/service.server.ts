@@ -253,7 +253,8 @@ async function canAttach(tx: Sql, session: SessionRow, userId: string, now: numb
   const [booked] = await tx`select 1 from bookings where session_id = ${session.id}
     and status in ('pending', 'confirmed', 'completed') limit 1`;
   const [started] = await tx`select 1 from workout_runs where session_id = ${session.id} limit 1`;
-  return !booked && !started;
+  const existing = await attached(tx, session.id);
+  return !started && (!existing || !booked);
 }
 async function sessionView(
   tx: Sql,
@@ -318,7 +319,7 @@ export async function attachSessionPlan(
     if (!(await canAttach(tx, session, userId, now)))
       throw new PaceError(
         409,
-        "The session plan is fixed once someone books or the workout starts.",
+        "A shared plan is fixed once a buddy has joined or the workout starts.",
       );
     const plan = await ownedPlan(tx, userId, args.planId);
     if (plan.revision !== args.expectedPlanRevision) throw changed();
@@ -344,7 +345,7 @@ export async function removeSessionPlan(
     if (!(await canAttach(tx, session, userId, now)))
       throw new PaceError(
         409,
-        "The session plan is fixed once someone books or the workout starts.",
+        "A shared plan is fixed once a buddy has joined or the workout starts.",
       );
     const previous = await attached(tx, sessionId);
     if (!previous) throw missing();
@@ -391,11 +392,11 @@ export async function startRun(
     const [existing] =
       await tx<RunRow>`select * from workout_runs where user_id = ${userId} and id = ${args.id}`;
     if (existing) {
+      const requestedPlanId = args.sessionId ? args.expectedPlanId : args.planId;
       if (
         existing.session_id !== (args.sessionId ?? null) ||
-        (!args.sessionId &&
-          (existing.source_plan_id !== args.planId ||
-            existing.source_plan_revision !== args.expectedPlanRevision))
+        existing.source_plan_id !== requestedPlanId ||
+        existing.source_plan_revision !== args.expectedPlanRevision
       )
         throw changed();
       return runView(existing);
@@ -410,6 +411,11 @@ export async function startRun(
         throw new PaceError(409, "Start recording within 30 minutes of the session.");
       const plan = await attached(tx, session.id);
       if (!plan) throw missing();
+      if (
+        plan.source_plan_id !== args.expectedPlanId ||
+        plan.source_plan_revision !== args.expectedPlanRevision
+      )
+        throw changed();
       const [duplicate] =
         await tx`select 1 from workout_runs where user_id = ${userId} and session_id = ${session.id}`;
       if (duplicate)

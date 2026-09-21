@@ -302,7 +302,12 @@ try {
   let buddyRun = (
     await request(buddy, "/fitness/runs", {
       method: "POST",
-      json: { id: randomUUID(), sessionId: session.id },
+      json: {
+        id: randomUUID(),
+        sessionId: session.id,
+        expectedPlanId: created.id,
+        expectedPlanRevision: 2,
+      },
     })
   ).data.run;
   assert.equal(buddyRun.shareAccountability, false);
