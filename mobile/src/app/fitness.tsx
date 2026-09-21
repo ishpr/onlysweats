@@ -2,7 +2,9 @@ import { useState } from "react";
 import { View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { FitnessSummary, LogCard } from "@/components/fitness-kit";
 import { FitnessPilotPermissions, FitnessPilotResult } from "@/components/fitness-pilot";
+import { SectionTitle } from "@/components/list";
 import type {
   FitnessPilotConsent,
   FitnessLoggingSession,
@@ -10,6 +12,7 @@ import type {
 } from "../../../shared/fitness-outcomes";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
 import { Button, Card, Chip, Field, Notice, Row, Screen, StateView, T } from "@/components/ui";
+import { useNow } from "@/hooks/use-now";
 import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
 import { useRefreshOnFocus } from "@/lib/queries";
@@ -42,6 +45,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
   const [removeId, setRemoveId] = useState<string | null>(null);
   const [outcomeId, setOutcomeId] = useState<string | null>(null);
   const [showAiPermissions, setShowAiPermissions] = useState(false);
+  const now = useNow(60_000);
   const key = ["private-fitness", member.id];
   const consent = useQuery({
     queryKey: [...key, "consent"],
@@ -80,82 +84,11 @@ function Fitness({ member, session }: PrivateMemberProps) {
   return (
     <Screen onRefresh={() => void refresh()} refreshing={logs.isRefetching}>
       <Stack.Screen options={{ title: "Fitness log" }} />
-      <T variant="heading">Your training, in your words</T>
-      <T color="textSecondary">
-        Log the exercise and sets you completed. Your entries stay private and separate from Apple
-        Health measurements.
-      </T>
-      <Button label="Apple Health workouts" variant="soft" onPress={() => router.push("/health")} />
-      <Card>
-        <T variant="heading">Optional AI assistance</T>
-        {(consent.isPending || consent.error) && (
-          <StateView
-            loading={consent.isPending}
-            error={consent.error}
-            onRetry={() => void consent.refetch()}
-          />
-        )}
-        {consent.data && (
-          <>
-            <T variant="label">
-              {consent.data.consent.enabled
-                ? "AI assistance is on"
-                : "AI assistance is off"}
-            </T>
-            {!consent.data.consent.providerAvailable && (
-              <Notice>
-                AI assistance isn’t available yet. Logging by hand works without it.
-              </Notice>
-            )}
-            <Button
-              label={showAiPermissions ? "Hide AI permissions" : "Review AI permissions"}
-              variant="soft"
-              onPress={() => setShowAiPermissions((current) => !current)}
-            />
-            {showAiPermissions && (
-              <>
-                <T variant="caption" color="textSecondary">
-                  {FITNESS_AI_CONSENT_NOTICE}
-                </T>
-                <Button
-                  label={
-                    consent.data.consent.enabled
-                      ? "Turn off AI and remove interpretations"
-                      : "Allow AI assistance (TypeSafe)"
-                  }
-                  variant="soft"
-                  disabled={action.busy}
-                  onPress={() =>
-                    void action.run(
-                      (signal) =>
-                        session.request("/fitness/consent", {
-                          method: "PUT",
-                          json: { enabled: !consent.data!.consent.enabled },
-                          signal,
-                        }),
-                      refresh,
-                    )
-                  }
-                />
-              </>
-            )}
-          </>
-        )}
-      </Card>
-      {action.error && <Notice tone="danger">{action.error}</Notice>}
-      {pilot.data && (
-        <FitnessPilotPermissions
-          consent={pilot.data.consent}
-          aiEnabled={Boolean(consent.data?.consent.enabled && !consent.error)}
-          session={session}
-          onChanged={refresh}
-        />
-      )}
-      {pilot.error && (
-        <Notice>
-          The optional timing study isn’t available right now. You can keep logging exercises.
-        </Notice>
-      )}
+      <FitnessSummary
+        logs={logs.data?.logs ?? []}
+        now={now}
+        onHealth={() => router.push("/health")}
+      />
       <LogEditor
         key={`${editing?.id ?? "new"}:${formVersion}:${consent.data?.consent.generation ?? "off"}`}
         session={session}
@@ -169,7 +102,8 @@ function Fitness({ member, session }: PrivateMemberProps) {
           setFormVersion((value) => value + 1);
         }}
       />
-      <T variant="heading">Saved exercises</T>
+      {action.error && <Notice tone="danger">{action.error}</Notice>}
+      <SectionTitle>Saved exercises</SectionTitle>
       {(logs.isPending || logs.error) && (
         <StateView
           loading={logs.isPending}
@@ -181,31 +115,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
         <Notice>No exercises saved yet. Start with one exercise above.</Notice>
       )}
       {logs.data?.logs.map((log) => (
-        <Card key={log.id}>
-          <T variant="heading">
-            {EXERCISE_CATALOGUE.find((exercise) => exercise.id === log.exerciseId)?.name ??
-              "Exercise"}
-          </T>
-          <T variant="caption" color="textSecondary">
-            Entered by you · {new Date(log.startedAt).toLocaleString()}
-          </T>
-          {log.sets.map((set, index) => (
-            <T key={index}>
-              Set {index + 1}: {set.reps} reps ·{" "}
-              {set.unit === "bodyweight"
-                ? "Bodyweight"
-                : set.weight === null
-                  ? "Weight not entered"
-                  : `${set.weight} ${set.unit}`}
-            </T>
-          ))}
-          <T variant="caption" color="textSecondary">
-            {log.totalRepetitions} total reps
-            {log.totalVolumeKg !== null
-              ? ` · ${log.totalVolumeKg.toFixed(1)} kg of external load × reps`
-              : " · Load total unavailable"}
-          </T>
-          {log.note ? <T>{log.note}</T> : null}
+        <LogCard key={log.id} log={log}>
           {log.measurementSessionId &&
             pilot.data?.consent.enabled &&
             !pilot.error &&
@@ -260,7 +170,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
               <Button label="Keep exercise" variant="ghost" onPress={() => setRemoveId(null)} />
             </>
           )}
-        </Card>
+        </LogCard>
       ))}
       {logs.data?.nextCursor && (
         <Button
@@ -291,6 +201,72 @@ function Fitness({ member, session }: PrivateMemberProps) {
           }
         />
       </Card>
+      <SectionTitle>Assistance and privacy</SectionTitle>
+      <Card>
+        <T variant="heading">Optional AI assistance</T>
+        {(consent.isPending || consent.error) && (
+          <StateView
+            loading={consent.isPending}
+            error={consent.error}
+            onRetry={() => void consent.refetch()}
+          />
+        )}
+        {consent.data && (
+          <>
+            <T variant="label">
+              {consent.data.consent.enabled ? "AI assistance is on" : "AI assistance is off"}
+            </T>
+            {!consent.data.consent.providerAvailable && (
+              <Notice>AI assistance isn’t available yet. Logging by hand works without it.</Notice>
+            )}
+            <Button
+              label={showAiPermissions ? "Hide AI permissions" : "Review AI permissions"}
+              variant="soft"
+              onPress={() => setShowAiPermissions((current) => !current)}
+            />
+            {showAiPermissions && (
+              <>
+                <T variant="caption" color="textSecondary">
+                  {FITNESS_AI_CONSENT_NOTICE}
+                </T>
+                <Button
+                  label={
+                    consent.data.consent.enabled
+                      ? "Turn off AI and remove interpretations"
+                      : "Allow AI assistance (TypeSafe)"
+                  }
+                  variant="soft"
+                  disabled={action.busy}
+                  onPress={() =>
+                    void action.run(
+                      (signal) =>
+                        session.request("/fitness/consent", {
+                          method: "PUT",
+                          json: { enabled: !consent.data!.consent.enabled },
+                          signal,
+                        }),
+                      refresh,
+                    )
+                  }
+                />
+              </>
+            )}
+          </>
+        )}
+      </Card>
+      {pilot.data && (
+        <FitnessPilotPermissions
+          consent={pilot.data.consent}
+          aiEnabled={Boolean(consent.data?.consent.enabled && !consent.error)}
+          session={session}
+          onChanged={refresh}
+        />
+      )}
+      {pilot.error && (
+        <Notice>
+          The optional timing study isn’t available right now. You can keep logging exercises.
+        </Notice>
+      )}
     </Screen>
   );
 }
