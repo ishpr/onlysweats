@@ -1,4 +1,5 @@
 import { View } from "react-native";
+import { AssistantMarkdown } from "@/components/assistant-markdown";
 import { Card, Row, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { prescriptionLabel } from "@/lib/workout-plans/forms";
@@ -16,7 +17,7 @@ export function PlanPreview({
   return (
     <View style={{ gap: Spacing.two }}>
       <PlanTimingSummary summary={summarizeWorkoutPlan(plan)} />
-      {plan.instructions ? <T color="textSecondary">{plan.instructions}</T> : null}
+      {plan.instructions ? <AssistantMarkdown text={plan.instructions} /> : null}
       {plan.exercises.map((exercise, index) => (
         <Card key={exercise.id}>
           <Row>
@@ -27,7 +28,7 @@ export function PlanPreview({
               {exercise.name}
             </T>
           </Row>
-          {exercise.instructions ? <T color="textSecondary">{exercise.instructions}</T> : null}
+          {exercise.instructions ? <AssistantMarkdown text={exercise.instructions} /> : null}
           {(compact ? exercise.sets.slice(0, 3) : exercise.sets).map((set, setIndex) => (
             <Row key={set.id}>
               <T variant="caption" color="textFaint" style={{ width: 42 }}>

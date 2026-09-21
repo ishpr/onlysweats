@@ -4,8 +4,8 @@
  * assistant looks like one thing: bubbles, a typing state, reviewable action cards,
  * a composer, and a two-way switch. See docs/audits/design-handoff-assistant.md.
  */
-import { ArrowUp, Square, type LucideIcon } from "lucide-react-native";
-import { useEffect, type ReactNode } from "react";
+import { ArrowUp, ChevronDown, ChevronRight, Square, type LucideIcon } from "lucide-react-native";
+import { useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -18,6 +18,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { AssistantOrb } from "@/components/assistant-hero";
+import { AssistantMarkdown } from "@/components/assistant-markdown";
 import { PressScale } from "@/components/motion";
 import { Button, Card, Row, T, TYPE, withAlpha } from "@/components/ui";
 import { HitTarget, Radius, Spacing } from "@/constants/theme";
@@ -88,12 +89,17 @@ export function ChatBubble({
   source,
   children,
   footer,
+  leading,
+  streaming = false,
 }: {
   from: "me" | "assistant";
   source?: string;
   children: ReactNode;
   /** Under the text, inside the bubble: a caption, or action cards. */
   footer?: ReactNode;
+  /** A validated plan can lead the response, ahead of its optional explanation. */
+  leading?: ReactNode;
+  streaming?: boolean;
 }) {
   const theme = useTheme();
   const light = useColorScheme() === "light";
@@ -126,10 +132,40 @@ export function ChatBubble({
             },
           ]}
         >
-          {typeof children === "string" ? <T selectable>{children}</T> : children}
+          {leading}
+          {typeof children === "string" ? (
+            <AssistantMarkdown text={children} streaming={streaming} />
+          ) : (
+            children
+          )}
           {footer}
         </View>
       </View>
+    </View>
+  );
+}
+
+/** Keep an actionable plan prominent without losing any of the coach's explanation. */
+export function CoachNotes({ text }: { text: string }) {
+  const theme = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const Chevron = expanded ? ChevronDown : ChevronRight;
+  if (!text) return null;
+  return (
+    <View style={{ gap: Spacing.half }}>
+      <PressScale
+        accessibilityRole="button"
+        accessibilityLabel="Coach notes"
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded((value) => !value)}
+        style={styles.notesToggle}
+      >
+        <T variant="label" color="textSecondary" style={styles.flex}>
+          Coach notes
+        </T>
+        <Chevron size={16} color={theme.textFaint} />
+      </PressScale>
+      {expanded && <AssistantMarkdown text={text} />}
     </View>
   );
 }
@@ -330,6 +366,12 @@ const styles = StyleSheet.create({
   mine: { alignItems: "flex-end" },
   theirs: { flexDirection: "row", alignItems: "flex-start", gap: Spacing.one },
   source: { marginBottom: 2, marginLeft: Spacing.half },
+  notesToggle: {
+    minHeight: HitTarget,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.one,
+  },
   bubble: { maxWidth: "88%", padding: Spacing.two, gap: Spacing.one },
   bubbleMine: {
     borderRadius: Radius.lg,

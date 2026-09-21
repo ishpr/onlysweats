@@ -13,7 +13,13 @@ import {
   Trash2,
   Users,
 } from "lucide-react-native";
-import { ActionCard, ChatBubble, Composer, TypingDots } from "@/components/assistant-kit";
+import {
+  ActionCard,
+  ChatBubble,
+  CoachNotes,
+  Composer,
+  TypingDots,
+} from "@/components/assistant-kit";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
 import { Spacing } from "@/constants/theme";
 import { Button, Notice, Row, StateView, T } from "@/components/ui";
@@ -29,6 +35,7 @@ import {
   type ChatSettingsUpdate,
 } from "@/lib/assistant/settings";
 import { storeGeneratedWorkoutPlanDraft } from "@/lib/workout-plans/draft-handoff";
+import { WorkoutPlanDraftCard } from "./workout-plan-draft-card";
 import {
   CHAT_CONSENT_NOTICE,
   CHAT_FITNESS_NOTICE,
@@ -336,6 +343,21 @@ function CloudConversation({
           key={message.id}
           from={message.role === "user" ? "me" : "assistant"}
           source={message.role === "assistant" ? "SamePace" : undefined}
+          streaming={message.status === "interrupted"}
+          leading={
+            message.role === "assistant" && message.status === "complete"
+              ? message.actions.map((action) =>
+                  action.kind === "workout_plan" && action.workoutPlanDraft ? (
+                    <WorkoutPlanDraftCard
+                      key={action.id}
+                      draft={action.workoutPlanDraft}
+                      onReview={() => openAction(action)}
+                      busy={busy || control.busy}
+                    />
+                  ) : null,
+                )
+              : undefined
+          }
           footer={
             <>
               {message.status === "interrupted" && (
@@ -345,32 +367,42 @@ function CloudConversation({
               )}
               {message.role === "assistant" &&
                 message.status === "complete" &&
-                message.actions.map((action) => (
-                  <ActionCard
-                    key={action.id}
-                    icon={icons[action.kind]}
-                    title={action.label}
-                    facts={
-                      action.preferenceDraft
-                        ? [
-                            ...(action.preferenceDraft.activity
-                              ? [action.preferenceDraft.activity]
-                              : []),
-                            ...(action.preferenceDraft.durationMin
-                              ? [`${action.preferenceDraft.durationMin} min`]
-                              : []),
-                          ]
-                        : undefined
-                    }
-                    note={action.description}
-                    primary={{ label: "Review", onPress: () => openAction(action) }}
-                    busy={busy || control.busy}
-                  />
-                ))}
+                message.actions.map((action) =>
+                  action.kind === "workout_plan" && action.workoutPlanDraft ? null : (
+                    <ActionCard
+                      key={action.id}
+                      icon={icons[action.kind]}
+                      title={action.label}
+                      facts={
+                        action.preferenceDraft
+                          ? [
+                              ...(action.preferenceDraft.activity
+                                ? [action.preferenceDraft.activity]
+                                : []),
+                              ...(action.preferenceDraft.durationMin
+                                ? [`${action.preferenceDraft.durationMin} min`]
+                                : []),
+                            ]
+                          : undefined
+                      }
+                      note={action.description}
+                      primary={{ label: "Review", onPress: () => openAction(action) }}
+                      busy={busy || control.busy}
+                    />
+                  ),
+                )}
             </>
           }
         >
-          {message.text || (message.status === "interrupted" ? "This reply was interrupted." : "")}
+          {message.role === "assistant" &&
+          message.status === "complete" &&
+          message.actions.some(
+            (action) => action.kind === "workout_plan" && action.workoutPlanDraft,
+          ) ? (
+            <CoachNotes text={message.text} />
+          ) : (
+            message.text || (message.status === "interrupted" ? "This reply was interrupted." : "")
+          )}
         </ChatBubble>
       ))}
       {pendingUser &&
@@ -381,6 +413,7 @@ function CloudConversation({
         <ChatBubble
           from="assistant"
           source="SamePace"
+          streaming
           footer={
             !busy ? (
               <T variant="caption" color="textSecondary">
@@ -389,7 +422,7 @@ function CloudConversation({
             ) : undefined
           }
         >
-          {partial ? <T selectable>{partial}</T> : <TypingDots />}
+          {partial || <TypingDots />}
         </ChatBubble>
       )}
       {Boolean(error) && <Notice tone="danger">{error}</Notice>}

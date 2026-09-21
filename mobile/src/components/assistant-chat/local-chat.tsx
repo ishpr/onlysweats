@@ -144,8 +144,8 @@ export function LocalChat({ session, onCloud }: { session: ApiSession; onCloud: 
         </ChatBubble>
       ))}
       {busy && (
-        <ChatBubble from="assistant" source="On this iPhone">
-          {partial ? <T selectable>{partial}</T> : <TypingDots />}
+        <ChatBubble from="assistant" source="On this iPhone" streaming>
+          {partial || <TypingDots />}
         </ChatBubble>
       )}
       {Boolean(error) && <Notice tone="danger">{error}</Notice>}
