@@ -31,7 +31,8 @@ export const workoutPlanDraftInput = z
 export const workoutPlanModelInput = z.strictObject({
   title: z.string().trim().min(1).max(120),
   activity: z.enum(["run", "walk", "hike", "ride", "strength", "mobility"]),
-  instructions: z.string().trim().max(1000),
+  // Distinct top-level name avoids ambiguous nested tool serialization in GLM.
+  overview: z.string().trim().max(1000),
   exercises: z
     .array(
       z.strictObject({
@@ -51,7 +52,7 @@ export function normalizeWorkoutPlanModelDraft(input: z.infer<typeof workoutPlan
   return workoutPlanDraftInput.parse({
     title: draft.title,
     activity: draft.activity,
-    instructions: draft.instructions,
+    instructions: draft.overview,
     exercises: draft.exercises.map((exercise) => ({
       name: exercise.name,
       instructions: exercise.instructions,

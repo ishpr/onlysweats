@@ -7,6 +7,8 @@ import { mkdtemp, chmod, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { APP_TERMS_VERSION } from "../shared/app-terms.ts";
+import { CHAT_NOTICE_VERSION } from "../shared/conversation.ts";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const port = Number(process.argv[2] ?? 8102);
@@ -76,17 +78,22 @@ let checks = 0;
 async function request(
   member,
   path,
-  { method = "GET", json, expected = 200, headers = {}, auth = false } = {},
+  { method = "GET", json, raw, expected = 200, headers = {}, auth = false } = {},
 ) {
   const result = await fetch(origin + (auth ? "/api/auth" : "/api/v1") + path, {
     method,
     headers: {
       origin,
       ...(member ? { cookie: member.cookie } : {}),
-      ...(json === undefined ? {} : { "content-type": "application/json" }),
+      ...(json === undefined && raw === undefined ? {} : { "content-type": "application/json" }),
       ...headers,
     },
-    ...(json === undefined ? {} : { body: JSON.stringify(json) }),
+    ...(raw === undefined
+      ? json === undefined
+        ? {}
+        : { body: JSON.stringify(json) }
+      : { body: raw }),
+    ...(raw instanceof ReadableStream ? { duplex: "half" } : {}),
     signal: AbortSignal.timeout(20_000),
     redirect: "error",
   });
@@ -162,12 +169,82 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   await request(null, "/fitness/plans", { expected: 401 });
+  await request(null, "/me/terms", { expected: 401 });
+  await request(null, "/me/terms", {
+    method: "PUT",
+    json: { version: APP_TERMS_VERSION },
+    expected: 401,
+  });
   const summaryPath = "/fitness/summary?timeZone=America%2FChicago";
   await request(null, summaryPath, { expected: 401 });
   await request(null, "/fitness/runs", { method: "POST", json: {}, expected: 401 });
   const host = await signup("host"),
     buddy = await signup("buddy"),
     visitor = await signup("visitor");
+  const termsBody = { version: APP_TERMS_VERSION };
+  assert.deepEqual((await request(visitor, "/me/terms")).data, {
+    ownerId: visitor.id,
+    version: APP_TERMS_VERSION,
+    accepted: false,
+    acceptedVersion: null,
+    acceptedAt: null,
+  });
+  await request(visitor, "/me/terms", {
+    method: "PUT",
+    json: { version: "obsolete" },
+    expected: 400,
+  });
+  await request(visitor, "/me/terms", {
+    method: "PUT",
+    json: { ...termsBody, ownerId: buddy.id },
+    expected: 400,
+  });
+  await request(visitor, "/me/terms", { method: "PUT", raw: "{not-json", expected: 400 });
+  const oversized = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(JSON.stringify({ version: "x".repeat(16_384) })));
+      controller.close();
+    },
+  });
+  await request(visitor, "/me/terms", { method: "PUT", raw: oversized, expected: 413 });
+  await request(visitor, "/me/terms", {
+    method: "PUT",
+    json: termsBody,
+    headers: { "sec-fetch-site": "cross-site" },
+    expected: 403,
+  });
+  assert.equal((await request(visitor, "/me/terms")).data.accepted, false);
+  const acceptedTerms = (await request(visitor, "/me/terms", { method: "PUT", json: termsBody }))
+    .data;
+  assert.equal(acceptedTerms.ownerId, visitor.id);
+  assert.equal(acceptedTerms.acceptedVersion, APP_TERMS_VERSION);
+  assert.equal(acceptedTerms.accepted, true);
+  assert.ok(acceptedTerms.acceptedAt);
+  assert.deepEqual((await request(visitor, "/me/terms")).data, acceptedTerms);
+  assert.equal((await request(buddy, "/me/terms")).data.accepted, false);
+  const initializedChat = (await request(visitor, "/assistant/chat")).data.settings;
+  assert.equal(initializedChat.cloudEnabled, true);
+  assert.equal(initializedChat.fitnessContextEnabled, true);
+  assert.equal(initializedChat.manualWorkoutContextEnabled, true);
+  assert.equal(initializedChat.historyUse, "when_relevant");
+  assert.equal((await request(visitor, "/fitness/consent")).data.consent.enabled, true);
+  const optedOut = (
+    await request(visitor, "/assistant/settings", {
+      method: "PUT",
+      json: {
+        cloudEnabled: false,
+        fitnessContextEnabled: false,
+        noticeVersion: CHAT_NOTICE_VERSION,
+      },
+    })
+  ).data.settings;
+  await request(visitor, "/fitness/consent", { method: "PUT", json: { enabled: false } });
+  assert.deepEqual(
+    (await request(visitor, "/me/terms", { method: "PUT", json: termsBody })).data,
+    acceptedTerms,
+  );
+  assert.deepEqual((await request(visitor, "/assistant/chat")).data.settings, optedOut);
+  assert.equal((await request(visitor, "/fitness/consent")).data.consent.enabled, false);
   await request(host, "/fitness/summary", { expected: 400 });
   await request(host, "/fitness/summary?timeZone=not-a-zone", { expected: 400 });
   assert.equal((await request(host, summaryPath)).data.summary.totals.completedSets, 0);
@@ -237,11 +314,17 @@ try {
   assert.deepEqual(runSummary.totals.recordedReps, { value: 6, contributingSets: 1 });
   assert.deepEqual(runSummary.totals.knownExternalVolumeKg, { value: null, contributingSets: 0 });
   assert.equal((await request(buddy, summaryPath)).data.summary.totals.completedSets, 0);
-  const legacy = (await request(host, "/fitness/logs", {
-    method: "POST",
-    json: { startedAt: new Date().toISOString(), exerciseId: "squat", note: "Synthetic weekly-summary check",
-      sets: [{ reps: 5, weight: 10, unit: "kg" }] },
-  })).data.log;
+  const legacy = (
+    await request(host, "/fitness/logs", {
+      method: "POST",
+      json: {
+        startedAt: new Date().toISOString(),
+        exerciseId: "squat",
+        note: "Synthetic weekly-summary check",
+        sets: [{ reps: 5, weight: 10, unit: "kg" }],
+      },
+    })
+  ).data.log;
   const mixedSummary = (await request(host, summaryPath)).data.summary;
   assert.equal(mixedSummary.totals.completedSets, 2);
   assert.deepEqual(mixedSummary.totals.recordedReps, { value: 11, contributingSets: 2 });
@@ -372,6 +455,13 @@ try {
   await request(null, "/fitness/plans", { headers: delegatedHeaders, expected: 401 });
   await request(null, "/fitness/runs", { headers: delegatedHeaders, expected: 401 });
   await request(null, summaryPath, { headers: delegatedHeaders, expected: 401 });
+  await request(null, "/me/terms", { headers: delegatedHeaders, expected: 401 });
+  await request(null, "/me/terms", {
+    method: "PUT",
+    json: termsBody,
+    headers: delegatedHeaders,
+    expected: 401,
+  });
   await request(null, `/sessions/${session.id}/workout-plan`, {
     headers: delegatedHeaders,
     expected: 401,
@@ -391,7 +481,7 @@ try {
     created.id,
   );
   console.log(
-    `Passed ${checks} authenticated loopback HTTP checks, including private exports, shared snapshots, actual results, accountability and A2A isolation.`,
+    `Passed ${checks} authenticated loopback HTTP checks, including terms acceptance, private exports, shared snapshots, actual results, accountability and A2A isolation.`,
   );
 } catch (error) {
   failure = error;
@@ -401,6 +491,7 @@ try {
     try {
       await request(member, "/me", { method: "DELETE", json: {} });
       await request(member, "/fitness/plans", { expected: 401 });
+      await request(member, "/me/terms", { expected: 401 });
     } catch {
       failures.push("A synthetic account could not be explicitly removed before shutdown.");
     }

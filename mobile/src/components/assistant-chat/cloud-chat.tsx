@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Switch, View } from "react-native";
 import { useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
@@ -9,6 +9,7 @@ import {
   ClipboardList,
   Settings2,
   ShieldCheck,
+  Smartphone,
   Trash2,
   Users,
 } from "lucide-react-native";
@@ -20,11 +21,19 @@ import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
 import { createAssistantRun } from "@/lib/assistant/run";
 import { createChatStreamParser, isChatMessage } from "@/lib/assistant/stream";
+import {
+  chatPermissionUpdate,
+  chatHistoryUseUpdate,
+  readChatSettings,
+  type ChatPermission,
+  type ChatSettingsUpdate,
+} from "@/lib/assistant/settings";
 import { storeGeneratedWorkoutPlanDraft } from "@/lib/workout-plans/draft-handoff";
 import {
   CHAT_CONSENT_NOTICE,
   CHAT_FITNESS_NOTICE,
-  CHAT_NOTICE_VERSION,
+  CHAT_HISTORY_USE_NOTICE,
+  CHAT_MANUAL_WORKOUT_NOTICE,
   type ChatAction,
   type ChatEvent,
   type ChatHistory,
@@ -43,12 +52,12 @@ export function CloudChat({
   ownerId,
   session,
   onPlanning,
-  modeControl,
+  onDevice,
 }: {
   ownerId: string;
   session: ApiSession;
   onPlanning: PlanningAction;
-  modeControl: ReactNode;
+  onDevice: () => void;
 }) {
   const queryKey = ["private-assistant-chat", ownerId];
   const history = useQuery({
@@ -66,7 +75,7 @@ export function CloudChat({
         !result.messages.every(isChatMessage)
       )
         throw new Error("Your conversation could not be loaded. Please try again.");
-      return result;
+      return { ...result, settings: readChatSettings(result.settings) };
     },
   });
   return (
@@ -79,7 +88,7 @@ export function CloudChat({
       ownerId={ownerId}
       session={session}
       onPlanning={onPlanning}
-      modeControl={modeControl}
+      onDevice={onDevice}
       history={history}
     />
   );
@@ -90,14 +99,14 @@ function CloudConversation({
   ownerId,
   session,
   onPlanning,
-  modeControl,
+  onDevice,
   history,
 }: {
   ownerId: string;
   session: ApiSession;
   onPlanning: PlanningAction;
   history: UseQueryResult<ChatHistory, Error>;
-  modeControl: ReactNode;
+  onDevice: () => void;
 }) {
   const router = useRouter();
   const client = useQueryClient();
@@ -112,8 +121,9 @@ function CloudConversation({
   const [error, setError] = useState<string | null>(null);
   const [clearReview, setClearReview] = useState(false);
   const [showPermissions, setShowPermissions] = useState(false);
+  const [permissionsUnconfirmed, setPermissionsUnconfirmed] = useState(false);
   useEffect(() => () => runner.cancel(), [runner]);
-  const settings = history.error ? null : history.data?.settings;
+  const settings = history.error || permissionsUnconfirmed ? null : history.data?.settings;
   const stop = () => {
     runner.cancel();
     setBusy(false);
@@ -128,21 +138,33 @@ function CloudConversation({
     setError(null);
     setText("");
   };
-  const changePermissions = (cloudEnabled: boolean, fitnessContextEnabled: boolean) => {
+  const updatePermissions = (update: ChatSettingsUpdate) => {
+    if (!settings || control.busy || !session.isCurrent()) return;
     clearLocal();
+    // A failed response cannot tell us whether the server applied a revocation.
+    // Keep cached grants/history hidden until a confirmed write or fresh read.
+    setPermissionsUnconfirmed(true);
     void control.run(
-      (signal) =>
-        session.request<{ settings: ChatSettings }>("/assistant/settings", {
+      async (signal) => {
+        await client.cancelQueries({ queryKey, exact: true });
+        const result = await session.request<{ settings: ChatSettings }>("/assistant/settings", {
           method: "PUT",
           signal,
-          json: { cloudEnabled, fitnessContextEnabled, noticeVersion: CHAT_NOTICE_VERSION },
-        }),
+          json: update,
+        });
+        return { settings: readChatSettings(result.settings) };
+      },
       async (result) => {
         await client.cancelQueries({ queryKey, exact: true });
-        if (session.isCurrent())
+        if (session.isCurrent()) {
           client.setQueryData<ChatHistory>(queryKey, { settings: result.settings, messages: [] });
+          setPermissionsUnconfirmed(false);
+        }
       },
     );
+  };
+  const changePermissions = (permission: ChatPermission, enabled: boolean) => {
+    if (settings) updatePermissions(chatPermissionUpdate(settings, permission, enabled));
   };
   const send = (retry?: ChatTurnInput) => {
     if (runner.busy || control.busy || !session.isCurrent()) return;
@@ -260,7 +282,8 @@ function CloudConversation({
       }
     }
   };
-  const visible = history.error ? [] : (history.data?.messages ?? []);
+  const visible =
+    history.error || control.busy || permissionsUnconfirmed ? [] : (history.data?.messages ?? []);
   const icons = {
     preferences: Settings2,
     discovery: Users,
@@ -279,21 +302,40 @@ function CloudConversation({
           onRetry={() => void history.refetch()}
         />
       )}
+      {permissionsUnconfirmed && !control.busy && (
+        <>
+          <Notice>
+            Your privacy change could not be confirmed. Refresh permissions before continuing.
+          </Notice>
+          <Button
+            label="Refresh permissions"
+            variant="soft"
+            onPress={() => {
+              void control.run(
+                async () => {
+                  const result = await history.refetch();
+                  if (result.error) throw result.error;
+                  if (!result.data) throw new Error("Your permissions could not be refreshed.");
+                },
+                () => setPermissionsUnconfirmed(false),
+              );
+            }}
+          />
+        </>
+      )}
       {settings && !settings.cloudEnabled && (
-        <Notice>
-          Cloud chat is off. Open Privacy choices in Controls below to review and enable it.
-        </Notice>
+        <Notice>Coaching is off. You can change this in Privacy choices below.</Notice>
       )}
       {settings && !settings.providerAvailable && (
         <Notice>
-          Cloud chat is unavailable right now. You can choose on-device help or open Plans.
+          Coaching is unavailable right now. You can use on-device help below or open Plans.
         </Notice>
       )}
       {visible.map((message) => (
         <ChatBubble
           key={message.id}
           from={message.role === "user" ? "me" : "assistant"}
-          source={message.role === "assistant" ? "Cloud" : undefined}
+          source={message.role === "assistant" ? "SamePace" : undefined}
           footer={
             <>
               {message.status === "interrupted" && (
@@ -335,10 +377,10 @@ function CloudConversation({
         !visible.some(
           (message) => message.role === "user" && message.requestId === pendingUser.requestId,
         ) && <ChatBubble from="me">{pendingUser.text}</ChatBubble>}
-      {(busy || partial) && (
+      {(busy || Boolean(partial)) && (
         <ChatBubble
           from="assistant"
-          source="Cloud"
+          source="SamePace"
           footer={
             !busy ? (
               <T variant="caption" color="textSecondary">
@@ -350,8 +392,8 @@ function CloudConversation({
           {partial ? <T selectable>{partial}</T> : <TypingDots />}
         </ChatBubble>
       )}
-      {error && <Notice tone="danger">{error}</Notice>}
-      {lastTurn && error && !busy && (
+      {Boolean(error) && <Notice tone="danger">{error}</Notice>}
+      {lastTurn && Boolean(error) && !busy && (
         <Button
           label="Retry reply"
           variant="soft"
@@ -359,22 +401,31 @@ function CloudConversation({
           onPress={() => send(lastTurn)}
         />
       )}
-      {modeControl}
-      <Composer
-        value={text}
-        onChangeText={(value) => setText(value.slice(0, 2000))}
-        onSend={() => send()}
-        onStop={stop}
-        streaming={busy}
-        placeholder="Ask your cloud assistant"
-        disabled={busy || control.busy || !settings?.cloudEnabled || !settings.providerAvailable}
-      />
+      {settings?.cloudEnabled && (
+        <Composer
+          value={text}
+          onChangeText={(value) => setText(value.slice(0, 2000))}
+          onSend={() => send()}
+          onStop={stop}
+          streaming={busy}
+          placeholder="Ask your coach"
+          disabled={busy || control.busy || !settings?.cloudEnabled || !settings.providerAvailable}
+        />
+      )}
       <SectionTitle>Controls</SectionTitle>
       <ListCard>
         <ListRow
           icon={ShieldCheck}
           label="Privacy choices"
-          value={settings?.cloudEnabled ? "Cloud on" : "Cloud off"}
+          value={
+            permissionsUnconfirmed
+              ? control.busy
+                ? "Updating"
+                : "Needs refresh"
+              : settings?.cloudEnabled
+                ? "Coaching on"
+                : "Coaching off"
+          }
           expanded={showPermissions}
           onPress={() => setShowPermissions((value) => !value)}
         >
@@ -385,29 +436,65 @@ function CloudConversation({
               </T>
               <Row style={{ justifyContent: "space-between" }}>
                 <T variant="label" style={{ flex: 1 }}>
-                  Allow cloud chat
+                  Enable coaching
                 </T>
                 <Switch
-                  accessibilityLabel="Allow cloud assistant"
+                  accessibilityLabel="Enable SamePace coaching"
                   value={settings.cloudEnabled}
                   disabled={control.busy}
+                  onValueChange={(enabled) => changePermissions("cloudEnabled", enabled)}
+                />
+              </Row>
+              <T variant="caption" color="textSecondary">
+                {settings.historyUse === "when_relevant"
+                  ? "Allow up to five recent imported workout summaries when relevant to coaching, including recorded duration, distance, energy and heart-rate summary when available. These are sent to Vercel AI Gateway and its AI providers. Raw samples, sleep and HRV history are excluded. Turning this off clears the conversation. Removing imported health data also clears conversations that used these summaries."
+                  : CHAT_FITNESS_NOTICE}
+              </T>
+              <Row style={{ justifyContent: "space-between" }}>
+                <T variant="label" style={{ flex: 1 }}>
+                  Include Apple Health workout summaries
+                </T>
+                <Switch
+                  accessibilityLabel="Share recent Apple Health summaries with cloud assistant"
+                  value={settings.fitnessContextEnabled}
+                  disabled={control.busy || !settings.cloudEnabled}
+                  onValueChange={(enabled) => changePermissions("fitnessContextEnabled", enabled)}
+                />
+              </Row>
+              <T variant="caption" color="textSecondary">
+                {settings.historyUse === "when_relevant"
+                  ? "Allow up to three recent saved plans, three workout records and five individual exercise logs when relevant to coaching. Titles, instructions, notes, targets and actual repetitions, time, distance and load are sent to Vercel AI Gateway and its AI providers. Long records are shortened. Plans are not completed exercise; missing results stay unknown. Other members' results and Apple Health are excluded. Turning this off clears the conversation; changes to these records clear replies that used them."
+                  : CHAT_MANUAL_WORKOUT_NOTICE}
+              </T>
+              <Row style={{ justifyContent: "space-between" }}>
+                <T variant="label" style={{ flex: 1 }}>
+                  Include saved plans and manual logs
+                </T>
+                <Switch
+                  accessibilityLabel="Share saved workout plans and manual logs with cloud assistant"
+                  value={settings.manualWorkoutContextEnabled}
+                  disabled={control.busy || !settings.cloudEnabled}
                   onValueChange={(enabled) =>
-                    changePermissions(enabled, enabled && settings.fitnessContextEnabled)
+                    changePermissions("manualWorkoutContextEnabled", enabled)
                   }
                 />
               </Row>
               <T variant="caption" color="textSecondary">
-                {CHAT_FITNESS_NOTICE}
+                {CHAT_HISTORY_USE_NOTICE}
               </T>
               <Row style={{ justifyContent: "space-between" }}>
                 <T variant="label" style={{ flex: 1 }}>
-                  Include recent workout summaries
+                  Use allowed history when relevant
                 </T>
                 <Switch
-                  accessibilityLabel="Share recent fitness summaries with cloud assistant"
-                  value={settings.fitnessContextEnabled}
+                  accessibilityLabel="Use allowed workout history when relevant to coaching"
+                  value={settings.historyUse === "when_relevant"}
                   disabled={control.busy || !settings.cloudEnabled}
-                  onValueChange={(enabled) => changePermissions(true, enabled)}
+                  onValueChange={(enabled) =>
+                    updatePermissions(
+                      chatHistoryUseUpdate(settings, enabled ? "when_relevant" : "when_requested"),
+                    )
+                  }
                 />
               </Row>
             </View>
@@ -415,7 +502,7 @@ function CloudConversation({
         </ListRow>
         <ListRow
           icon={Trash2}
-          label="Delete cloud conversation"
+          label="Delete conversation"
           expanded={clearReview}
           onPress={() => {
             if (control.busy) return;
@@ -436,7 +523,11 @@ function CloudConversation({
                     session.request<ChatHistory>("/assistant/chat", { method: "DELETE", signal }),
                   async (result) => {
                     await client.cancelQueries({ queryKey, exact: true });
-                    if (session.isCurrent()) client.setQueryData<ChatHistory>(queryKey, result);
+                    if (session.isCurrent())
+                      client.setQueryData<ChatHistory>(queryKey, {
+                        ...result,
+                        settings: readChatSettings(result.settings),
+                      });
                   },
                 );
               },
@@ -445,8 +536,14 @@ function CloudConversation({
             busy={control.busy}
           />
         </ListRow>
+        <ListRow
+          icon={Smartphone}
+          label="Use on-device help"
+          value="Separate chat"
+          onPress={onDevice}
+        />
       </ListCard>
-      {control.error && <Notice tone="danger">{control.error}</Notice>}
+      {Boolean(control.error) && <Notice tone="danger">{control.error}</Notice>}
     </View>
   );
 }

@@ -228,7 +228,7 @@ export function DraftReview({
           }
         />
       )}
-      {error && <Notice tone="danger">{error}</Notice>}
+      {Boolean(error) && <Notice tone="danger">{error}</Notice>}
       <T variant="caption" color="textSecondary">
         The fitness editor lets you check individual sets, confirm completion and enter the time
         before saving a private log.

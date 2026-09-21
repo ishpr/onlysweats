@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState, View } from "react-native";
+import * as Crypto from "expo-crypto";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
+import {
+  OfflineWorkoutMember,
+  isConnectionFailure,
+  type OfflineWorkoutMemberProps,
+} from "@/components/workout-plans/offline-member";
 import { Button, Card, Chip, Field, Notice, Row, Screen, StateView, T } from "@/components/ui";
 import { SetFields } from "@/components/workout-plans/set-fields";
+import OnlineRun from "@/components/workout-plans/online-run";
 import { RestTimer } from "@/components/workout-plans/rest-timer";
 import { Spacing } from "@/constants/theme";
 import { usePrivateAction } from "@/hooks/use-private-action";
@@ -18,41 +24,75 @@ import {
 } from "@/lib/workout-plans/forms";
 import { useRefreshOnFocus } from "@/lib/queries";
 import {
-  clearWorkoutRecovery,
-  loadWorkoutRecovery,
-  saveWorkoutRecovery,
-} from "@/lib/workout-plans/recovery";
+  offlineWorkouts,
+  boundedWorkoutRequest,
+  syncOfflineWorkout,
+  refreshOfflineWorkout,
+} from "@/lib/workout-plans/offline";
+import {
+  hasPendingRun,
+  activeEditorFromEntry,
+  resolveRunConflict,
+  reconcileEditorField,
+  unsyncedSetCount,
+  type OfflineRun,
+} from "@/lib/workout-plans/offline-data";
+import { useOfflineRuns } from "@/lib/workout-plans/use-offline-runs";
 import type { WorkoutRecovery } from "@/lib/workout-plans/recovery-data";
+import { clearWorkoutRecovery, loadWorkoutRecovery } from "@/lib/workout-plans/recovery";
 import type { PlannedSet, WorkoutRun, WorkoutSetResult } from "../../../../shared/workout-plans";
 
 export default function WorkoutRunRoute() {
-  return <PrivateMember component={WorkoutRunDetail} />;
+  return <OfflineWorkoutMember component={WorkoutRunDetail} />;
 }
-function WorkoutRunDetail(props: PrivateMemberProps) {
+function WorkoutRunDetail(props: OfflineWorkoutMemberProps) {
+  return props.offlineStorageAvailable ? (
+    <OfflineRunDetail {...props} />
+  ) : (
+    <OnlineRun member={props.member} session={props.session} />
+  );
+}
+function OfflineRunDetail(props: OfflineWorkoutMemberProps) {
   useRefreshOnFocus();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const local = useOfflineRuns(props.member.id, props.session);
   const query = useQuery({
     queryKey: ["private-workout-run", props.member.id, id],
     gcTime: 0,
     retry: false,
-    queryFn: ({ signal }) =>
-      props.session.request<{ run: WorkoutRun }>(`/fitness/runs/${id}`, { signal }),
+    queryFn: async ({ signal }) => ({
+      run: await refreshOfflineWorkout(props.member.id, id, props.session, signal),
+    }),
   });
-  if (!query.data || query.error)
+  const entry = local.runs.find((item) => item.base.id === id);
+  if (!entry || entry.readBlocked || (query.error && !isConnectionFailure(query.error)))
     return (
       <Screen edges={["bottom"]}>
         <StateView
-          loading={query.isPending}
-          error={query.error}
+          loading={!local.ready || query.isPending}
+          error={local.error ?? query.error}
           onRetry={() => void query.refetch()}
         />
+        {entry?.readBlocked && (
+          <Notice>
+            Access to this saved workout needs a fresh online check. Your unsynced device copy is
+            retained.
+          </Notice>
+        )}
+        {local.ready && !entry && (
+          <Notice>
+            Open an already-started workout while connected before using it offline. Deleted or
+            expired device copies cannot be reopened offline.
+          </Notice>
+        )}
       </Screen>
     );
   return (
     <RunEditor
       key={id}
       {...props}
-      initial={query.data.run}
+      entry={entry}
+      offline={props.offlineIdentity || !!query.error}
       refreshing={query.isRefetching}
       refresh={() => void query.refetch()}
     />
@@ -60,162 +100,224 @@ function WorkoutRunDetail(props: PrivateMemberProps) {
 }
 
 function RunEditor({
-  initial,
+  entry,
   member,
   session,
+  offline,
   refresh,
   refreshing,
-}: PrivateMemberProps & { initial: WorkoutRun; refresh: () => void; refreshing: boolean }) {
+}: OfflineWorkoutMemberProps & {
+  entry: OfflineRun;
+  offline: boolean;
+  refresh: () => void;
+  refreshing: boolean;
+}) {
   const router = useRouter();
   const client = useQueryClient();
   const action = usePrivateAction(session);
-  const [run, setRun] = useState(initial);
-  const [note, setNote] = useState(initial.note);
-  const [share, setShare] = useState(initial.shareAccountability);
+  const run: WorkoutRun = {
+    ...entry.base,
+    results: entry.draft.results,
+    note: entry.draft.note,
+    status: entry.draft.finish ? "completed" : "in_progress",
+  };
+  const [note, setNote] = useState(entry.draft.note);
+  const [share, setShare] = useState(entry.base.shareAccountability);
+  const previousNote = useRef(entry.draft.note);
+  const previousShare = useRef(entry.base.shareAccountability);
+  useEffect(() => {
+    const oldNote = previousNote.current;
+    const oldShare = previousShare.current;
+    setNote((current) => reconcileEditorField(current, oldNote, entry.draft.note));
+    setShare((current) => reconcileEditorField(current, oldShare, entry.base.shareAccountability));
+    previousNote.current = entry.draft.note;
+    previousShare.current = entry.base.shareAccountability;
+  }, [entry.draft.note, entry.base.shareAccountability]);
   const [active, setActive] = useState<{
     exerciseId: string;
     set: PlannedSet;
     fields: ActualFields;
-  } | null>(null);
+  } | null>(() => activeEditorFromEntry(entry));
+  const [legacyRecovery, setLegacyRecovery] = useState<WorkoutRecovery | null>(null);
+  useEffect(() => {
+    let current = true;
+    void loadWorkoutRecovery(member.id, run.id, session.isCurrent)
+      .then((value) => {
+        if (current && session.isCurrent()) setLegacyRecovery(value);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [member.id, run.id, session]);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [rest, setRest] = useState<{ seconds: number; key: number } | null>(null);
-  const [recoveryReady, setRecoveryReady] = useState(false);
-  const [recovered, setRecovered] = useState<WorkoutRecovery | null>(null);
-  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [fieldWrites, setFieldWrites] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [onlineChecked, setOnlineChecked] = useState(!offline);
+  const alive = useRef(true);
   useEffect(() => {
-    let mounted = true;
-    void loadWorkoutRecovery(member.id, initial.id, session.isCurrent)
-      .then((value) => {
-        if (mounted && session.isCurrent()) {
-          setRecovered(value);
-          setRecoveryReady(true);
-        }
-      })
-      .catch(() => {
-        if (mounted && session.isCurrent()) {
-          setRecoveryReady(true);
-          setRecoveryError(
-            "Device recovery is unavailable. Keep this screen open until your set is saved to SamePace.",
-          );
-        }
-      });
+    alive.current = true;
     return () => {
-      mounted = false;
+      alive.current = false;
     };
-  }, [member.id, initial.id, session]);
-  useEffect(() => {
-    if (!recoveryReady || recovered || !session.isCurrent()) return;
-    let mounted = true;
-    const dirty = active !== null || note !== run.note || share !== run.shareAccountability;
-    if (!dirty) {
-      void clearWorkoutRecovery(member.id, run.id).catch(() => undefined);
-      return;
-    }
-    void saveWorkoutRecovery(
-      {
-        version: 1,
-        ownerId: member.id,
-        runId: run.id,
-        revision: run.revision,
-        updatedAt: Date.now(),
-        note,
-        shareAccountability: share,
-        active: active
-          ? { exerciseId: active.exerciseId, setId: active.set.id, fields: active.fields }
-          : null,
-      },
-      session.isCurrent,
-    )
-      .then((saved) => {
-        if (mounted && session.isCurrent())
-          setRecoveryError(
-            saved
-              ? null
-              : "These edits are only in memory. Keep this screen open until your set is saved to SamePace.",
-          );
-      })
-      .catch(() => {
-        if (mounted && session.isCurrent())
-          setRecoveryError(
-            "These edits could not be saved on this device. Keep this screen open and retry the server save.",
-          );
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [
-    active,
-    note,
-    share,
-    run.id,
-    run.note,
-    run.shareAccountability,
-    run.revision,
-    recoveryReady,
-    recovered,
-    session,
-    member.id,
-  ]);
+  }, []);
+  const pending = hasPendingRun(entry);
   const totalSets = run.snapshot.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0);
   const completed = run.results.filter((result) => result.status === "completed").length;
   const skipped = run.results.filter((result) => result.status === "skipped").length;
   const remaining = totalSets - completed - skipped;
   const ended = run.status === "completed";
-  const blocked =
-    action.busy || !recoveryReady || recovered !== null || initial.revision > run.revision;
-  const save = (results = run.results, finish = ended, restSeconds?: number) => {
+  const blocked = action.busy || entry.conflict !== null;
+  const invalidate = useCallback(async () => {
+    await client.invalidateQueries({ queryKey: ["private-workout-runs", member.id] });
+    await client.invalidateQueries({ queryKey: ["private-fitness", member.id, "summary"] });
+    if (run.sessionId)
+      await client.invalidateQueries({
+        queryKey: ["session-workout-plan", member.id, run.sessionId],
+      });
+  }, [client, member.id, run.sessionId]);
+  const sync = useCallback(
+    async (retry = false) => {
+      if (!session.isCurrent()) return;
+      setSyncing(true);
+      try {
+        await syncOfflineWorkout(member.id, run.id, session, retry);
+        if (!alive.current || !session.isCurrent()) return;
+        await refreshOfflineWorkout(member.id, run.id, session);
+        if (alive.current && session.isCurrent()) {
+          setError(null);
+          setOnlineChecked(true);
+        }
+        await invalidate();
+      } catch (failure) {
+        if (alive.current && session.isCurrent()) {
+          setOnlineChecked(false);
+          setError(
+            failure instanceof Error
+              ? failure.message
+              : "Sync did not finish. Your device copy is retained.",
+          );
+        }
+      } finally {
+        if (alive.current && session.isCurrent()) setSyncing(false);
+      }
+    },
+    [session, member.id, run.id, invalidate],
+  );
+  const syncRef = useRef(sync);
+  useEffect(() => {
+    syncRef.current = sync;
+  }, [sync]);
+  useEffect(() => {
+    void syncRef.current();
+    const timer = setInterval(() => {
+      if (AppState.currentState === "active") void syncRef.current();
+    }, 30_000);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void syncRef.current();
+    });
+    return () => {
+      clearInterval(timer);
+      subscription.remove();
+    };
+  }, []);
+  const persistFields = (nextNote: string, nextActive: typeof active) => {
+    setFieldWrites((count) => count + 1);
+    void offlineWorkouts
+      .update(member.id, run.id, session.isCurrent, (current) => ({
+        ...current,
+        version: current.version + 1,
+        draft: { ...current.draft, note: nextNote },
+        active: nextActive
+          ? {
+              exerciseId: nextActive.exerciseId,
+              setId: nextActive.set.id,
+              fields: nextActive.fields,
+            }
+          : null,
+      }))
+      .then(() => {
+        if (alive.current && session.isCurrent()) setFieldError(null);
+      })
+      .catch(() => {
+        if (alive.current && session.isCurrent())
+          setFieldError(
+            "Your latest fields could not be saved on this device. Keep this screen open and retry saving.",
+          );
+      })
+      .finally(() => {
+        if (alive.current && session.isCurrent()) setFieldWrites((count) => count - 1);
+      });
+  };
+  const changeActive = (next: typeof active) => {
+    setActive(next);
+    persistFields(note, next);
+  };
+  const save = (
+    results: WorkoutSetResult[] | ((current: WorkoutSetResult[]) => WorkoutSetResult[]) = (
+      current,
+    ) => current,
+    finish = ended,
+    restSeconds?: number,
+  ) => {
     if (blocked) return;
     void action.run(
-      (signal) =>
-        session.request<{ run: WorkoutRun }>(`/fitness/runs/${run.id}`, {
-          method: "PUT",
-          json: {
-            expectedRevision: run.revision,
-            results,
+      () =>
+        offlineWorkouts.update(member.id, run.id, session.isCurrent, (current) => ({
+          ...current,
+          version: current.version + 1,
+          draft: {
+            results: typeof results === "function" ? results(current.draft.results) : results,
             note,
-            shareAccountability: share,
             finish,
           },
-          signal,
-        }),
-      async ({ run: saved }) => {
-        setRun(saved);
-        setNote(saved.note);
-        setShare(saved.shareAccountability);
+          active: null,
+        })),
+      async (next) => {
+        setNote(next.draft.note);
         setActive(null);
         setFinishing(false);
         setError(null);
-        void clearWorkoutRecovery(member.id, run.id).catch(() => undefined);
-        client.setQueryData(["private-workout-run", member.id, run.id], { run: saved });
+        await clearWorkoutRecovery(member.id, run.id).catch(() => undefined);
         if (restSeconds && !finish)
           setRest((current) => ({ seconds: restSeconds, key: (current?.key ?? 0) + 1 }));
         if (finish) setRest(null);
-        await client.invalidateQueries({ queryKey: ["private-workout-runs", member.id] });
-        await client.invalidateQueries({ queryKey: ["private-fitness", member.id, "summary"] });
-        if (run.sessionId)
-          await client.invalidateQueries({
-            queryKey: ["session-workout-plan", member.id, run.sessionId],
-          });
+        void sync();
       },
     );
   };
   const record = (exerciseId: string, set: PlannedSet, result: WorkoutSetResult) => {
-    const results = run.results.filter((current) => current.setId !== set.id);
     save(
-      [...results, { ...result, exerciseId, setId: set.id }],
+      (results) => [
+        ...results.filter((current) => current.setId !== set.id),
+        { ...result, exerciseId, setId: set.id },
+      ],
       ended,
       result.status === "completed" ? set.restSeconds : undefined,
     );
   };
-  const resetToLatest = () => {
-    setRun(initial);
-    setNote(initial.note);
-    setShare(initial.shareAccountability);
-    setActive(null);
-    setFinishing(false);
-    setError(null);
+  const resolve = (choice: "server" | "local" | "private") => {
+    if (fieldWrites > 0 || fieldError || action.busy) return;
+    void action.run(
+      () =>
+        offlineWorkouts.update(member.id, run.id, session.isCurrent, (current) => {
+          if (current.conflict?.revision !== entry.conflict?.revision)
+            throw new Error("The saved version changed again. Review it before choosing.");
+          return resolveRunConflict(current, choice, Date.now());
+        }),
+      (next) => {
+        setShare(next.base.shareAccountability);
+        setNote(next.draft.note);
+        setActive(activeEditorFromEntry(next));
+        setFinishing(false);
+        setError(null);
+        if (choice !== "server") void sync();
+      },
+    );
   };
   return (
     <Screen edges={["bottom"]} onRefresh={refresh} refreshing={refreshing}>
@@ -224,60 +326,159 @@ function RunEditor({
       <T color="textSecondary">
         {ended ? "Finished" : "In progress"} · Started {formatWhen(run.startedAt)}
       </T>
-      {!recoveryReady && <StateView loading />}
-      {recoveryError && <Notice>{recoveryError}</Notice>}
-      {recovered && (
+      <Card>
+        <T variant="heading">
+          {pending
+            ? `${unsyncedSetCount(entry)} set changes waiting to sync`
+            : "Saved on this iPhone"}
+        </T>
+        <T color="textSecondary">
+          {pending
+            ? "Your workout changes are protected on this device. They are not yet confirmed by SamePace."
+            : "This opened workout is available offline. Start new workouts while connected."}
+        </T>
+        {(offline || !onlineChecked) && (
+          <Notice>
+            Limited cached access. Current server access cannot be checked offline; reconnect within
+            24 hours of your last account check.
+          </Notice>
+        )}
+        <T variant="caption" color="textFaint">
+          Device copies expire after 7 days without use. Signing out removes them. Unsynced changes
+          stay on this device. Accepted sync follows your saved progress-sharing choice. Sharing
+          changes require a connection.
+        </T>
+        <Button
+          label={syncing ? "Syncing…" : "Sync / retry now"}
+          variant="soft"
+          disabled={syncing || !!entry.conflict}
+          onPress={() => void sync(true)}
+        />
+      </Card>
+      {legacyRecovery && (
         <Card>
-          <T variant="heading">Recover your unsaved fields?</T>
+          <T variant="heading">Earlier unsaved fields are available</T>
           <T color="textSecondary">
-            This iPhone kept an encrypted copy of your pending set, note and sharing choice.
-            Recovering it does not record another set. Compare it with your saved entries before
-            saving.
+            These fields were kept by the previous workout editor. Review them before recording a
+            completed set. The old sharing choice is not restored.
           </T>
-          {recovered.revision !== run.revision && (
-            <Notice>
-              The saved workout has changed since these fields were entered. Compare the recovered
-              values with the saved set before choosing to save them again.
-            </Notice>
-          )}
-          {recovered.active && (
-            <T variant="caption" color="textSecondary">
-              Pending actual entry: {recovered.active.fields.reps || "—"} reps ·{" "}
-              {recovered.active.fields.durationSeconds || "—"} seconds ·{" "}
-              {recovered.active.fields.distanceMeters || "—"} meters ·{" "}
-              {recovered.active.fields.weight || "—"} {recovered.active.fields.unit}
+          <T variant="caption">Note: {legacyRecovery.note || "None"}</T>
+          {legacyRecovery.active && (
+            <T variant="caption">
+              Actual fields: {legacyRecovery.active.fields.reps || "—"} reps ·{" "}
+              {legacyRecovery.active.fields.durationSeconds || "—"} seconds ·{" "}
+              {legacyRecovery.active.fields.distanceMeters || "—"} meters ·{" "}
+              {legacyRecovery.active.fields.weight || "—"} {legacyRecovery.active.fields.unit}
             </T>
           )}
-          {recovered.note !== run.note && (
-            <>
-              <T variant="caption" color="textSecondary">
-                Saved note: {run.note || "None"}
-              </T>
-              <T variant="caption">Recovered note: {recovered.note || "None"}</T>
-            </>
+          {legacyRecovery.revision !== entry.base.revision && (
+            <Notice>
+              The saved version changed. Compare these earlier fields with the saved entries before
+              recording them again.
+            </Notice>
           )}
           <Button
-            label="Recover fields for review"
+            label="Restore earlier fields for review"
             variant="soft"
-            onPress={() => {
-              const exercise = run.snapshot.exercises.find(
-                (item) => item.id === recovered.active?.exerciseId,
-              );
-              const set = exercise?.sets.find((item) => item.id === recovered.active?.setId);
-              setNote(recovered.note);
-              setShare(recovered.shareAccountability);
-              if (exercise && set && recovered.active)
-                setActive({ exerciseId: exercise.id, set, fields: recovered.active.fields });
-              setRecovered(null);
-            }}
+            disabled={blocked || pending || active !== null || fieldWrites > 0}
+            onPress={() =>
+              void action.run(
+                () =>
+                  offlineWorkouts.update(member.id, run.id, session.isCurrent, (current) => ({
+                    ...current,
+                    version: current.version + 1,
+                    draft: { ...current.draft, note: legacyRecovery.note },
+                    active: legacyRecovery.active,
+                  })),
+                async (next) => {
+                  setNote(next.draft.note);
+                  const exercise = next.base.snapshot.exercises.find(
+                    (item) => item.id === next.active?.exerciseId,
+                  );
+                  const set = exercise?.sets.find((item) => item.id === next.active?.setId);
+                  if (exercise && set && next.active)
+                    setActive({ exerciseId: exercise.id, set, fields: next.active.fields });
+                  await clearWorkoutRecovery(member.id, run.id);
+                  setLegacyRecovery(null);
+                },
+              )
+            }
           />
           <Button
-            label="Discard recovered fields"
+            label="Discard earlier fields"
             variant="ghost"
-            onPress={() => {
-              setRecovered(null);
-              void clearWorkoutRecovery(member.id, run.id).catch(() => undefined);
-            }}
+            disabled={action.busy}
+            onPress={() =>
+              void action.run(
+                () => clearWorkoutRecovery(member.id, run.id),
+                () => setLegacyRecovery(null),
+              )
+            }
+          />
+        </Card>
+      )}
+      {fieldWrites > 0 && <T variant="caption">Saving your latest fields on this iPhone…</T>}
+      {fieldError && <Notice tone="danger">{fieldError}</Notice>}
+      {entry.blocked && !entry.conflict && (
+        <Notice>
+          Automatic sync is paused. Your entries are retained; connect and retry to review the
+          latest saved version.
+        </Notice>
+      )}
+      {entry.conflict && (
+        <Card>
+          <T variant="heading">Review changes from another device</T>
+          <Notice>
+            Your local results are retained. Nothing will overwrite the newer saved workout until
+            you choose.
+          </Notice>
+          <T>
+            Server revision {entry.conflict.revision}:{" "}
+            {entry.conflict.status === "completed" ? "Finished" : "In progress"}
+          </T>
+          <T>Server note: {entry.conflict.note || "None"}</T>
+          <T>Your note: {entry.draft.note || "None"}</T>
+          {run.snapshot.exercises.map((exercise) => (
+            <View key={exercise.id}>
+              <T variant="label">{exercise.name}</T>
+              {exercise.sets.map((set, index) => {
+                const ours = entry.draft.results.find((item) => item.setId === set.id);
+                const theirs = entry.conflict!.results.find((item) => item.setId === set.id);
+                const label = (result?: WorkoutSetResult) =>
+                  !result
+                    ? "Unrecorded"
+                    : result.status === "skipped"
+                      ? "Skipped"
+                      : prescriptionLabel(result);
+                return (
+                  <T key={set.id} variant="caption">
+                    Set {index + 1} · Saved: {label(theirs)} · Yours: {label(ours)}
+                  </T>
+                );
+              })}
+            </View>
+          ))}
+          <T variant="caption">
+            Applying your version replaces the saved actual entries with your reviewed entries using
+            the latest saved sharing choice. A completed workout remains completed.
+          </T>
+          <Button
+            label="Discard local edits and use saved version"
+            variant="soft"
+            disabled={action.busy || fieldWrites > 0 || !!fieldError}
+            onPress={() => resolve("server")}
+          />
+          {!entry.blocked && (
+            <Button
+              label="Apply my reviewed entries to latest version"
+              disabled={action.busy || fieldWrites > 0 || !!fieldError}
+              onPress={() => resolve("local")}
+            />
+          )}
+          <Button
+            label="Apply my reviewed entries privately"
+            disabled={action.busy || fieldWrites > 0 || !!fieldError}
+            onPress={() => resolve("private")}
           />
         </Card>
       )}
@@ -292,20 +493,6 @@ function RunEditor({
           Your entries are separate from Apple Health measurements and session attendance.
         </T>
       </Card>
-      {initial.revision > run.revision && (
-        <Card>
-          <Notice>
-            This workout changed on another screen or device. Reload the latest saved version before
-            making more changes. Unsaved fields will be discarded.
-          </Notice>
-          <Button
-            label="Reload saved workout"
-            variant="soft"
-            disabled={action.busy}
-            onPress={resetToLatest}
-          />
-        </Card>
-      )}
       {run.snapshot.instructions ? <T color="textSecondary">{run.snapshot.instructions}</T> : null}
       {(action.error || error) && <Notice tone="danger">{error ?? action.error}</Notice>}
       {action.error && (
@@ -362,7 +549,7 @@ function RunEditor({
                       value={active.fields}
                       disabled={blocked}
                       onChange={(patch) =>
-                        setActive({ ...active, fields: { ...active.fields, ...patch } })
+                        changeActive({ ...active, fields: { ...active.fields, ...patch } })
                       }
                     />
                     <Button
@@ -395,7 +582,7 @@ function RunEditor({
                       label="Cancel set changes"
                       variant="ghost"
                       disabled={action.busy}
-                      onPress={() => setActive(null)}
+                      onPress={() => changeActive(null)}
                     />
                   </>
                 ) : (
@@ -408,7 +595,7 @@ function RunEditor({
                       disabled={blocked || active !== null}
                       onPress={() => {
                         setError(null);
-                        setActive({
+                        changeActive({
                           exerciseId: exercise.id,
                           set,
                           fields:
@@ -442,7 +629,9 @@ function RunEditor({
                         label="Clear set entry"
                         variant="ghost"
                         disabled={blocked || active !== null || (ended && run.results.length === 1)}
-                        onPress={() => save(run.results.filter((item) => item.setId !== set.id))}
+                        onPress={() =>
+                          save((results) => results.filter((item) => item.setId !== set.id))
+                        }
                       />
                     )}
                   </>
@@ -456,7 +645,10 @@ function RunEditor({
         <Field
           label="Private workout note"
           value={note}
-          onChangeText={setNote}
+          onChangeText={(value) => {
+            setNote(value);
+            persistFields(value, active);
+          }}
           maxLength={1000}
           multiline
           editable={!blocked}
@@ -474,18 +666,22 @@ function RunEditor({
               <Chip
                 label="Keep my progress private"
                 selected={!share}
-                disabled={blocked}
-                onPress={() => setShare(false)}
+                disabled={blocked || pending || syncing || offline || !onlineChecked}
+                onPress={() => {
+                  setShare(false);
+                }}
               />
               <Chip
                 label="Share my set counts"
                 selected={share}
-                disabled={blocked}
-                onPress={() => setShare(true)}
+                disabled={blocked || pending || syncing || offline || !onlineChecked}
+                onPress={() => {
+                  setShare(true);
+                }}
               />
             </Row>
             {share !== run.shareAccountability && (
-              <Notice>Your sharing choice takes effect when you save.</Notice>
+              <Notice>Sharing changes need a live connection and fully synced results.</Notice>
             )}
           </>
         ) : (
@@ -494,12 +690,71 @@ function RunEditor({
           </T>
         )}
         <Button
-          label="Save note and sharing choice"
+          label="Save note on this iPhone"
           variant="soft"
           disabled={blocked || active !== null}
           onPress={() => save()}
         />
       </Card>
+      {run.sessionId && (
+        <Button
+          label="Update sharing online"
+          variant="soft"
+          disabled={
+            blocked ||
+            pending ||
+            syncing ||
+            offline ||
+            !onlineChecked ||
+            active !== null ||
+            fieldWrites > 0 ||
+            !!fieldError
+          }
+          onPress={() =>
+            void action.run(
+              async (signal) => {
+                const freshLocal = (await offlineWorkouts.list(member.id, session.isCurrent)).find(
+                  (item) => item.base.id === run.id,
+                );
+                if (!freshLocal || hasPendingRun(freshLocal) || freshLocal.active)
+                  throw new Error("Sync your local edits before changing sharing.");
+                const { run: latest } = await boundedWorkoutRequest<{ run: WorkoutRun }>(
+                  session,
+                  `/fitness/runs/${run.id}`,
+                  { signal },
+                );
+                if (latest.revision !== entry.base.revision) {
+                  await offlineWorkouts.remember(member.id, latest, session.isCurrent);
+                  throw new Error("The saved workout changed. Review it before changing sharing.");
+                }
+                const { run: saved } = await boundedWorkoutRequest<{ run: WorkoutRun }>(
+                  session,
+                  `/fitness/runs/${run.id}`,
+                  {
+                    method: "PUT",
+                    signal,
+                    json: {
+                      mutationId: Crypto.randomUUID(),
+                      expectedRevision: latest.revision,
+                      results: latest.results,
+                      note: latest.note,
+                      finish: latest.status === "completed",
+                      shareAccountability: share,
+                    },
+                  },
+                );
+                await offlineWorkouts.remember(member.id, saved, session.isCurrent);
+                return saved;
+              },
+              async (saved) => {
+                setShare(saved.shareAccountability);
+                await invalidate();
+                refresh();
+              },
+            )
+          }
+        />
+      )}
       {!ended && (
         <Button
           label="Finish my workout"
@@ -525,7 +780,7 @@ function RunEditor({
           <Button
             label="Finish and save my workout"
             disabled={blocked}
-            onPress={() => save(run.results, true)}
+            onPress={() => save((results) => results, true)}
           />
           <Button label="Keep working out" variant="ghost" onPress={() => setFinishing(false)} />
         </Card>
@@ -548,8 +803,9 @@ function RunEditor({
       {removing && (
         <Card>
           <Notice>
-            Delete your recorded sets and note? Any shared progress summary is removed. The shared
-            plan and attendance record stay as they are.
+            Delete your recorded sets, unsynced device changes and note? A connection is required.
+            Any shared progress summary is removed. The shared plan and attendance record stay as
+            they are.
           </Notice>
           <Button
             label="Delete this workout record"
@@ -558,8 +814,12 @@ function RunEditor({
             onPress={() =>
               void action.run(
                 (signal) =>
-                  session.request(`/fitness/runs/${run.id}`, { method: "DELETE", signal }),
+                  boundedWorkoutRequest(session, `/fitness/runs/${run.id}`, {
+                    method: "DELETE",
+                    signal,
+                  }),
                 async () => {
+                  await offlineWorkouts.remove(member.id, run.id, session.isCurrent);
                   await clearWorkoutRecovery(member.id, run.id).catch(() => undefined);
                   await client.invalidateQueries({ queryKey: ["private-workout-runs", member.id] });
                   await client.invalidateQueries({

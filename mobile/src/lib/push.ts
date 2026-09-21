@@ -12,8 +12,9 @@ import * as Device from "expo-device";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
-import { api } from "./api";
+import { captureApiSession, captureLogoutCleanup } from "./api";
 import { createPushRegistration, type PushStatus } from "./push-registration";
+import { createPushDeviceLifecycle } from "./push-device-lifecycle";
 
 type Notifications = typeof import("expo-notifications");
 
@@ -55,7 +56,7 @@ export async function pushStatus(): Promise<PushStatus> {
   return status === "denied" && !canAskAgain ? "denied" : "undetermined";
 }
 
-async function register(n: Notifications): Promise<void> {
+async function deviceToken(n: Notifications): Promise<string> {
   if (Platform.OS === "android") {
     // One channel per kind, so Android's own settings can mute them separately.
     const channels = [
@@ -77,12 +78,15 @@ async function register(n: Notifications): Promise<void> {
       "Push notifications aren’t configured in this build. Update the app and try again.",
     );
   const { data: token } = await n.getExpoPushTokenAsync({ projectId });
-  await api("/devices", {
-    method: "POST",
-    json: { token, platform: Platform.OS === "ios" ? "ios" : "android" },
-  });
-  await SecureStore.setItemAsync(TOKEN_KEY, token).catch(() => undefined);
+  return token;
 }
+
+const deviceLifecycle = createPushDeviceLifecycle({
+  capture: captureApiSession,
+  readToken: () => SecureStore.getItemAsync(TOKEN_KEY),
+  writeToken: (token) => SecureStore.setItemAsync(TOKEN_KEY, token),
+  clearToken: () => SecureStore.deleteItemAsync(TOKEN_KEY),
+});
 
 const registration = createPushRegistration({
   permission: async (request) => {
@@ -94,7 +98,7 @@ const registration = createPushRegistration({
   register: async () => {
     const n = load();
     if (!n) throw new Error("Notifications aren’t available in this build.");
-    await register(n);
+    await deviceLifecycle.register(() => deviceToken(n), Platform.OS === "ios" ? "ios" : "android");
   },
 });
 
@@ -107,16 +111,24 @@ export const enablePush = () => registration.sync(true);
 /** Launch, foreground or retry: keep the token fresh without prompting. */
 export const syncPush = () => registration.sync();
 
-/** Before signing out: this phone stops getting that member's notifications. */
-export async function unregisterPush(): Promise<void> {
-  // Finish a registration already in flight before removing its saved token.
-  await registration.finishPending();
-  const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
-  if (token) {
-    await api(`/devices/${encodeURIComponent(token)}`, { method: "DELETE" }).catch(() => undefined);
-    await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => undefined);
-  }
+/** Synchronous fence at every auth boundary; no native lookup can adopt a new login. */
+export function fencePushRegistration(): void {
+  deviceLifecycle.fence();
   registration.reset();
+}
+
+/** Capture cleanup before local logout; remote work always uses the caller's old bearer. */
+export function capturePushLogout(
+  unregisterDevice: (token: string) => Promise<void>,
+): Promise<void> {
+  registration.reset();
+  return deviceLifecycle.logout(unregisterDevice);
+}
+
+/** Compatibility entry point for callers that have not dropped their session yet. */
+export function unregisterPush(): Promise<void> {
+  const cleanup = captureLogoutCleanup();
+  return capturePushLogout(cleanup.unregisterDevice);
 }
 
 /** The in-app route a notification carries. Only our own paths are ever opened. */

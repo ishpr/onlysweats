@@ -7,31 +7,42 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   type ReactNode,
 } from "react";
 import { Platform } from "react-native";
 
 import {
-  api,
+  captureApiSession,
   setApiToken,
   setUnauthorizedHandler,
-  signOutRequest,
+  captureLogoutCleanup,
   socialSignInRequest,
 } from "./api";
-import { unregisterPush } from "./push";
+import { capturePushLogout, fencePushRegistration } from "./push";
+import { localFirstLogout, revokeAfterDeviceCleanup } from "./logout-cleanup";
 import { clearWidgets } from "./widgets";
 import { signOutOfGoogle, type SocialResult } from "./social";
+import { createSerialWrites } from "./serial-writes";
 import { clearWorkoutRecovery } from "./workout-plans/recovery";
+import { bindOfflineWorkoutSession, clearOfflineWorkouts } from "./workout-plans/offline";
+import { bindAppTermsSession, clearAppTermsReceipt } from "./app-terms";
 
 const TOKEN_KEY = "pace.session-token";
 
 // SecureStore is the device keychain/keystore. It has no web implementation, and
 // web is only a dev convenience here, so fall back to memory there.
+const serializeTokenWrite = createSerialWrites();
 const store = {
   get: () => (Platform.OS === "web" ? Promise.resolve(null) : SecureStore.getItemAsync(TOKEN_KEY)),
   set: (v: string) =>
-    Platform.OS === "web" ? Promise.resolve() : SecureStore.setItemAsync(TOKEN_KEY, v),
-  clear: () => (Platform.OS === "web" ? Promise.resolve() : SecureStore.deleteItemAsync(TOKEN_KEY)),
+    serializeTokenWrite(() =>
+      Platform.OS === "web" ? Promise.resolve() : SecureStore.setItemAsync(TOKEN_KEY, v),
+    ),
+  clear: () =>
+    serializeTokenWrite(() =>
+      Platform.OS === "web" ? Promise.resolve() : SecureStore.deleteItemAsync(TOKEN_KEY),
+    ),
 };
 
 type AuthState = {
@@ -48,27 +59,42 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const queryClient = useQueryClient();
+  const authOperation = useRef(0);
 
   const drop = useCallback(async () => {
+    authOperation.current++;
+    fencePushRegistration();
     // Nothing about the last member stays on the Home Screen or Lock Screen.
     clearWidgets();
     setApiToken(null);
+    const offlineClearing = clearOfflineWorkouts();
+    const recoveryClearing = clearWorkoutRecovery();
+    const tokenClearing = store.clear();
+    const termsClearing = clearAppTermsReceipt();
     setSignedIn(false);
     queryClient.clear();
-    await clearWorkoutRecovery().catch(() => undefined);
-    await store.clear().catch(() => undefined);
+    await Promise.all(
+      [offlineClearing, recoveryClearing, tokenClearing, termsClearing].map((operation) =>
+        operation.catch(() => undefined),
+      ),
+    );
   }, [queryClient]);
 
   useEffect(() => {
     let alive = true;
+    const generation = authOperation.current;
     // Dev builds only: `EXPO_PUBLIC_DEV_TOKEN` (in the gitignored `.env.local`)
     // skips the sign-in form so simulators can be driven without typing passwords.
     const devToken = __DEV__ ? process.env.EXPO_PUBLIC_DEV_TOKEN : undefined;
     (devToken ? Promise.resolve(devToken) : store.get())
       .catch(() => null)
       .then((saved) => {
-        if (!alive) return;
+        if (!alive || generation !== authOperation.current) return;
+        bindOfflineWorkoutSession(saved);
         setApiToken(saved);
+        bindAppTermsSession(saved);
+        if (!saved) void clearOfflineWorkouts().catch(() => undefined);
+        if (!saved) void clearAppTermsReceipt().catch(() => undefined);
         setSignedIn(Boolean(saved));
       });
     setUnauthorizedHandler(() => void drop());
@@ -80,35 +106,83 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthState>(() => {
     const accept = async (token: string) => {
+      const generation = ++authOperation.current;
+      fencePushRegistration();
       setApiToken(null);
-      await clearWorkoutRecovery().catch(() => undefined);
-      setApiToken(token);
+      setSignedIn(false);
+      queryClient.clear();
+      const offlineClearing = clearOfflineWorkouts();
+      const recoveryClearing = clearWorkoutRecovery();
+      const tokenClearing = store.clear();
+      const termsClearing = clearAppTermsReceipt();
+      await Promise.all([
+        offlineClearing.catch(() => undefined),
+        recoveryClearing.catch(() => undefined),
+        tokenClearing,
+        termsClearing.catch(() => undefined),
+      ]);
+      if (generation !== authOperation.current) return null;
       await store.set(token);
+      if (generation !== authOperation.current) return null;
+      bindOfflineWorkoutSession(token);
+      setApiToken(token);
+      bindAppTermsSession(token);
       setSignedIn(true);
+      return captureApiSession();
     };
     return {
       signedIn,
       signInWithToken: async (result) => {
         if (!result) return;
+        const generation = authOperation.current;
         const { token } = await socialSignInRequest(result.provider, result.idToken);
-        await accept(token);
+        if (generation !== authOperation.current) return;
+        const accepted = await accept(token);
+        if (!accepted) return;
         if (result.authorizationCode) {
           // Best effort: sign-in has already succeeded.
-          void api("/me/apple-authorization", {
-            method: "POST",
-            json: { code: result.authorizationCode },
-          }).catch(() => undefined);
+          void accepted
+            .request("/me/apple-authorization", {
+              method: "POST",
+              json: { code: result.authorizationCode },
+            })
+            .catch(() => undefined);
         }
       },
-      signOut: async (opts) => {
-        // While the token still works: this phone stops getting my notifications.
-        await unregisterPush();
-        await signOutRequest();
-        await signOutOfGoogle({ revoke: opts?.accountDeleted });
-        await drop();
+      signOut: (opts) => {
+        const cleanup = captureLogoutCleanup();
+        let logoutGeneration = -1;
+        let deviceCleanupOpen = true;
+        // Capture and enqueue old-device cleanup without awaiting native/network work.
+        const pushCleanup = capturePushLogout((pushToken) =>
+          deviceCleanupOpen && authOperation.current === logoutGeneration
+            ? cleanup.unregisterDevice(pushToken)
+            : Promise.resolve(),
+        );
+        return localFirstLogout(
+          () => {
+            const local = drop(); // Fences UI, token, private queues synchronously.
+            logoutGeneration = authOperation.current;
+            return local;
+          },
+          async () => {
+            const googleCleanup = signOutOfGoogle({
+              revoke: opts?.accountDeleted,
+              isCurrent: () => authOperation.current === logoutGeneration,
+            });
+            await revokeAfterDeviceCleanup(
+              pushCleanup,
+              () => {
+                deviceCleanupOpen = false;
+              },
+              cleanup.revokeSession,
+            );
+            await googleCleanup;
+          },
+        );
       },
     };
-  }, [signedIn, drop]);
+  }, [signedIn, drop, queryClient]);
 
   return <AuthContext value={value}>{children}</AuthContext>;
 }

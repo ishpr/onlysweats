@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -49,15 +49,7 @@ export function useLocalCapability(session: ApiSession) {
   return { capability, refresh: () => setRevision((value) => value + 1) };
 }
 
-export function LocalChat({
-  session,
-  onCloud,
-  modeControl,
-}: {
-  session: ApiSession;
-  onCloud: () => void;
-  modeControl: ReactNode;
-}) {
+export function LocalChat({ session, onCloud }: { session: ApiSession; onCloud: () => void }) {
   const router = useRouter();
   const { capability, refresh } = useLocalCapability(session);
   const [history, setHistory] = useState<IntelligenceHistory[]>([]);
@@ -134,7 +126,7 @@ export function LocalChat({
         <Card>
           <Notice>{intelligenceReason(capability.reason)}</Notice>
           <Button label="Check availability again" variant="soft" onPress={refresh} />
-          <Button label="Review cloud option" variant="soft" onPress={onCloud} />
+          <Button label="Back to coaching" variant="soft" onPress={onCloud} />
           <Button
             label="Log an exercise manually"
             variant="ghost"
@@ -156,11 +148,10 @@ export function LocalChat({
           {partial ? <T selectable>{partial}</T> : <TypingDots />}
         </ChatBubble>
       )}
-      {error && <Notice tone="danger">{error}</Notice>}
-      {error && lastText && !busy && (
+      {Boolean(error) && <Notice tone="danger">{error}</Notice>}
+      {Boolean(error) && lastText !== null && lastText.length > 0 && !busy && (
         <Button label="Retry on this iPhone" variant="soft" onPress={() => send(lastText)} />
       )}
-      {modeControl}
       <Composer
         value={text}
         onChangeText={(value) => setText(value.slice(0, 1000))}
@@ -343,7 +334,7 @@ export function LocalDraftTools({
               }}
             />
           )}
-          {error && <Notice tone="danger">{error}</Notice>}
+          {Boolean(error) && <Notice tone="danger">{error}</Notice>}
           {rawOnly && (
             <Notice>
               The photo text was read locally. The language model is unavailable, so exercise fields

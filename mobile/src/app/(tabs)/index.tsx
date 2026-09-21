@@ -110,6 +110,7 @@ export default function Home() {
   return (
     <Screen
       hidesTabBar
+      contentStyle={styles.content}
       onRefresh={refresh}
       header={
         <>
@@ -136,6 +137,14 @@ export default function Home() {
           sessions={(open.data?.sessions ?? []).filter(
             (s) => !mineIds.has(s.id) && s.seatsLeft > 0 && +new Date(s.startAt) > now,
           )}
+        />
+      )}
+
+      {(!me.data || me.error || mine.error) && (
+        <Button
+          label="Saved workouts on this iPhone"
+          variant="soft"
+          onPress={() => router.push("/workout-plans")}
         />
       )}
 
@@ -539,6 +548,7 @@ function weeksToGo(goalDate: string) {
 }
 
 const styles = StyleSheet.create({
+  content: { paddingTop: Spacing.half, gap: Spacing.two },
   planRow: { alignItems: "center", gap: Spacing.two },
   planIcon: {
     width: 44,

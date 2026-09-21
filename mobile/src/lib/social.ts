@@ -9,6 +9,11 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Crypto from "expo-crypto";
 import { Platform } from "react-native";
+import {
+  boundedLogoutCleanup,
+  cleanupSocialSession,
+  createExclusiveSocialOperation,
+} from "./logout-cleanup";
 
 export type IdToken = {
   token: string;
@@ -80,7 +85,13 @@ function loadGoogle(): GoogleModule | null {
 /** False in Expo Go, and on iOS builds made without GOOGLE_IOS_URL_SCHEME. */
 export const googleAvailable = () => loadGoogle() !== null;
 
+const googleOperation = createExclusiveSocialOperation();
+
 export async function signInWithGoogle(config: GoogleConfig): Promise<SocialResult> {
+  return googleOperation(() => performGoogleSignIn(config));
+}
+
+async function performGoogleSignIn(config: GoogleConfig): Promise<SocialResult> {
   const google = loadGoogle();
   if (!google) throw new Error("Google sign-in isn’t part of this build.");
   const { GoogleSignin, isSuccessResponse, isErrorWithCode, statusCodes } = google;
@@ -101,14 +112,13 @@ export async function signInWithGoogle(config: GoogleConfig): Promise<SocialResu
 }
 
 /** Forget the Google account on this device, so the next sign-in shows the chooser. */
-export async function signOutOfGoogle(opts: { revoke?: boolean } = {}) {
+export async function signOutOfGoogle(opts: { revoke?: boolean; isCurrent?: () => boolean } = {}) {
   const google = loadGoogle();
   if (!google) return;
-  try {
-    // Deleting the account also withdraws the app's access to the Google account.
-    if (opts.revoke) await google.GoogleSignin.revokeAccess();
-    await google.GoogleSignin.signOut();
-  } catch {
-    /* not signed in with Google, or never configured in this session */
-  }
+  const current = opts.isCurrent ?? (() => true);
+  // Hold the native-operation gate until the actual SDK promise settles, even
+  // when our outer five-second cleanup deadline has already released the caller.
+  await boundedLogoutCleanup(() =>
+    googleOperation(() => cleanupSocialSession(google.GoogleSignin, !!opts.revoke, current)),
+  );
 }

@@ -29,7 +29,7 @@ import { PressScale } from "@/components/motion";
 import { Button, Card, Row, T, withAlpha } from "@/components/ui";
 import { Radius, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
-import { ApiError, captureApiSession, type ApiSession } from "@/lib/api";
+import { captureApiSession, type ApiSession } from "@/lib/api";
 import { ACTIVITIES } from "@/lib/types";
 
 import type { AssistantNegotiation, AssistantPreferences } from "../../../shared/assistant";
@@ -290,16 +290,20 @@ function Spot({ ownerId, session }: { ownerId: string; session: ApiSession }) {
       );
     },
   });
-  // Not switched on for this account (or not reachable): Home stays quiet about it.
-  if (!query.data || (query.error instanceof ApiError && query.error.status === 404)) return null;
-  const status = query.data;
+  // Buddy-planning availability is independent of the built-in coaching entry.
+  const status = query.error ? null : query.data;
+  const planning = status && status.state !== "off";
+  const headline = planning ? status.headline : "Plan your next workout";
+  const detail = planning
+    ? status.detail
+    : "Talk through a workout, review a routine, or plan with a buddy.";
   return (
     <PressScale
       accessibilityRole="button"
-      accessibilityLabel={`Your assistant. ${status.headline}. ${status.detail}`}
+      accessibilityLabel={`Your workout assistant. ${headline}. ${detail}`}
       onPress={() =>
         router.push(
-          status.negotiationId
+          status?.negotiationId
             ? { pathname: "/assistant", params: { negotiationId: status.negotiationId } }
             : "/assistant",
         )
@@ -307,13 +311,13 @@ function Spot({ ownerId, session }: { ownerId: string; session: ApiSession }) {
       scaleTo={0.98}
     >
       <Card style={styles.spot}>
-        <AssistantOrb state={status.state} size={56} />
+        <AssistantOrb state={planning ? status.state : "ready"} size={56} />
         <View style={styles.flex}>
-          <T variant="eyebrow" color={status.state === "off" ? "textSecondary" : "accent"}>
-            Your assistant · {status.eyebrow}
+          <T variant="eyebrow" color={planning ? "accent" : "textSecondary"}>
+            {planning ? `Buddy planning · ${status.eyebrow}` : "Your workout assistant"}
           </T>
           <T variant="label" numberOfLines={2}>
-            {status.headline}
+            {headline}
           </T>
         </View>
         <ChevronRight size={18} color={theme.textFaint} />

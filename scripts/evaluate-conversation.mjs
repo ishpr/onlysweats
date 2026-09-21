@@ -227,7 +227,7 @@ export async function evaluateCase(
         failures.push("invalid_preference_draft");
         throw new Error("Invalid draft");
       }
-      return { reviewOffered: true, saved: false, sharingEnabled: false };
+      return { reviewOffered: true, saved: false, sharingChanged: false };
     },
   };
   let timer;
@@ -308,7 +308,7 @@ export async function evaluateCase(
     responseChars: text.length,
     responseSha256: createHash("sha256").update(text).digest("hex"),
     qualitativeReview: "unreviewed",
-    ...(includeResponse ? { syntheticResponse: text } : {}),
+    ...(includeResponse ? { syntheticResponse: text, syntheticToolCalls: calls } : {}),
   };
 }
 
