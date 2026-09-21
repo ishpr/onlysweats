@@ -104,11 +104,14 @@ export function Screen({
   edges = ["top"],
   contentStyle,
   header,
+  footer,
   ...rest
 }: ScrollViewProps & {
   children: ReactNode;
   /** Pinned above the scroll area (app header, live banner). */
   header?: ReactNode;
+  /** Pinned below it: the one action this screen exists for, always in reach. */
+  footer?: ReactNode;
   scroll?: boolean;
   onRefresh?: () => void;
   refreshing?: boolean;
@@ -166,6 +169,16 @@ export function Screen({
       ) : (
         <View style={[styles.fill, inner]}>{children}</View>
       )}
+      {footer ? (
+        <View
+          style={[
+            styles.footer,
+            { backgroundColor: theme.background, borderTopColor: theme.border },
+          ]}
+        >
+          {footer}
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -468,6 +481,16 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.three,
     paddingBottom: Spacing.six * 2,
     gap: Spacing.three,
+  },
+  footer: {
+    width: "100%",
+    maxWidth: MaxContentWidth,
+    alignSelf: "center",
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.two,
+    paddingBottom: Spacing.one,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   card: {
     borderRadius: Radius.xl,

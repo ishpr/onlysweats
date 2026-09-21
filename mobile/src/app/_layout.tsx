@@ -151,8 +151,8 @@ function Routes() {
       >
         <Stack.Protected guard={signedIn}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="session/[id]" options={{ title: "" }} />
-          <Stack.Screen name="thread/[id]" options={{ title: "Thread" }} />
+          <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
+          <Stack.Screen name="thread/[id]" options={{ title: "Chat" }} />
           <Stack.Screen
             name="live/[id]"
             options={{
