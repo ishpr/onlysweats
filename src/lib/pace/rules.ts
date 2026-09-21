@@ -548,3 +548,50 @@ export function canJoinBlock(
   if (facts.members >= block.capacity) return no("It’s full.");
   return ok;
 }
+
+// ── The end of a block ───────────────────────────────────────────────────────
+
+/** Finishers may credit their buddies for this many days after the goal date. */
+export const CREDIT_WINDOW_DAYS = 7;
+/** A buddy is creditable after this many sessions where both checked in. */
+export const CREDIT_MIN_SHARED = 3;
+/** Members have this long to keep a finished block's slots; after that they end. */
+export const KEEP_SLOTS_DAYS = 14;
+
+/**
+ * "Helped me stick to it?" — from someone who finished, while the block is
+ * closing. A count on a profile can only go up, so there is never a reason to
+ * avoid a buddy who might not make it.
+ */
+export function canGiveCredits(
+  block: { status: BlockFacts["status"]; goalDate: string },
+  giver: { finished: boolean | null; answered: boolean },
+  today: string,
+): RuleResult {
+  if (block.status !== "closing" || daysBetween(block.goalDate, today) > CREDIT_WINDOW_DAYS) {
+    return no("The week for this has passed.");
+  }
+  if (!giver.finished) return no("This is for members who finished the block.");
+  if (giver.answered) return no("You’ve already answered.");
+  return ok;
+}
+
+/** Who was there: everyone with enough sessions where both of us checked in. */
+export function creditable(
+  me: string,
+  sessions: { checkedIn: string[] }[],
+  min = CREDIT_MIN_SHARED,
+): string[] {
+  const shared = new Map<string, number>();
+  for (const s of sessions) {
+    if (!s.checkedIn.includes(me)) continue;
+    for (const other of new Set(s.checkedIn)) {
+      if (other !== me) shared.set(other, (shared.get(other) ?? 0) + 1);
+    }
+  }
+  return [...shared].filter(([, n]) => n >= min).map(([id]) => id).sort();
+}
+
+/** A finished block's slots can still be kept, or carried into the next block. */
+export const slotsUndecided = (goalDate: string, today: string) =>
+  today > goalDate && daysBetween(goalDate, today) <= KEEP_SLOTS_DAYS;

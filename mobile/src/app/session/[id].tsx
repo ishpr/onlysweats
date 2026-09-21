@@ -21,6 +21,7 @@ import {
   isLateCancel,
 } from "@/lib/format";
 import { byId } from "@/lib/lookup";
+import { reputationLine } from "@/lib/reputation";
 import {
   useBookingAction,
   useBookSeat,
@@ -360,11 +361,6 @@ export default function SessionDetail() {
 }
 
 /** No sessions yet means no record — not a perfect one. */
-function reputationLine(p: { completedCount: number; onTimePct: number; wouldJoinPct: number }) {
-  if (p.completedCount === 0) return "New on SamePace · no sessions yet";
-  return `${p.completedCount} completed · ${p.onTimePct}% on time · ${p.wouldJoinPct}% would join again`;
-}
-
 function Meta({ icon: Icon, label, value }: { icon: typeof Clock; label: string; value: string }) {
   const theme = useTheme();
   return (

@@ -89,6 +89,10 @@ export type Person = {
   completedCount: number;
   onTimePct: number;
   wouldJoinPct: number;
+  /** Training blocks finished: kept 75% of the sessions they had. */
+  blocksFinished: number;
+  /** Distinct members who said this person helped them stick to a block. */
+  helpedCount: number;
   abilities: MemberAbilities;
 };
 

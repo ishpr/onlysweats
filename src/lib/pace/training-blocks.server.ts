@@ -13,6 +13,11 @@ import {
   blockJoinable,
   blockWeek,
   blockWeeks,
+  canGiveCredits,
+  creditable,
+  CREDIT_WINDOW_DAYS,
+  KEEP_SLOTS_DAYS,
+  slotsUndecided,
   BLOCK_FIRST_WEEK_DAYS,
   BLOCK_JOIN_MIN_DAYS,
   BLOCK_MAX_SLOTS,
@@ -33,6 +38,7 @@ import {
 import {
   at,
   blockedBetween,
+  ensureNextOccurrence as repeatSeries,
   fourDigits,
   inviteToken,
   iso,
@@ -74,6 +80,7 @@ type BlockRow = {
   women_only: boolean;
   invite_code: string | null;
   status: TrainingBlockStatus;
+  ended_reason: "goal_date" | "too_few" | "removed" | null;
 };
 
 const factsOf = (b: BlockRow): BlockFacts => ({
@@ -87,7 +94,8 @@ const factsOf = (b: BlockRow): BlockFacts => ({
 const BLOCK_COLUMNS = `
   tb.id, tb.created_by, tb.activity, tb.goal_kind, tb.event_name,
   tb.starts_on::text as starts_on, tb.goal_date::text as goal_date,
-  tb.capacity, tb.visibility, tb.join_mode, tb.women_only, tb.invite_code, tb.status`;
+  tb.capacity, tb.visibility, tb.join_mode, tb.women_only, tb.invite_code, tb.status,
+  tb.ended_reason`;
 
 export type Progress = { planned: number; kept: number; keptMiles: number };
 
@@ -137,6 +145,13 @@ export type TrainingBlockDTO = {
   my: Progress & { finished: boolean | null };
   /** Everyone's sessions added up. */
   group: { planned: number; kept: number };
+  /**
+   * Set for a member once the goal date has passed. `creditsOpen`: I finished, the
+   * week for it is still running, and I haven't answered — `creditable` is who I
+   * can say "helped me stick to it" about. `slotsUndecided`: the weekly slots have
+   * stopped and can still be kept or carried into a next block.
+   */
+  ending: { creditsOpen: boolean; creditable: string[]; slotsUndecided: boolean } | null;
 };
 
 export type BlockGoalInput = {
@@ -180,8 +195,8 @@ async function occurrencesOf(sql: Sql, blockId: string): Promise<OccurrenceRow[]
       (select array_agg(b.participant_id) from bookings b
         where b.session_id = s.id
           and b.status in ('confirmed', 'completed', 'no_show', 'host_no_show', 'void')) as seated
-    from sessions s join series se on se.id = s.series_id
-    where se.training_block_id = ${blockId}
+    from sessions s
+    where s.training_block_id = ${blockId}
     order by s.start_at`;
 }
 
@@ -217,10 +232,12 @@ type MemberRow = {
   kept_count: number | null;
   kept_miles: string | number | null;
   finished: boolean | null;
+  credits_answered_at: Date | null;
 };
 
 const membersOf = (sql: Sql, blockId: string) => sql<MemberRow>`
-  select profile_id, joined_at, left_at, planned_count, kept_count, kept_miles, finished
+  select profile_id, joined_at, left_at, planned_count, kept_count, kept_miles, finished,
+    credits_answered_at
   from training_block_members where block_id = ${blockId} and left_at is null
   order by joined_at, profile_id`;
 
@@ -279,6 +296,8 @@ async function toDTO(sql: Sql, b: BlockRow, viewer: string, now: number): Promis
   // In the order the week runs, not the order they were created.
   slots.sort((a, b) => (a.nextStartAt ?? "9").localeCompare(b.nextStartAt ?? "9") || a.title.localeCompare(b.title));
 
+  const ending = isMember ? await endingOf(sql, b, viewer, members, now) : null;
+
   const requests = await sql<{ profile_id: string; status: string }>`
     select profile_id, status from training_block_requests where block_id = ${b.id}`;
   const asked = requests.find((r) => r.profile_id === viewer)?.status;
@@ -318,6 +337,54 @@ async function toDTO(sql: Sql, b: BlockRow, viewer: string, now: number): Promis
     slots,
     my: mine,
     group,
+    ending,
+  };
+}
+
+const past = (b: BlockRow) =>
+  b.status === "closing" || (b.status === "ended" && b.ended_reason === "goal_date");
+
+/** Who a member shared enough check-ins with, minus anyone blocked or gone. */
+async function creditableFor(sql: Sql, blockId: string, userId: string): Promise<string[]> {
+  const rows = await occurrencesOf(sql, blockId);
+  const ids = creditable(
+    userId,
+    rows.map((r) => ({ checkedIn: [...(r.host_in ? [r.host_id] : []), ...(r.joiners_in ?? [])] })),
+  );
+  if (ids.length === 0) return [];
+  const ok = await sql.query<{ id: string }>(
+    `select p.id from profiles p
+     where p.id = any($2) and p.deleted_at is null and p.suspended_at is null
+       and not exists (select 1 from blocks k
+         where (k.blocker_id = $1 and k.blocked_id = p.id)
+            or (k.blocked_id = $1 and k.blocker_id = p.id))
+     order by p.id`,
+    [userId, ids],
+  );
+  return ok.map((r) => r.id);
+}
+
+async function endingOf(
+  sql: Sql,
+  b: BlockRow,
+  viewer: string,
+  members: MemberRow[],
+  now: number,
+): Promise<TrainingBlockDTO["ending"]> {
+  if (!past(b)) return null;
+  const me = members.find((m) => m.profile_id === viewer);
+  const today = clusterDate(now);
+  const open = canGiveCredits(
+    { status: b.status, goalDate: b.goal_date },
+    { finished: me?.finished ?? null, answered: Boolean(me?.credits_answered_at) },
+    today,
+  ).ok;
+  const [attached] = await sql`
+    select 1 from series where training_block_id = ${b.id} and status = 'active' limit 1`;
+  return {
+    creditsOpen: open,
+    creditable: open ? await creditableFor(sql, b.id, viewer) : [],
+    slotsUndecided: Boolean(attached) && slotsUndecided(b.goal_date, today),
   };
 }
 
@@ -377,7 +444,14 @@ export async function getTrainingBlock(
   const block = await toDTO(sql, row, userId, now);
   // A profile is reachable from a session someone posted or joined — a block's
   // members are on its sessions. No one else is listed.
-  return { block, people: await people(sql, [...block.memberIds, ...block.requests]) };
+  return {
+    block,
+    people: await people(sql, [
+      ...block.memberIds,
+      ...block.requests,
+      ...(block.ending?.creditable ?? []),
+    ]),
+  };
 }
 
 /** The blocks I'm in: running ones, and ones that closed in the last two weeks. */
@@ -391,7 +465,8 @@ export async function listMyTrainingBlocks(
     `select ${BLOCK_COLUMNS} from training_blocks tb
      join training_block_members m on m.block_id = tb.id and m.profile_id = $1 and m.left_at is null
      where tb.status in ('forming', 'active')
-        or (tb.status = 'closing' and tb.goal_date >= $2::date - $3::int)
+        or ((tb.status = 'closing' or (tb.status = 'ended' and tb.ended_reason = 'goal_date'))
+            and tb.goal_date >= $2::date - $3::int)
      order by tb.goal_date, tb.id`,
     [userId, clusterDate(now), SHOW_CLOSED_DAYS],
   );
@@ -448,16 +523,30 @@ export async function blockFromSeries(
   input: BlockGoalInput,
   now = Date.now(),
 ): Promise<TrainingBlockDTO> {
-  const blockId = await sql.transaction(async (tx) => {
+  const blockId = await sql.transaction((tx) => blockFromSlots(tx, userId, [seriesId], input, now));
+  return toDTO(sql, await myBlockRow(sql, userId, blockId), userId, now);
+}
+
+/** Standing slots that share their regulars become one block. Returns its id. */
+async function blockFromSlots(
+  tx: Sql,
+  userId: string,
+  seriesIds: string[],
+  input: BlockGoalInput,
+  now: number,
+): Promise<string> {
+  let members: string[] = [];
+  let first: SessionRow | undefined;
+  for (const seriesId of seriesIds) {
     const [series] = await tx<{ status: string; training_block_id: string | null }>`
       select status, training_block_id from series where id = ${seriesId} for update`;
-    const members = (
+    const regulars = (
       await tx<{ profile_id: string }>`
         select profile_id from series_members where series_id = ${seriesId} and left_at is null
         order by joined_at, profile_id`
     ).map((m) => m.profile_id);
-    if (!series || !members.includes(userId)) throw new PaceError(404, "Not your standing slot.");
-    if (series.status !== "active" || members.length < 2) {
+    if (!series || !regulars.includes(userId)) throw new PaceError(404, "Not your standing slot.");
+    if (series.status !== "active" || regulars.length < 2) {
       throw new PaceError(409, "That standing slot has ended.");
     }
     if (series.training_block_id) {
@@ -466,37 +555,45 @@ export async function blockFromSeries(
     const [last] = await tx<SessionRow>`
       select * from sessions where series_id = ${seriesId} order by start_at desc limit 1`;
     if (!last) throw new PaceError(409, "That standing slot has ended.");
+    first ??= last;
+    members = [...new Set([...members, ...regulars])];
+  }
+  if (!first) throw new PaceError(409, "That standing slot has ended.");
 
-    const startsOn = clusterDate(now);
-    const verdict = validBlock({
-      activity: last.activity,
-      goalKind: input.goalKind,
-      eventName: input.eventName,
-      startsOn,
-      goalDate: input.goalDate,
-    });
-    if (!verdict.ok) throw new PaceError(400, verdict.error);
-
-    const id = newId("tb");
-    await tx`
-      insert into training_blocks (
-        id, created_by, activity, goal_kind, event_name, starts_on, goal_date, capacity,
-        visibility, join_mode, women_only, invite_code, status
-      ) values (
-        ${id}, ${userId}, ${last.activity}, ${input.goalKind}, ${input.eventName?.trim() || null},
-        ${startsOn}::date, ${input.goalDate}::date, ${Math.max(last.capacity, members.length)},
-        ${last.visibility}, ${last.join_mode}, ${last.women_only},
-        ${last.visibility === "unlisted" ? inviteToken() : null}, 'active'
-      )`;
-    for (const member of members) {
-      await tx`
-        insert into training_block_members (block_id, profile_id, joined_at)
-        values (${id}, ${member}, ${at(now)})`;
-    }
-    await tx`update series set training_block_id = ${id} where id = ${seriesId}`;
-    return id;
+  const startsOn = clusterDate(now);
+  const verdict = validBlock({
+    activity: first.activity,
+    goalKind: input.goalKind,
+    eventName: input.eventName,
+    startsOn,
+    goalDate: input.goalDate,
   });
-  return toDTO(sql, await myBlockRow(sql, userId, blockId), userId, now);
+  if (!verdict.ok) throw new PaceError(400, verdict.error);
+
+  const id = newId("tb");
+  await tx`
+    insert into training_blocks (
+      id, created_by, activity, goal_kind, event_name, starts_on, goal_date, capacity,
+      visibility, join_mode, women_only, invite_code, status
+    ) values (
+      ${id}, ${userId}, ${first.activity}, ${input.goalKind}, ${input.eventName?.trim() || null},
+      ${startsOn}::date, ${input.goalDate}::date, ${Math.min(4, Math.max(first.capacity, members.length))},
+      ${first.visibility}, ${first.join_mode}, ${first.women_only},
+      ${first.visibility === "unlisted" ? inviteToken() : null}, 'active'
+    )`;
+  for (const member of members) {
+    await tx`
+      insert into training_block_members (block_id, profile_id, joined_at)
+      values (${id}, ${member}, ${at(now)})`;
+  }
+  await tx.query("update series set training_block_id = $1 where id = any($2)", [id, seriesIds]);
+  // The weeks already on the calendar are this block's first.
+  await tx.query(
+    `update sessions set training_block_id = $1
+     where series_id = any($2) and status = 'open' and start_at > $3`,
+    [id, seriesIds, at(now)],
+  );
+  return id;
 }
 
 /**
@@ -598,13 +695,14 @@ async function createSlot(
   await tx`
     insert into sessions (
       id, host_id, venue_id, activity, title, detail, ability, ability_flex, route_url, start_at,
-      duration_min, capacity, visibility, join_mode, women_only, code, invite_code, series_id
+      duration_min, capacity, visibility, join_mode, women_only, code, invite_code, series_id,
+      training_block_id
     ) values (
       ${sessionId}, ${hostId}, ${input.venueId}, ${b.activity}, ${input.title.trim()},
       ${input.detail.trim()}, ${JSON.stringify(input.ability)}::jsonb, ${input.abilityFlex},
       ${input.routeUrl || null}, ${at(startAt)}, ${input.durationMin},
       ${Math.max(b.capacity, members.length)}, ${b.visibility}, ${b.join_mode}, ${b.women_only},
-      ${fourDigits()}, ${b.visibility === "unlisted" ? inviteToken() : null}, ${seriesId}
+      ${fourDigits()}, ${b.visibility === "unlisted" ? inviteToken() : null}, ${seriesId}, ${b.id}
     )`;
   for (const member of members.filter((m) => m !== hostId)) {
     const bookingId = newId("bk");
@@ -983,8 +1081,7 @@ export async function closeDueBlocks(sql: Sql, now = Date.now()): Promise<number
       and not exists (
         select 1 from bookings b
         join sessions s on s.id = b.session_id
-        join series se on se.id = s.series_id
-        where se.training_block_id = tb.id and b.status in ('pending', 'confirmed')
+        where s.training_block_id = tb.id and b.status in ('pending', 'confirmed')
           and s.start_at <= ${at(now)})`;
   for (const { id } of due) {
     await sql.transaction(async (tx) => {
@@ -1011,6 +1108,20 @@ export async function closeDueBlocks(sql: Sql, now = Date.now()): Promise<number
       await tx`update training_blocks set status = 'closing' where id = ${id}`;
     });
   }
+
+  // The week for goal credits runs out: the block is over.
+  await sql`
+    update training_blocks set status = 'ended', ended_reason = 'goal_date'
+    where status = 'closing'
+      and goal_date + ${CREDIT_WINDOW_DAYS}::int < ${clusterDate(now)}::date`;
+  // Slots nobody chose to keep end with it. They stopped at the goal date, so
+  // there is nothing on the calendar to call off.
+  await sql`
+    update series se set status = 'ended'
+    from training_blocks tb
+    where tb.id = se.training_block_id and se.status = 'active'
+      and tb.status in ('closing', 'ended')
+      and tb.goal_date + ${KEEP_SLOTS_DAYS}::int < ${clusterDate(now)}::date`;
 
   // A posted block nobody joined within two weeks is called off, with its sessions.
   const stale = await sql<{ id: string; created_by: string }>`
@@ -1043,4 +1154,167 @@ export async function closeDueBlocks(sql: Sql, now = Date.now()): Promise<number
     });
   }
   return due.length;
+}
+
+// ── The end of a block ───────────────────────────────────────────────────────
+
+/**
+ * "Helped me stick to it?" A finisher answers once, in the week after the goal
+ * date, with the buddies it's true of — possibly none. The receiver's profile
+ * counts distinct people, so a pair repeating blocks adds one, not one per block.
+ * Nobody is told who said it.
+ */
+export async function giveCredits(
+  sql: Sql,
+  userId: string,
+  blockId: string,
+  toIds: string[],
+  now = Date.now(),
+): Promise<TrainingBlockDTO> {
+  await closeDueBlocks(sql, now);
+  await sql.transaction(async (tx) => {
+    const b = await lockBlock(tx, blockId);
+    const me = (await membersOf(tx, blockId)).find((m) => m.profile_id === userId);
+    if (!b || !me) throw new PaceError(404, "No training block.");
+    const verdict = canGiveCredits(
+      { status: b.status, goalDate: b.goal_date },
+      { finished: me.finished, answered: Boolean(me.credits_answered_at) },
+      clusterDate(now),
+    );
+    if (!verdict.ok) throw new PaceError(409, verdict.error);
+    const eligible = new Set(await creditableFor(tx, blockId, userId));
+    const wanted = [...new Set(toIds)];
+    if (wanted.some((id) => !eligible.has(id))) {
+      throw new PaceError(409, "That’s someone you didn’t share enough sessions with.");
+    }
+
+    const label = goalLabel(b.goal_kind, b.event_name, 1, blockWeeks(b.starts_on, b.goal_date));
+    for (const toId of wanted) {
+      const [before] = await tx`
+        select 1 from goal_credits where from_id = ${userId} and to_id = ${toId} limit 1`;
+      await tx`
+        insert into goal_credits (id, block_id, from_id, to_id, created_at)
+        values (${newId("gc")}, ${blockId}, ${userId}, ${toId}, ${at(now)})
+        on conflict (block_id, from_id, to_id) do nothing`;
+      if (before) continue;
+      await tx`update profiles set helped_count = helped_count + 1 where id = ${toId}`;
+      await enqueue(
+        tx,
+        {
+          profileId: toId,
+          kind: "goal_credit",
+          category: "sessions",
+          title: "You helped someone finish",
+          body:
+            b.goal_kind === "consistency"
+              ? "Someone you trained with says you helped them stick to their block."
+              : `Someone you trained with for ${label} says you helped them stick to it.`,
+          url: "/you",
+        },
+        now,
+      );
+    }
+    await tx`
+      update training_block_members set credits_answered_at = ${at(now)}
+      where block_id = ${blockId} and profile_id = ${userId}`;
+  });
+  return toDTO(sql, await myBlockRow(sql, userId, blockId), userId, now);
+}
+
+/**
+ * Take back what one member said about another — when the giver blocks them, or a
+ * report the giver made about them is acted on. The count drops; nobody is told.
+ */
+export async function withdrawCredits(tx: Sql, fromId: string, toId: string) {
+  const gone = await tx`
+    delete from goal_credits where from_id = ${fromId} and to_id = ${toId} returning id`;
+  if (gone.length === 0) return;
+  await tx`
+    update profiles set helped_count = (
+      select count(distinct from_id) from goal_credits where to_id = ${toId})
+    where id = ${toId}`;
+}
+
+/** The slots of a finished block that nobody has decided about yet. */
+async function undecidedSlots(tx: Sql, b: BlockRow, userId: string, now: number): Promise<string[]> {
+  const mine = (await membersOf(tx, b.id)).some((m) => m.profile_id === userId);
+  if (!mine) throw new PaceError(404, "No training block.");
+  if (!past(b)) throw new PaceError(409, "This block is still running.");
+  const slots = await tx<{ id: string }>`
+    select id from series where training_block_id = ${b.id} and status = 'active'
+    order by created_at, id for update`;
+  if (slots.length === 0 || !slotsUndecided(b.goal_date, clusterDate(now))) {
+    throw new PaceError(409, "Those slots have already wound up.");
+  }
+  return slots.map((x) => x.id);
+}
+
+/**
+ * "Keep the slots running": the block is over, the habit isn't. Its slots go back
+ * to being plain standing slots — same people, same time, next week on the
+ * calendar — until someone leaves them. Any member's call, for two weeks.
+ */
+export async function keepBlockSlots(
+  sql: Sql,
+  userId: string,
+  blockId: string,
+  now = Date.now(),
+): Promise<void> {
+  await closeDueBlocks(sql, now);
+  await sql.transaction(async (tx) => {
+    const b = await lockBlock(tx, blockId);
+    if (!b) throw new PaceError(404, "No training block.");
+    const slots = await undecidedSlots(tx, b, userId, now);
+    await tx.query("update series set training_block_id = null where id = any($1)", [slots]);
+    for (const id of slots) await repeatSeries(tx, id, now);
+    await tellTheOthers(tx, b, userId, now, {
+      kind: "block_slots_kept",
+      title: "Your weekly slots are staying",
+      body: "The block is done; the sessions carry on, same time next week. Leave any slot you’re finished with.",
+      url: "/",
+    });
+  });
+}
+
+/**
+ * "Start the next block": the same people and the same weekly slots, aimed at a
+ * new goal and date. The streaks carry over with the slots.
+ */
+export async function nextTrainingBlock(
+  sql: Sql,
+  userId: string,
+  blockId: string,
+  input: BlockGoalInput,
+  now = Date.now(),
+): Promise<TrainingBlockDTO> {
+  await closeDueBlocks(sql, now);
+  const nextId = await sql.transaction(async (tx) => {
+    const b = await lockBlock(tx, blockId);
+    if (!b) throw new PaceError(404, "No training block.");
+    const slots = await undecidedSlots(tx, b, userId, now);
+    await tx.query("update series set training_block_id = null where id = any($1)", [slots]);
+    const id = await blockFromSlots(tx, userId, slots, input, now);
+    for (const seriesId of slots) await repeatSeries(tx, seriesId, now);
+    await tellTheOthers(tx, b, userId, now, {
+      kind: "block_next",
+      title: "Your next training block is on",
+      body: "Same people, same weekly slots, a new date. You’re in — leave it if this one isn’t for you.",
+      url: `/training-block/${id}`,
+    });
+    return id;
+  });
+  return toDTO(sql, await myBlockRow(sql, userId, nextId), userId, now);
+}
+
+async function tellTheOthers(
+  tx: Sql,
+  b: BlockRow,
+  userId: string,
+  now: number,
+  n: { kind: string; title: string; body: string; url: string },
+) {
+  for (const m of await membersOf(tx, b.id)) {
+    if (m.profile_id === userId) continue;
+    await enqueue(tx, { profileId: m.profile_id, category: "sessions", ...n }, now);
+  }
 }

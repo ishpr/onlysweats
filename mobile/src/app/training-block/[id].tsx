@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, Pressable, Share, StyleSheet, View } from "react-native";
 
+import { BlockEnding } from "@/components/block-ending";
 import { ProgressRing } from "@/components/progress-ring";
 import { ReportLink } from "@/components/report-link";
 import { venueImage } from "@/components/session-card";
@@ -13,6 +14,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { SITE_URL } from "@/lib/config";
 import { daysUntil, formatDate, formatWhen } from "@/lib/format";
 import { byId } from "@/lib/lookup";
+import { reputationLine } from "@/lib/reputation";
 import {
   useCloneTrainingBlock,
   useJoinTrainingBlock,
@@ -23,7 +25,7 @@ import {
   useTrainingBlock,
   useVenues,
 } from "@/lib/queries";
-import { ACTIVITIES, type Person, type TrainingBlock } from "@/lib/types";
+import { ACTIVITIES, type TrainingBlock } from "@/lib/types";
 
 /**
  * A training block: standing slots with a finish line. Progress is the sessions I
@@ -150,13 +152,7 @@ export default function TrainingBlockPage() {
         </Notice>
       )}
 
-      {block.status === "closing" && (
-        <Notice>
-          {block.my.finished
-            ? `You finished it: ${block.my.kept} of ${block.my.planned} sessions kept.`
-            : `This block reached its date. You kept ${block.my.kept} of ${block.my.planned} sessions.`}
-        </Notice>
-      )}
+      {member && <BlockEnding block={block} people={people} />}
 
       {member &&
         block.requests.map((memberId) => (
@@ -378,11 +374,6 @@ function whenLine(block: TrainingBlock) {
           ? `${left} day${left === 1 ? "" : "s"} to go`
           : `${Math.round(left / 7)} weeks to go`;
   return `Week ${block.weekNumber} of ${block.weeks} · ${toGo} · ${formatDate(block.goalDate)}`;
-}
-
-function reputationLine(p: Person) {
-  if (p.completedCount === 0) return "New on SamePace · no sessions yet";
-  return `${p.completedCount} completed · ${p.onTimePct}% on time · ${p.wouldJoinPct}% would join again`;
 }
 
 const styles = StyleSheet.create({

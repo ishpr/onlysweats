@@ -97,6 +97,10 @@ const postBlockBody = blockGoalBody.extend({
   slots: z.array(blockSlotBody).min(1).max(4),
 });
 const inviteBody = z.object({ inviteCode: z.string().optional() });
+const nextBody = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("keep_slots") }),
+  blockGoalBody.extend({ action: z.literal("next_block") }),
+]);
 
 const paceRange = z
   .object({ paceMinSec: z.number().min(240).max(1200), paceMaxSec: z.number().min(240).max(1200) })
@@ -338,6 +342,24 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
   ["POST", "/training-blocks/:id/requests/:memberId/decline", async ({ sql, userId, params }) => ({
     block: await blocks.resolveBlockRequest(sql, userId, params.id, params.memberId, "decline"),
   })],
+  // "Helped me stick to it?" — a finisher's one answer, in the week after the goal date.
+  ["POST", "/training-blocks/:id/credits", async ({ sql, userId, params, body }) => ({
+    block: await blocks.giveCredits(
+      sql,
+      userId,
+      params.id,
+      z.object({ toIds: z.array(z.string().min(1)).max(8) }).parse(body).toIds,
+    ),
+  })],
+  // What becomes of a finished block's slots: they carry on, or start the next block.
+  ["POST", "/training-blocks/:id/next", async ({ sql, userId, params, body }) => {
+    const next = nextBody.parse(body);
+    if (next.action === "keep_slots") {
+      await blocks.keepBlockSlots(sql, userId, params.id);
+      return { ok: true };
+    }
+    return { block: await blocks.nextTrainingBlock(sql, userId, params.id, next) };
+  }],
   ["POST", "/training-blocks/:id/clone", async ({ sql, userId, params, body }) => ({
     block: await blocks.cloneTrainingBlock(sql, userId, params.id, inviteBody.parse(body ?? {})),
   })],
