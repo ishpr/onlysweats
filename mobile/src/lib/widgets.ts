@@ -7,6 +7,7 @@
  * definitions register with it at import, so they're required lazily — a build
  * made before the module was added just doesn't have these surfaces.
  */
+import { requireOptionalNativeModule } from "expo";
 import { Platform } from "react-native";
 
 import { formatWhen } from "./format";
@@ -27,6 +28,9 @@ function load(): Surfaces | null {
   if (cached !== undefined) return cached;
   cached = null;
   if (Platform.OS !== "ios") return cached;
+  // Ask before loading: in development a failed `require` is reported as fatal by
+  // the bundler before any try/catch here could see it.
+  if (!requireOptionalNativeModule("ExpoWidgets")) return cached;
   try {
     /* eslint-disable @typescript-eslint/no-require-imports -- optional native module */
     const { after } = require("expo-widgets") as typeof import("expo-widgets");

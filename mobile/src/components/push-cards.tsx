@@ -31,7 +31,6 @@ export function NotificationSettings({ me }: { me: Me }) {
 
   return (
     <Card>
-      <T variant="label">Notifications</T>
       {push.registration === "failed" && <RegistrationRetry push={push} />}
       {push.status === "granted" && push.registration !== "failed" && (
         <T variant="caption" color="textSecondary">

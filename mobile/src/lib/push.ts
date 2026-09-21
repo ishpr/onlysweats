@@ -6,6 +6,7 @@
  * development build made before it was added. It is loaded lazily, and when it's
  * missing everything here reports "unavailable" instead of throwing.
  */
+import { requireOptionalNativeModule } from "expo";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Device from "expo-device";
 import * as SecureStore from "expo-secure-store";
@@ -24,6 +25,8 @@ function load(): Notifications | null {
   cached = null;
   if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return cached;
   if (Platform.OS !== "ios" && Platform.OS !== "android") return cached;
+  // Ask before loading: a failed `require` is fatal in development (see widgets.ts).
+  if (!requireOptionalNativeModule("ExpoPushTokenManager")) return cached;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module
     const mod = require("expo-notifications") as Notifications;

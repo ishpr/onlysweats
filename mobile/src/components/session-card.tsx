@@ -16,72 +16,85 @@ import { ACTIVITIES, type Session, type Venue } from "@/lib/types";
 export const venueImage = (venue?: Venue) =>
   venue ? { uri: `${API_URL}${venue.image}` } : undefined;
 
+/** What a listing looks like. Shared by the feed and the Post screen's preview. */
+export type SessionFace = Pick<
+  Session,
+  | "activity"
+  | "title"
+  | "abilityLabel"
+  | "abilityFlex"
+  | "startAt"
+  | "durationMin"
+  | "womenOnly"
+  | "visibility"
+> & { seatsLeft: number; substituteSeat?: boolean; seriesId?: string | null };
+
+const seatsLabel = (n: number) => (n === 0 ? "Full" : `${n} ${n === 1 ? "seat" : "seats"}`);
+
+export function SessionCardFace({ session, venue }: { session: SessionFace; venue?: Venue }) {
+  const theme = useTheme();
+  const live = inCheckinWindow(session.startAt);
+  return (
+    <View
+      style={[styles.card, live && styles.featured, { backgroundColor: theme.backgroundElement }]}
+    >
+      <Image
+        source={venueImage(venue)}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        transition={200}
+      />
+      <LinearGradient
+        colors={[
+          withAlpha(theme.background, 0.1),
+          withAlpha(theme.background, 0.55),
+          theme.background,
+        ]}
+        locations={[0, 0.5, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.top}>
+        <View style={styles.chips}>
+          <Tag label={ACTIVITIES[session.activity].label} />
+          {live && <Tag label="Live" tone="move" />}
+          {session.womenOnly && <Tag label="Women-only" />}
+          {session.substituteSeat && <Tag label="Substitute seat" />}
+          {session.seriesId && !session.substituteSeat && <Tag label="Standing slot" />}
+          {session.abilityFlex === "flexible" && <Tag label="Flexible level" />}
+          {session.visibility === "unlisted" && <Tag label="Unlisted" />}
+        </View>
+      </View>
+      <View>
+        <T variant="eyebrow" style={{ color: withAlpha(theme.text, 0.75) }}>
+          {formatWhen(session.startAt)}
+        </T>
+        <T variant="heading" style={styles.title}>
+          {session.title || "Give it a title"}
+        </T>
+        <T variant="label" style={styles.level}>
+          {session.abilityLabel}
+        </T>
+        <View style={styles.meta}>
+          <Meta icon={MapPin} text={venue?.name ?? "—"} />
+          <Meta icon={Clock} text={formatDuration(session.durationMin)} />
+          <Meta icon={Users} text={seatsLabel(session.seatsLeft)} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
 /**
  * Discovery shows the workout, the level, the time and the place — never a face
  * (PRD v0.3 §8). Who posted it is on the session itself.
  */
 export function SessionCard({ session, venue }: { session: Session; venue?: Venue }) {
-  const theme = useTheme();
-  const live = inCheckinWindow(session.startAt);
-  const seats =
-    session.seatsLeft === 0
-      ? "Full"
-      : `${session.seatsLeft} ${session.seatsLeft === 1 ? "seat" : "seats"}`;
-  const summary = `${session.title}. ${session.abilityLabel}. ${formatWhen(session.startAt)} at ${venue?.name ?? "the pin"}. ${seats}.`;
+  const summary = `${session.title}. ${session.abilityLabel}. ${formatWhen(session.startAt)} at ${venue?.name ?? "the pin"}. ${seatsLabel(session.seatsLeft)}.`;
   return (
     <Link href={{ pathname: "/session/[id]", params: { id: session.id } }} asChild>
       {/* The press animation lives in PressScale's animated style, which survives `Link asChild`. */}
       <PressScale accessibilityRole="button" accessibilityLabel={summary} scaleTo={0.98}>
-        <View
-          style={[
-            styles.card,
-            live && styles.featured,
-            { backgroundColor: theme.backgroundElement },
-          ]}
-        >
-          <Image
-            source={venueImage(venue)}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            transition={200}
-          />
-          <LinearGradient
-            colors={[
-              withAlpha(theme.background, 0.1),
-              withAlpha(theme.background, 0.55),
-              theme.background,
-            ]}
-            locations={[0, 0.5, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.top}>
-            <View style={styles.chips}>
-              <Tag label={ACTIVITIES[session.activity].label} />
-              {live && <Tag label="Live" tone="move" />}
-              {session.womenOnly && <Tag label="Women-only" />}
-              {session.substituteSeat && <Tag label="Substitute seat" />}
-              {session.seriesId && !session.substituteSeat && <Tag label="Standing slot" />}
-              {session.abilityFlex === "flexible" && <Tag label="Flexible level" />}
-              {session.visibility === "unlisted" && <Tag label="Unlisted" />}
-            </View>
-          </View>
-          <View>
-            <T variant="eyebrow" style={{ color: withAlpha(theme.text, 0.75) }}>
-              {formatWhen(session.startAt)}
-            </T>
-            <T variant="heading" style={styles.title}>
-              {session.title}
-            </T>
-            <T variant="label" style={styles.level}>
-              {session.abilityLabel}
-            </T>
-            <View style={styles.meta}>
-              <Meta icon={MapPin} text={venue?.name ?? "—"} />
-              <Meta icon={Clock} text={formatDuration(session.durationMin)} />
-              <Meta icon={Users} text={seats} />
-            </View>
-          </View>
-        </View>
+        <SessionCardFace session={session} venue={venue} />
       </PressScale>
     </Link>
   );
