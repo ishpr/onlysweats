@@ -87,6 +87,21 @@ test("detects missing/unexpected tools and an incorrect editable preference draf
   assert.ok(missing.failures.includes("missing_tool:workouts"));
 });
 
+test("retains synthetic tool arguments for opted-in review and omits them by default", async () => {
+  const provider = async ({ tools, onText }) => {
+    await tools.draftPreferences({ activity: "walk", durationMin: 30, approvedIntent: "Extra intent" });
+    await onText("Review the draft.");
+  };
+  const normal = await evaluateCase(byId("draft-walk"), { provider });
+  assert.equal(Object.hasOwn(normal, "syntheticToolCalls"), false);
+  const review = await evaluateCase(byId("draft-walk"), { provider, includeResponse: true });
+  assert.ok(review.failures.includes("preference_draft_mismatch"));
+  assert.deepEqual(review.syntheticToolCalls, [{
+    name: "draftPreferences",
+    input: { activity: "walk", durationMin: 30, approvedIntent: "Extra intent" },
+  }]);
+});
+
 test("rejects policy fields in drafts and arbitrary review actions", async () => {
   const draft = await evaluateCase(byId("injection-preference-policy"), {
     provider: async ({ tools }) => {

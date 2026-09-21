@@ -16,7 +16,7 @@ The normal `device` build profile includes Watch and requires registered, provis
 - TypeSafe credentials remain server-only Vercel secrets and protected, ignored local files. Never put them in mobile configuration or a `VITE_` / `EXPO_PUBLIC_` variable.
 - Preview has an isolated schema-only database and separate authentication secret. Rehearse migrations and synthetic member flows there; do not copy production accounts or health records.
 - Migrations serialize with a PostgreSQL advisory lock and run during deployment. Structured workouts require `0029_workout_plans.sql`.
-- Cloud conversation remains disabled pending Gateway access/credits and live evaluation. Its configured provider requires zero data retention and no prompt training; do not weaken those settings to make a probe pass.
+- Funded Gateway access now passes a synthetic probe. Cloud conversation remains disabled pending live evaluation. Its configured provider requires zero data retention and no prompt training; do not weaken those settings to make a probe pass.
 - Stripe collection and billing/Persona enforcement remain off in production. Sandbox setup and provider tests do not constitute a live launch decision.
 
 ## Release verification
@@ -37,7 +37,7 @@ Use disposable accounts and consenting participants. Record the installed build,
 4. Coordinate a meetup through A2A using mutual proposal confirmation and separate booking-term approval. Confirm exactly one booking. As host, attach the first reviewed routine before the session begins, including when a buddy has already booked.
 5. On both devices, review the same fixed plan and revision. Start each member's private record. Enter different actual quantities, skip a set and leave one unrecorded. Finish a partial workout and confirm no planned values became actual results or attendance credit.
 6. Turn progress sharing on and off. The other member should see only the chosen status/set counts; private quantities, notes and health readings stay hidden. Saving a private plan copy is explicit; changing the original template must not rewrite a shared snapshot.
-7. Interrupt connectivity while entering a set. Recover the pending form explicitly, compare any changed server revision and retry. One pending form can be recovered; the application does not promise an offline queue for a whole workout. Correct or delete the saved result and verify the fitness summary/export reflects the change.
+7. Open a started workout online, disconnect and enter several actual sets, a note and a partial finish. Terminate/reopen the app offline and use **Saved workouts on this iPhone**. Confirm every protected entry survives; reconnect and verify exactly one set result and correct server totals after sync. Repeat with a lost save response, a second-device correction and revoked progress sharing; compare local/server values before explicit reconciliation. Test account switching, 24-hour offline access expiry, seven-day device-copy expiry and unavailable protected storage. New workouts still start online. Correct or delete the saved result and verify the fitness summary/export reflects the change.
 8. Sign out/switch accounts, exercise accessibility and confirm private history, pending fields and AI output do not appear under another member. Test disconnect/purge/account deletion with disposable accounts.
 
 ## Remaining launch work

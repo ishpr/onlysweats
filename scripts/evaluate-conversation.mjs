@@ -308,7 +308,7 @@ export async function evaluateCase(
     responseChars: text.length,
     responseSha256: createHash("sha256").update(text).digest("hex"),
     qualitativeReview: "unreviewed",
-    ...(includeResponse ? { syntheticResponse: text } : {}),
+    ...(includeResponse ? { syntheticResponse: text, syntheticToolCalls: calls } : {}),
   };
 }
 

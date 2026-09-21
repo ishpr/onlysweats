@@ -139,6 +139,14 @@ export default function Home() {
         />
       )}
 
+      {(!me.data || me.error || mine.error) && (
+        <Button
+          label="Saved workouts on this iPhone"
+          variant="soft"
+          onPress={() => router.push("/workout-plans")}
+        />
+      )}
+
       {mine.isPending ? (
         <StateView loading rows={2} />
       ) : mine.error ? (

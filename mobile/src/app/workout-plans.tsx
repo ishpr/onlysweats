@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
+import {
+  OfflineWorkoutMember,
+  type OfflineWorkoutMemberProps,
+} from "@/components/workout-plans/offline-member";
+import { offlineWorkouts } from "@/lib/workout-plans/offline";
+import { usePrivateAction } from "@/hooks/use-private-action";
+import { useOfflineRuns } from "@/lib/workout-plans/use-offline-runs";
+import { hasPendingRun, unsyncedSetCount } from "@/lib/workout-plans/offline-data";
 import { SectionTitle } from "@/components/list";
 import { Button, Card, Notice, Screen, StateView, T } from "@/components/ui";
 import { formatWhen } from "@/lib/format";
@@ -9,11 +16,19 @@ import { useRefreshOnFocus } from "@/lib/queries";
 import type { WorkoutPlanPage, WorkoutRunPage } from "../../../shared/workout-plans";
 
 export default function WorkoutPlansRoute() {
-  return <PrivateMember component={WorkoutPlans} />;
+  return <OfflineWorkoutMember component={WorkoutPlans} />;
 }
-function WorkoutPlans({ member, session }: PrivateMemberProps) {
+function WorkoutPlans({
+  member,
+  session,
+  offlineIdentity,
+  offlineStorageAvailable,
+}: OfflineWorkoutMemberProps) {
   useRefreshOnFocus();
+  const local = useOfflineRuns(member.id, session, offlineStorageAvailable);
   const router = useRouter();
+  const action = usePrivateAction(session);
+  const [discardId, setDiscardId] = useState<string | null>(null);
   const { sessionId } = useLocalSearchParams<{ sessionId?: string }>();
   const [cursor, setCursor] = useState<string | null>(null);
   const [runCursor, setRunCursor] = useState<string | null>(null);
@@ -64,6 +79,80 @@ function WorkoutPlans({ member, session }: PrivateMemberProps) {
           router.push({ pathname: "/workout-plan/new", params: sessionId ? { sessionId } : {} })
         }
       />
+      {!offlineStorageAvailable && (
+        <Notice>
+          Protected offline storage is unavailable. Opened workouts require a connection to save.
+        </Notice>
+      )}
+      {offlineIdentity && (
+        <Notice>
+          Limited cached mode: only workouts previously opened on this iPhone are available. Connect
+          within 24 hours of the last account check.
+        </Notice>
+      )}
+      {local.runs.length > 0 && <SectionTitle>Saved on this iPhone</SectionTitle>}
+      {local.runs.map((entry) => (
+        <Card key={entry.base.id}>
+          {entry.readBlocked ? (
+            <Notice>
+              This saved workout needs an online access check. Your device copy is retained.
+            </Notice>
+          ) : (
+            <>
+              <T variant="heading">{entry.base.snapshot.title}</T>
+              <T color="textSecondary">
+                {entry.draft.finish ? "Finished" : "In progress"} ·{" "}
+                {entry.draft.results.filter((item) => item.status === "completed").length} sets
+                recorded
+              </T>
+              <T variant="caption">
+                {hasPendingRun(entry)
+                  ? `${unsyncedSetCount(entry)} set changes and workout details waiting to sync`
+                  : "Saved copy available offline"}
+                {entry.active ? " · Pending set fields" : ""}
+              </T>
+              {(entry.conflict || entry.blocked) && (
+                <Notice>Review needed before sync can continue.</Notice>
+              )}
+            </>
+          )}
+          <Button
+            label="Open saved workout"
+            variant="soft"
+            onPress={() =>
+              router.push({ pathname: "/workout-run/[id]", params: { id: entry.base.id } })
+            }
+          />
+          <Button
+            label="Remove this device copy"
+            variant="ghost"
+            disabled={action.busy}
+            onPress={() => setDiscardId(entry.base.id)}
+          />
+          {discardId === entry.base.id && (
+            <>
+              <Notice>
+                Remove this iPhone’s copy and any unsynced sets or fields? Saved server results
+                remain. Unsynced entries cannot be recovered after removal.
+              </Notice>
+              <Button
+                label="Discard this device copy"
+                variant="danger"
+                disabled={action.busy}
+                onPress={() =>
+                  void action.run(
+                    () => offlineWorkouts.remove(member.id, entry.base.id, session.isCurrent),
+                    () => setDiscardId(null),
+                  )
+                }
+              />
+              <Button label="Keep it" variant="ghost" onPress={() => setDiscardId(null)} />
+            </>
+          )}
+        </Card>
+      ))}
+      {action.error && <Notice tone="danger">{action.error}</Notice>}
+      {local.error && offlineStorageAvailable && <Notice>{local.error.message}</Notice>}
       <SectionTitle>Your private templates</SectionTitle>
       {(plans.isPending || plans.error) && (
         <StateView
