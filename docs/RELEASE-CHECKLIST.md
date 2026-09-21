@@ -25,6 +25,8 @@ Use the dated evidence for the current implementation: [intelligence checks](eva
 
 The [weekly activity follow-up and goal audit](evaluations/fitness-summary-release-2026-09-21.md) record the subsequent totals fix and remaining external acceptance.
 
+The [recovery and coach-entry follow-up](evaluations/recovery-and-entry-2026-09-21.md) records physical Terms acceptance, combined restart/payment recovery tests and rendered coaching access with matching disabled or unavailable.
+
 For code changes, run relevant tests, root/mobile types and lint, web build and mobile export. Exercise database races on an explicitly disposable PostgreSQL database. `scripts/check-workout-plans-http.mjs` runs the structured-workout flow against its own loopback server and in-memory database, creates synthetic members and deletes them afterward. Its passing result does not prove the physical interface works.
 
 ## Physical member flow
@@ -32,7 +34,7 @@ For code changes, run relevant tests, root/mobile types and lint, web build and 
 Use disposable accounts and consenting participants. Record the installed build, server commit, device/OS and observed outcomes.
 
 1. Sign in and select Apple Health permissions. Import a known source workout; compare its time, distance, duration, readings and units with Health. Resync and verify source changes/deletions, interrupted sync and denied readings without duplicates or invented values.
-2. Correct a title/note, resync and verify the correction survives. Export through the iOS share sheet. Separately create, correct and delete a manual exercise. Opt into Jev, review a draft and save explicitly; revoke that permission and confirm manual logging remains available.
+2. Correct a title/note, resync and verify the correction survives. Export through the iOS share sheet. Separately create, correct and delete a manual exercise. With the current Terms-established Jev permission (or a previously reviewed choice), review a draft and save explicitly; revoke that permission and confirm manual logging remains available.
 3. Create a private routine with multiple exercises, instructions, varying sets, repetition/time targets and rest. Review an on-device suggestion and a photographed prescription. Check every requested phase and numeric target; neither path proves exercise happened.
 4. Coordinate a meetup through A2A using mutual proposal confirmation and separate booking-term approval. Confirm exactly one booking. As host, attach the first reviewed routine before the session begins, including when a buddy has already booked.
 5. On both devices, review the same fixed plan and revision. Start each member's private record. Enter different actual quantities, skip a set and leave one unrecorded. Finish a partial workout and confirm no planned values became actual results or attendance credit.

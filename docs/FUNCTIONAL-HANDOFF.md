@@ -14,6 +14,8 @@ The functional continuation in [PR #35](https://github.com/ishpr/onlysweats/pull
 
 The built-in coach now uses `zai/glm-5.3-flash` through Vercel. The normal coaching entry replaces the front-facing local/cloud selector. Required product Terms acceptance includes built-in coaching and relevant history for new members, while existing opt-outs and older on-request grants remain intact. There is no separate AI opt-in screen. HealthKit and Health sync permissions still control connected data. No native binary changes are needed for this update.
 
+The member confirmed current product Terms acceptance and return to Home on the physical iPhone. The [recovery and entry follow-up](evaluations/recovery-and-entry-2026-09-21.md) preserves nine additional cross-component recovery checks and keeps the home coach entry available independently of buddy-matching setup. The requested Home spacing adjustment raises the greeting and brings the workout shortcut cards higher in the viewport. Full physical coaching/workout acceptance remains pending.
+
 Apple sign-in was confirmed successful by the user on the physical iPhone after PR #33. The refreshed physical-phone view also showed the current home screen and imported Health data. These observations do not complete the HealthKit or workout acceptance checklist. On-device plan generation has not yet been confirmed on this phone.
 
 The signed [phone artifact e01757e4](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/e01757e4-d659-442b-861a-dd611db94636) contains native plan generation. The installed app's generic version/build metadata did not identify its exact EAS package, so the pending on-device capability check is still necessary.

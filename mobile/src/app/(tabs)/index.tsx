@@ -110,6 +110,7 @@ export default function Home() {
   return (
     <Screen
       hidesTabBar
+      contentStyle={styles.content}
       onRefresh={refresh}
       header={
         <>
@@ -547,6 +548,7 @@ function weeksToGo(goalDate: string) {
 }
 
 const styles = StyleSheet.create({
+  content: { paddingTop: Spacing.half, gap: Spacing.two },
   planRow: { alignItems: "center", gap: Spacing.two },
   planIcon: {
     width: 44,
