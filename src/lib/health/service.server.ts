@@ -162,13 +162,20 @@ export async function sync(
       throw new HealthError(400, "A record cannot end in the future.");
     }
     if (page.records.length) {
-      await tx`
+      const changed = await tx`
         insert into health_records (user_id, type, external_id, record, imported_at)
         select ${userId}, ${page.type}, (incoming.record->>'externalId')::uuid, incoming.record, ${new Date(now).toISOString()}::timestamptz
         from jsonb_array_elements(${JSON.stringify(page.records)}::jsonb) as incoming(record)
         on conflict (user_id, type, external_id) do update set record = excluded.record,
           revision = health_records.revision + case when health_records.record is distinct from excluded.record then 1 else 0 end
-        where health_records.record is not null`;
+        where health_records.record is not null and health_records.record is distinct from excluded.record
+        returning external_id`;
+      // Late readings and source corrections change the same summary used by the
+      // coach. Fence in-flight replies and saved history just as source removal does.
+      // Reimporting identical records (or a tombstoned UUID) is not a change.
+      if (changed.length && (page.type === "workout" || page.type === "heart_rate")) {
+        await forgetFitnessConversation(tx, userId);
+      }
     }
     // Deletion wins if the source puts a sample in both arrays in a page.
     if (page.deletedIds.length) {
