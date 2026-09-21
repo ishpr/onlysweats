@@ -19,13 +19,7 @@ type Fetch = typeof fetch;
 export type Deps = { env?: Env; fetch?: Fetch };
 
 export type VerificationStatus =
-  | "created"
-  | "pending"
-  | "needs_review"
-  | "approved"
-  | "declined"
-  | "failed"
-  | "expired";
+  "created" | "pending" | "needs_review" | "approved" | "declined" | "failed" | "expired";
 
 const PERSONA_API = "https://api.withpersona.com/api/v1";
 const PERSONA_VERSION = "2023-01-05";
@@ -218,11 +212,18 @@ export async function startVerification(
     where profile_id = ${userId} and tier = ${tier} and status in ('declined', 'failed')
       and created_at > ${at(now - DECLINE_WINDOW_MS)}`;
   if (Number(n) >= MAX_DECLINES) {
-    throw new PaceError(409, "That’s three tries. Email support@samepace.app and we’ll sort it out.");
+    throw new PaceError(
+      409,
+      "That’s three tries. Email support@samepace.app and we’ll sort it out.",
+    );
   }
 
   if (provider === "dev") {
-    if (open && (open.status === "created" || open.status === "pending") && open.provider === "dev") {
+    if (
+      open &&
+      (open.status === "created" || open.status === "pending") &&
+      open.provider === "dev"
+    ) {
       return { id: open.id, tier, provider, url: null };
     }
     const id = newId("ver");
@@ -444,7 +445,9 @@ export async function verifyPersonaSignature(
 ): Promise<boolean> {
   if (!header || secrets.length === 0) return false;
   for (const pair of header.trim().split(/\s+/)) {
-    const parts = Object.fromEntries(pair.split(",").map((kv) => kv.split("=") as [string, string]));
+    const parts = Object.fromEntries(
+      pair.split(",").map((kv) => kv.split("=") as [string, string]),
+    );
     const t = Number(parts.t);
     if (!Number.isFinite(t) || !parts.v1) continue;
     if (Math.abs(now - t * 1000) > WEBHOOK_TOLERANCE_MS) continue;

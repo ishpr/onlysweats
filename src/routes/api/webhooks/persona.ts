@@ -15,7 +15,10 @@ async function handle({ request }: { request: Request }) {
     rawBody,
     request.headers.get("persona-signature"),
   );
-  return Response.json({ ok: result.status === 200, outcome: result.outcome }, { status: result.status });
+  return Response.json(
+    { ok: result.status === 200, outcome: result.outcome },
+    { status: result.status },
+  );
 }
 
 export const Route = createFileRoute("/api/webhooks/persona")({

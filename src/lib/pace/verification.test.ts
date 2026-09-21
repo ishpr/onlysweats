@@ -80,7 +80,9 @@ function fakePersona() {
     if (method === "POST" && action === "resume") return reply(id, `sess_resumed_${id}`);
     if (method === "GET") return reply(id);
     if (method === "DELETE") {
-      return id === "inq_fails" ? new Response("no", { status: 500 }) : new Response(null, { status: 204 });
+      return id === "inq_fails"
+        ? new Response("no", { status: 500 })
+        : new Response(null, { status: 204 });
     }
     return new Response("?", { status: 404 });
   }) as typeof fetch;
@@ -88,7 +90,9 @@ function fakePersona() {
 }
 
 const sign = (body: string, at: number, secret = SECRET) =>
-  `t=${Math.floor(at / 1000)},v1=${createHmac("sha256", secret).update(`${Math.floor(at / 1000)}.${body}`).digest("hex")}`;
+  `t=${Math.floor(at / 1000)},v1=${createHmac("sha256", secret)
+    .update(`${Math.floor(at / 1000)}.${body}`)
+    .digest("hex")}`;
 
 let eventN = 0;
 function event(inquiryId: string, referenceId: string, status: string, id?: string) {
@@ -100,7 +104,11 @@ function event(inquiryId: string, referenceId: string, status: string, id?: stri
       attributes: {
         name: `inquiry.${status}`,
         payload: {
-          data: { type: "inquiry", id: inquiryId, attributes: { status, "reference-id": referenceId } },
+          data: {
+            type: "inquiry",
+            id: inquiryId,
+            attributes: { status, "reference-id": referenceId },
+          },
         },
       },
     },
@@ -120,18 +128,35 @@ describe("the webhook signature", () => {
 
   it("takes a fresh signature made with our secret, and nothing else", async () => {
     assert.equal(await v.verifyPersonaSignature(body, sign(body, now), [SECRET], now), true);
-    assert.equal(await v.verifyPersonaSignature(`${body} `, sign(body, now), [SECRET], now), false, "body changed");
-    assert.equal(await v.verifyPersonaSignature(body, sign(body, now, "other"), [SECRET], now), false);
+    assert.equal(
+      await v.verifyPersonaSignature(`${body} `, sign(body, now), [SECRET], now),
+      false,
+      "body changed",
+    );
+    assert.equal(
+      await v.verifyPersonaSignature(body, sign(body, now, "other"), [SECRET], now),
+      false,
+    );
     assert.equal(await v.verifyPersonaSignature(body, null, [SECRET], now), false);
     assert.equal(await v.verifyPersonaSignature(body, "garbage", [SECRET], now), false);
-    assert.equal(await v.verifyPersonaSignature(body, sign(body, now), [], now), false, "no secret, no entry");
+    assert.equal(
+      await v.verifyPersonaSignature(body, sign(body, now), [], now),
+      false,
+      "no secret, no entry",
+    );
   });
 
   it("refuses a captured one replayed later, and survives a secret rotation", async () => {
-    assert.equal(await v.verifyPersonaSignature(body, sign(body, now - 6 * 60_000), [SECRET], now), false);
+    assert.equal(
+      await v.verifyPersonaSignature(body, sign(body, now - 6 * 60_000), [SECRET], now),
+      false,
+    );
     const rotating = `${sign(body, now, "old-secret")} ${sign(body, now)}`;
     assert.equal(await v.verifyPersonaSignature(body, rotating, [SECRET], now), true);
-    assert.equal(await v.verifyPersonaSignature(body, sign(body, now, "old"), ["new", "old"], now), true);
+    assert.equal(
+      await v.verifyPersonaSignature(body, sign(body, now, "old"), ["new", "old"], now),
+      true,
+    );
   });
 });
 
@@ -149,20 +174,35 @@ describe("the stand-in, outside production", () => {
     });
     const started = await v.startVerification(sql, ana, "member", Date.now(), { env });
     assert.equal(started.url, null);
-    assert.equal((await v.startVerification(sql, ana, "member", Date.now(), { env })).id, started.id, "one open check");
+    assert.equal(
+      (await v.startVerification(sql, ana, "member", Date.now(), { env })).id,
+      started.id,
+      "one open check",
+    );
     assert.equal((await v.getVerification(sql, ana, { env })).member, "pending");
 
     const done = await v.devComplete(sql, ana, started.id, "approved", Date.now(), { env });
     assert.equal(done.member, "approved");
     assert.equal((await svc.people(sql, [ana]))[0].identityVerified, true);
     assert.ok((await listNotifications(sql, ana)).notifications.some((x) => x.kind === "verified"));
-    await rejects(v.startVerification(sql, ana, "member", Date.now(), { env }), 409, /already verified/);
+    await rejects(
+      v.startVerification(sql, ana, "member", Date.now(), { env }),
+      409,
+      /already verified/,
+    );
 
     const prod = { VERCEL_ENV: "production" };
     assert.equal((await v.getVerification(sql, ana, { env: prod })).available, false);
-    await rejects(v.startVerification(sql, ana, "government_id", Date.now(), { env: prod }), 409, /isn’t open/);
+    await rejects(
+      v.startVerification(sql, ana, "government_id", Date.now(), { env: prod }),
+      409,
+      /isn’t open/,
+    );
     await rejects(v.devComplete(sql, ana, started.id, "approved", Date.now(), { env: prod }), 404);
-    await rejects(v.devComplete(sql, ana, started.id, "approved", Date.now(), { env: PERSONA }), 404);
+    await rejects(
+      v.devComplete(sql, ana, started.id, "approved", Date.now(), { env: PERSONA }),
+      404,
+    );
   });
 });
 
@@ -195,16 +235,37 @@ describe("Persona", () => {
   it("moves only our own check, for the member it was made for, once per event", async () => {
     const [cat, dan] = [await member("Cat"), await member("Dan")];
     const p = fakePersona();
-    const inquiry = inquiryOf((await v.startVerification(sql, cat, "member", Date.now(), p.deps)).url);
-    const state = async (who: string) => (await v.getVerification(sql, who, { env: PERSONA })).member;
+    const inquiry = inquiryOf(
+      (await v.startVerification(sql, cat, "member", Date.now(), p.deps)).url,
+    );
+    const state = async (who: string) =>
+      (await v.getVerification(sql, who, { env: PERSONA })).member;
 
     const bad = event(inquiry, cat, "approved");
-    assert.equal((await v.handlePersonaWebhook(sql, bad, sign(bad, Date.now(), "nope"), Date.now(), { env: PERSONA })).status, 401);
-    assert.equal((await deliver(event("inq_someone_elses", cat, "approved"))).outcome, "unknown_inquiry");
-    assert.equal((await deliver(event(inquiry, dan, "approved"))).outcome, "unknown_inquiry", "wrong member");
+    assert.equal(
+      (
+        await v.handlePersonaWebhook(sql, bad, sign(bad, Date.now(), "nope"), Date.now(), {
+          env: PERSONA,
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (await deliver(event("inq_someone_elses", cat, "approved"))).outcome,
+      "unknown_inquiry",
+    );
+    assert.equal(
+      (await deliver(event(inquiry, dan, "approved"))).outcome,
+      "unknown_inquiry",
+      "wrong member",
+    );
     assert.equal(await state(cat), "pending");
 
-    assert.equal((await deliver(event(inquiry, cat, "completed"))).outcome, "pending", "done, not yet decided");
+    assert.equal(
+      (await deliver(event(inquiry, cat, "completed"))).outcome,
+      "pending",
+      "done, not yet decided",
+    );
     const approved = event(inquiry, cat, "approved", "evt_once");
     assert.equal((await deliver(approved)).outcome, "approved");
     assert.equal((await deliver(approved)).outcome, "duplicate");
@@ -224,14 +285,33 @@ describe("Persona", () => {
     const eve = await member("Eve");
     const p = fakePersona();
     const started = await v.startVerification(sql, eve, "government_id", Date.now(), p.deps);
-    assert.equal(p.calls[0].body && (p.calls[0].body as { data: { attributes: Record<string, string> } }).data.attributes["inquiry-template-id"], "itmpl_govid");
+    assert.equal(
+      p.calls[0].body &&
+        (p.calls[0].body as { data: { attributes: Record<string, string> } }).data.attributes[
+          "inquiry-template-id"
+        ],
+      "itmpl_govid",
+    );
     const inquiry = inquiryOf(started.url);
     p.statuses.set(inquiry, "needs_review");
-    assert.equal((await v.refreshVerification(sql, eve, started.id, Date.now(), p.deps)).governmentId, "needs_review");
-    await rejects(v.startVerification(sql, eve, "government_id", Date.now(), p.deps), 409, /looking at/);
-    await rejects(v.refreshVerification(sql, await member("Fay"), started.id, Date.now(), p.deps), 404);
+    assert.equal(
+      (await v.refreshVerification(sql, eve, started.id, Date.now(), p.deps)).governmentId,
+      "needs_review",
+    );
+    await rejects(
+      v.startVerification(sql, eve, "government_id", Date.now(), p.deps),
+      409,
+      /looking at/,
+    );
+    await rejects(
+      v.refreshVerification(sql, await member("Fay"), started.id, Date.now(), p.deps),
+      404,
+    );
     p.statuses.set(inquiry, "approved");
-    assert.equal((await v.refreshVerification(sql, eve, started.id, Date.now(), p.deps)).governmentId, "approved");
+    assert.equal(
+      (await v.refreshVerification(sql, eve, started.id, Date.now(), p.deps)).governmentId,
+      "approved",
+    );
   });
 
   it("stops at three declines in a month, and asks Persona to delete on the way out", async () => {
@@ -239,16 +319,30 @@ describe("Persona", () => {
     const p = fakePersona();
     const tries: string[] = [];
     for (let i = 1; i <= 3; i += 1) {
-      tries.push(inquiryOf((await v.startVerification(sql, gus, "member", Date.now(), p.deps)).url));
+      tries.push(
+        inquiryOf((await v.startVerification(sql, gus, "member", Date.now(), p.deps)).url),
+      );
       await deliver(event(tries.at(-1)!, gus, "declined"));
     }
-    await rejects(v.startVerification(sql, gus, "member", Date.now(), p.deps), 409, /support@samepace\.app/);
+    await rejects(
+      v.startVerification(sql, gus, "member", Date.now(), p.deps),
+      409,
+      /support@samepace\.app/,
+    );
     await v.startVerification(sql, gus, "member", Date.now() + 31 * DAY, p.deps);
 
     await sql`update verifications set provider_ref = 'inq_fails' where provider_ref = ${tries[1]}`;
-    assert.equal(await v.redactVerifications(sql, gus, p.deps), 3, "one failure doesn’t stop the rest");
+    assert.equal(
+      await v.redactVerifications(sql, gus, p.deps),
+      3,
+      "one failure doesn’t stop the rest",
+    );
     assert.equal(p.calls.filter((c) => c.method === "DELETE").length, 4);
-    assert.equal(await v.redactVerifications(sql, gus, { env: {} }), 0, "nothing to ask without a key");
+    assert.equal(
+      await v.redactVerifications(sql, gus, { env: {} }),
+      0,
+      "nothing to ask without a key",
+    );
   });
 });
 
@@ -307,7 +401,12 @@ describe("the gate", () => {
       await svc.updateProfile(sql, who, { gender: "woman" });
       await verify(who, "member");
     }
-    await rejects(svc.postSession(sql, kay, listing({ womenOnly: true })), 403, /government ID/, "verify_government_id");
+    await rejects(
+      svc.postSession(sql, kay, listing({ womenOnly: true })),
+      403,
+      /government ID/,
+      "verify_government_id",
+    );
     await verify(kay, "government_id");
     const womenOnly = await svc.postSession(sql, kay, listing({ womenOnly: true }));
     await rejects(svc.bookSeat(sql, lea, womenOnly.id), 403, undefined, "verify_government_id");
@@ -319,7 +418,9 @@ describe("the gate", () => {
       reason: "misrepresented",
       sessionId: posted.id,
     });
-    await safety.adminResolveReport(sql, "ops@samepace.app", report.id, { action: "remove_session" });
+    await safety.adminResolveReport(sql, "ops@samepace.app", report.id, {
+      action: "remove_session",
+    });
     assert.equal((await v.getVerification(sql, max)).idRequired, true);
     await rejects(svc.postSession(sql, max, listing()), 403, undefined, "verify_government_id");
     await svc.postSession(sql, max, listing({ visibility: "unlisted" }));

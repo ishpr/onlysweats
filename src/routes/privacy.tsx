@@ -79,9 +79,9 @@ function Privacy() {
           </ul>
           <p>
             We don’t collect your contacts, photos (the verification selfie and ID go to Persona,
-            not to us), date of birth, height, weight or relationship
-            status. A training block has no weight goal: the miles it shows are the planned distance
-            of the sessions you checked in to, separate from any imported workout.
+            not to us), date of birth, height, weight or relationship status. A training block has
+            no weight goal: the miles it shows are the planned distance of the sessions you checked
+            in to, separate from any imported workout.
           </p>
         </Section>
 
