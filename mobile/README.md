@@ -6,8 +6,9 @@ See `../docs/API.md` for the contract.
 
 ## Run it
 
-Start the API first (repo root): `npm run dev` — serves `/api/v1` on port 8088
-(`.claude/launch.json`; 8080 is often taken locally).
+Start the API first (repo root) on port 8088 — `.claude/launch.json` does that;
+`npm run dev` alone binds 8080, which is often taken locally. By hand:
+`node scripts/with-app-env.mjs node_modules/.bin/vite dev --host 0.0.0.0 --port 8088`.
 
 ```bash
 npm install

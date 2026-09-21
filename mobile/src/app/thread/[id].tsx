@@ -65,7 +65,7 @@ export default function Thread() {
             {session.title} · {formatWhen(session.startAt)}
           </T>
           <T variant="caption" color="textFaint">
-            Off-platform payment is a ban. Threads close a day after the session.
+            Nobody charges for a SamePace session. Threads close a day after the session.
           </T>
           {other && (
             <ReportLink
