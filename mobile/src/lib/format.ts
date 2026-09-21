@@ -71,6 +71,28 @@ export function atCluster(days: number, hour: number, minute: number, now = new 
   return new Date(`${y}-${m}-${d}T${p(hour)}:${p(minute)}:00-05:00`);
 }
 
+/** The cluster's calendar date `days` from today, as the API's `YYYY-MM-DD`. */
+export function clusterDate(days = 0, now = new Date()): string {
+  const [m, d, y] = dayKey.format(new Date(now.getTime() + days * 24 * 3600_000)).split("/");
+  return `${y}-${m}-${d}`;
+}
+
+const dateOnly = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+});
+
+/** "Sun, Dec 13" from a `YYYY-MM-DD` — a calendar date has no time zone to shift it. */
+export const formatDate = (date: string) => dateOnly.format(new Date(`${date}T00:00:00Z`));
+
+/** Whole days from today (in the cluster) to a `YYYY-MM-DD`. */
+export const daysUntil = (date: string, now = new Date()) =>
+  Math.round(
+    (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${clusterDate(0, now)}T00:00:00Z`)) / 86_400_000,
+  );
+
 export function dayLabel(days: number, now = new Date()) {
   if (days === 0) return "Today";
   if (days === 1) return "Tomorrow";

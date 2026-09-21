@@ -12,7 +12,9 @@ The client never decides seats, check-in or fees.
 - Code: rules in `src/lib/pace/rules.ts`, SQL + transactions in
   `src/lib/pace/service.server.ts`, routing in `src/lib/pace/http.server.ts`,
   types in `src/lib/pace/types.ts`, safety + admin in `src/lib/pace/safety.server.ts`,
-  schema in `migrations/0002_pace.sql` and `0004_safety.sql`.
+  training blocks in
+  `src/lib/pace/training-blocks.server.ts`, schema in `migrations/0002_pace.sql`,
+  `0004_safety.sql` and `0007_training_blocks.sql`.
   ("pace" stays the code shorthand; the product name is SamePace.)
 
 ## Auth
@@ -63,7 +65,7 @@ The first authenticated API call creates the caller's profile.
 | POST | `/sessions/:id/bookings` | Join. `{ inviteCode? }` required for unlisted. On a standing slot you're not part of, this is a substitute seat. |
 | POST | `/sessions/:id/code` | Poster only, inside the window. Rotates + reveals the 4-digit code (10 min). |
 | GET | `/invites/:code` | Resolve an unlisted invite link. |
-| GET | `/bookings` | Everything I posted or joined: `{ bookings, sessions, series, people }`. Settles overdue no-shows first. |
+| GET | `/bookings` | Everything I posted or joined: `{ bookings, sessions, series, trainingBlocks, people }`. Settles overdue no-shows first. A `series` entry carries `trainingBlockId` when it belongs to a block. |
 | GET | `/bookings/:id` | |
 | POST | `/bookings/:id/approve` · `/decline` | Poster only. |
 | POST | `/bookings/:id/cancel` | Joiner. Also "skip this week" on a standing slot. 12h+: free. Inside 12h: `late_cancel`, $5 — waived (`covered`) if someone takes the seat. |
@@ -71,7 +73,11 @@ The first authenticated API call creates the caller's profile.
 | POST | `/bookings/:id/checkin-code` | `{ code }`. Joiner types the poster's code; checks in both. |
 | POST | `/bookings/:id/repeat` | "Same time next week": a completed session becomes a standing slot. |
 | GET | `/series` | My standing slots: members, streak, next occurrence. |
-| POST | `/series/:id/leave` | Leave a standing slot. Fewer than two regulars ends it. |
+| POST | `/series/:id/leave` | Leave a standing slot. Fewer than two regulars ends it. On a training block's slot this leaves the whole block. |
+| POST | `/series/:id/training-block` | `{ goalKind, eventName?, goalDate }`. A standing slot I'm in gets a goal and a date; its regulars become the block's members. See *Training blocks*. |
+| GET | `/training-blocks/:id` | `{ block, people }`. Members only — `404` for anyone else. |
+| POST | `/training-blocks/:id/slots` | Add a weekly slot, up to 4. Whoever started the block only. Body is a session without `activity`, `capacity`, `visibility`, `joinMode`, `womenOnly` — the block fixes those. |
+| POST | `/training-blocks/:id/leave` | Leave every slot in the block. |
 | GET/POST | `/bookings/:id/messages` | Booking-scoped chat. Opens on join, closes 24h after the session. |
 | POST | `/bookings/:id/rating` | Five booleans, once per side, after completion. `matchedListing` includes "level was as stated". |
 | DELETE | `/me` | Delete my account, now. See *Safety and account*. |
@@ -208,12 +214,53 @@ occurrence keeps their place; the open seat shows in discovery as
 `substituteSeat`, and whoever takes it has `substituteFor` set and joins that
 occurrence only.
 
+## Training blocks
+
+One to four standing slots tied to a goal and a date (PRD v0.3 §6). A block adds
+no session mechanics: its slots are ordinary standing slots, and its progress is
+read off the check-ins they already record. Nothing is logged by a member, and no
+body metric is collected — there is no weight goal. (`/blocks` is blocked members;
+these routes are `/training-blocks`.)
+
+- **Goal.** `goalKind` is one of `race_5k`, `race_10k`, `race_half`,
+  `race_marathon` (run or walk), `ride_century` (ride), `hike_trip` (hike),
+  `event_other` or `consistency` (any activity). `eventName` (60 chars) is the only
+  free text: required for `event_other`, optional for the other events, refused
+  for `consistency`. `goalLabel` is what to show: "Dallas Marathon", "Marathon",
+  or "3× a week for 12 weeks".
+- **Dates.** `goalDate` is `YYYY-MM-DD` in the cluster, 28 to 140 days after the
+  day the block starts. Slots stop at the goal date: no occurrence is created past
+  it. `weeks` and `weekNumber` give "Week 6 of 16".
+- **Progress** is per member and private: `my: { planned, kept, keptMiles,
+  finished }`. Nobody receives another member's numbers; `group` is everyone's
+  sessions added up.
+  - *Kept*: I checked in, by fence or code — even if my buddy didn't show.
+  - *Planned*: every occurrence since I joined whose check-in window has closed. A
+    week someone else called off is left out; one I called off, or skipped with
+    notice, counts and isn't kept. A week I posted and everyone else skipped is
+    left out — there was nobody to check in with.
+  - `keptMiles` is the stated distance of the sessions I kept. It is planned
+    distance, never measured; show it as "mi of sessions kept".
+- **Adding a slot** confirms every member into its first occurrence, the way a
+  standing slot does, so that occurrence must start at least 48 hours out.
+- **Closing.** The day after the goal date — once the last session has settled —
+  the block moves to `closing`: each member's numbers are written down once,
+  `finished` is set (kept ≥ 75% of planned), and `GET /bookings` keeps listing the
+  block for 14 days. A block with fewer than two members ends (`too_few`).
+- A week every regular skipped now closes on its own, so the slot rolls forward.
+  This also fixes plain standing slots, which used to stall on such a week.
+
+Not built yet: posting a public block and joining one (`forming`), cloning, goal
+credits ("helped me stick to it") and what happens to the slots after `closing`.
+
 ## Not built yet (PRD v0.3)
 
 - **Charging.** Membership ($12/mo after two completed sessions, once a cluster
   passes its density gate), card on file, and actually collecting fees. The
   ledger records what is owed; nothing is charged.
-- **Training blocks**, gym sessions matched on `gym_id`, `route_url` in the app.
+- **Public training blocks and goal credits** (blocks made from a standing slot are
+  built — see *Training blocks*), gym sessions matched on `gym_id`, `route_url` in
+  the app.
 - **Verification** (phone, selfie liveness, ID for women-only) and fee disputes.
 
 

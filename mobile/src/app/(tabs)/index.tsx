@@ -6,10 +6,10 @@ import { AppHeader, LiveBanner } from "@/components/brand";
 import { PushPrompt } from "@/components/push-cards";
 import { SessionCard } from "@/components/session-card";
 import { Enter } from "@/components/motion";
-import { Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
+import { Button, Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
 import { useNow } from "@/hooks/use-now";
 import { Spacing } from "@/constants/theme";
-import { formatWhen, greeting, inCheckinWindow } from "@/lib/format";
+import { daysUntil, formatWhen, greeting, inCheckinWindow } from "@/lib/format";
 import { byId } from "@/lib/lookup";
 import { useMe, useMine, useRefreshOnFocus, useSessions, useVenues } from "@/lib/queries";
 
@@ -30,6 +30,9 @@ export default function Today() {
     .map((b) => ({ booking: b, session: mySessions.get(b.sessionId) }))
     .filter((x) => x.session)
     .sort((a, b) => +new Date(a.session!.startAt) - +new Date(b.session!.startAt));
+  const trainingBlocks = mine.data?.trainingBlocks ?? [];
+  // A block lists its own slots; don't show them twice.
+  const standingSlots = (mine.data?.series ?? []).filter((slot) => !slot.trainingBlockId);
   const live = upcoming.find(
     (x) => x.booking.status === "confirmed" && inCheckinWindow(x.session!.startAt, now),
   );
@@ -106,46 +109,102 @@ export default function Today() {
         </View>
       )}
 
-      {(mine.data?.series.length ?? 0) > 0 && (
+      {trainingBlocks.length > 0 && (
         <View style={styles.section}>
-          <T variant="heading">Standing slots</T>
-          {mine.data!.series.map((slot) => (
+          <T variant="heading">Training blocks</T>
+          {trainingBlocks.map((block) => (
             <Link
-              key={slot.id}
-              href={
-                slot.nextSessionId
-                  ? { pathname: "/session/[id]", params: { id: slot.nextSessionId } }
-                  : "/sessions"
-              }
+              key={block.id}
+              href={{ pathname: "/training-block/[id]", params: { id: block.id } }}
               asChild
             >
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`${slot.title}, every week, ${slot.streak} in a row`}
+                accessibilityLabel={`${block.goalLabel}, week ${block.weekNumber} of ${block.weeks}, ${block.my.kept} of ${block.my.planned} sessions kept`}
               >
                 <Card>
                   <Row style={styles.between}>
                     <View style={styles.flex}>
-                      <T variant="label">{slot.title}</T>
+                      <T variant="label">{block.goalLabel}</T>
                       <T variant="caption" color="textSecondary">
-                        {slot.abilityLabel} · {venues.get(slot.venueId)?.name}
-                      </T>
-                      <T variant="caption" color="textSecondary">
-                        {slot.nextStartAt ? `Next: ${formatWhen(slot.nextStartAt)}` : "Every week"}
+                        {block.status === "closing"
+                          ? block.my.finished
+                            ? "Finished"
+                            : "Reached its date"
+                          : `Week ${block.weekNumber} of ${block.weeks} · ${weeksToGo(block.goalDate)}`}
                       </T>
                     </View>
                     <View style={styles.streak}>
                       <T variant="heading" color="accent">
-                        {slot.streak}
+                        {block.my.kept}
+                        <T variant="caption" color="textSecondary">
+                          {" "}
+                          of {block.my.planned}
+                        </T>
                       </T>
                       <T variant="caption" color="textSecondary">
-                        in a row
+                        kept
                       </T>
                     </View>
                   </Row>
                 </Card>
               </Pressable>
             </Link>
+          ))}
+        </View>
+      )}
+
+      {standingSlots.length > 0 && (
+        <View style={styles.section}>
+          <T variant="heading">Standing slots</T>
+          {standingSlots.map((slot) => (
+            <View key={slot.id} style={styles.slot}>
+              <Link
+                href={
+                  slot.nextSessionId
+                    ? { pathname: "/session/[id]", params: { id: slot.nextSessionId } }
+                    : "/sessions"
+                }
+                asChild
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${slot.title}, every week, ${slot.streak} in a row`}
+                >
+                  <Card>
+                    <Row style={styles.between}>
+                      <View style={styles.flex}>
+                        <T variant="label">{slot.title}</T>
+                        <T variant="caption" color="textSecondary">
+                          {slot.abilityLabel} · {venues.get(slot.venueId)?.name}
+                        </T>
+                        <T variant="caption" color="textSecondary">
+                          {slot.nextStartAt
+                            ? `Next: ${formatWhen(slot.nextStartAt)}`
+                            : "Every week"}
+                        </T>
+                      </View>
+                      <View style={styles.streak}>
+                        <T variant="heading" color="accent">
+                          {slot.streak}
+                        </T>
+                        <T variant="caption" color="textSecondary">
+                          in a row
+                        </T>
+                      </View>
+                    </Row>
+                  </Card>
+                </Pressable>
+              </Link>
+              <Button
+                variant="soft"
+                label="Give it a finish line"
+                accessibilityHint="Turns this standing slot into a training block with a goal and a date"
+                onPress={() =>
+                  router.push({ pathname: "/training-block/new", params: { seriesId: slot.id } })
+                }
+              />
+            </View>
           ))}
         </View>
       )}
@@ -188,8 +247,17 @@ export default function Today() {
   );
 }
 
+function weeksToGo(goalDate: string) {
+  const left = daysUntil(goalDate);
+  if (left <= 0) return "this is the week";
+  return left < 14
+    ? `${left} day${left === 1 ? "" : "s"} to go`
+    : `${Math.round(left / 7)} weeks to go`;
+}
+
 const styles = StyleSheet.create({
   section: { gap: Spacing.two },
+  slot: { gap: Spacing.one },
   between: { justifyContent: "space-between" },
   flex: { flex: 1 },
   streak: { alignItems: "center" },

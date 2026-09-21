@@ -63,6 +63,20 @@ export type BookingStatus =
   /** Nobody checked in. */
   | "void";
 
+/** What a training block is aimed at. A short fixed list — never free text. */
+export const GOAL_KINDS = [
+  "race_5k",
+  "race_10k",
+  "race_half",
+  "race_marathon",
+  "ride_century",
+  "hike_trip",
+  "event_other",
+  "consistency",
+] as const;
+export type GoalKind = (typeof GOAL_KINDS)[number];
+export type TrainingBlockStatus = "forming" | "active" | "closing" | "ended";
+
 export type Person = {
   id: string;
   name: string;

@@ -11,6 +11,8 @@ import { ensureDemoCluster } from "./demo-seed.server";
 import * as notify from "./notify.server";
 import * as safety from "./safety.server";
 import * as svc from "./service.server";
+import * as blocks from "./training-blocks.server";
+import { GOAL_KINDS } from "./types";
 
 type Ctx = {
   sql: Sql;
@@ -66,6 +68,25 @@ const postSessionBody = z.object({
   joinMode: z.enum(["instant", "approve"]),
   womenOnly: z.boolean().default(false),
 });
+
+const blockGoalBody = z.object({
+  goalKind: z.enum(GOAL_KINDS),
+  eventName: z.string().trim().max(60).nullish(),
+  goalDate: z.iso.date(),
+});
+
+// The block already fixes the activity, capacity, visibility and who can join.
+const blockSlotBody = postSessionBody
+  .pick({
+    venueId: true,
+    title: true,
+    detail: true,
+    abilityFlex: true,
+    routeUrl: true,
+    startAt: true,
+    durationMin: true,
+  })
+  .extend({ ability });
 
 const paceRange = z
   .object({ paceMinSec: z.number().min(240).max(1200), paceMaxSec: z.number().min(240).max(1200) })
@@ -258,7 +279,17 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
   ["POST", "/sessions/:id/code", ({ sql, userId, params }) => svc.revealCode(sql, userId, params.id)],
   ["GET", "/invites/:code", ({ sql, userId, params }) => svc.getInvite(sql, userId, params.code)],
 
-  ["GET", "/bookings", ({ sql, userId }) => svc.listMyBookings(sql, userId)],
+  ["GET", "/bookings", async ({ sql, userId }) => {
+    const mine = await svc.listMyBookings(sql, userId);
+    const trainingBlocks = await blocks.listMyTrainingBlocks(sql, userId);
+    const known = new Set(mine.people.map((p) => p.id));
+    const missing = trainingBlocks.flatMap((b) => b.memberIds).filter((id) => !known.has(id));
+    return {
+      ...mine,
+      trainingBlocks,
+      people: [...mine.people, ...(await svc.people(sql, missing))],
+    };
+  }],
   // "Same time next week": a completed session becomes a standing slot.
   ["POST", "/bookings/:id/repeat", async ({ sql, userId, params }) => ({
     series: await svc.repeatWeekly(sql, userId, params.id),
@@ -266,6 +297,19 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
   ["GET", "/series", async ({ sql, userId }) => ({ series: await svc.listMySeries(sql, userId) })],
   ["POST", "/series/:id/leave", async ({ sql, userId, params }) => {
     await svc.leaveSeries(sql, userId, params.id);
+    return { ok: true };
+  }],
+  // "Make this a training block": a standing slot gets a goal and a date.
+  ["POST", "/series/:id/training-block", async ({ sql, userId, params, body }) => ({
+    block: await blocks.blockFromSeries(sql, userId, params.id, blockGoalBody.parse(body)),
+  })],
+  ["GET", "/training-blocks/:id", ({ sql, userId, params }) =>
+    blocks.getTrainingBlock(sql, userId, params.id)],
+  ["POST", "/training-blocks/:id/slots", async ({ sql, userId, params, body }) => ({
+    block: await blocks.addBlockSlot(sql, userId, params.id, blockSlotBody.parse(body)),
+  })],
+  ["POST", "/training-blocks/:id/leave", async ({ sql, userId, params }) => {
+    await blocks.leaveTrainingBlock(sql, userId, params.id);
     return { ok: true };
   }],
   ["GET", "/bookings/:id", async ({ sql, userId, params }) => ({
