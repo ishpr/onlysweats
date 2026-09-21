@@ -10,7 +10,7 @@ import { Notice, Screen, StateView, T, TYPE } from "@/components/ui";
 import { HitTarget, Radius, Spacing } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
-import { fetchAuthConfig } from "@/lib/api";
+import { ApiError, fetchAuthConfig } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { SITE_URL } from "@/lib/config";
 import {
@@ -67,7 +67,16 @@ export default function SignIn({
     try {
       await signInWithToken(await start());
     } catch (err) {
-      setError((err as Error).message);
+      // Never show a native exception to a member. Our own API's messages are already
+      // written for people; anything from the platform's sign-in sheet is not.
+      const other = provider === "apple" ? "Google" : "Apple";
+      setError(
+        err instanceof ApiError && err.status > 0
+          ? err.message
+          : `${provider === "apple" ? "Apple" : "Google"} sign-in didn’t go through. Try again${
+              showApple && showGoogle ? `, or continue with ${other}` : ""
+            }.`,
+      );
     } finally {
       setBusy(null);
     }
