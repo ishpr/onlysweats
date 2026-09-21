@@ -1,6 +1,6 @@
 /**
  * Today, read from the Apple Health history a member chose to sync — drawn, not
- * listed: a three-part dial for the day, the heart-rate trace since midnight, and a
+ * listed: a neutral frame for recorded history, the heart-rate trace since midnight, and a
  * tile for each reading with its own week behind it. Every figure is the member's
  * own; nothing is a score, and nothing here is advice.
  */
@@ -35,18 +35,11 @@ import {
   hoursMinutes,
   pickForToday,
   readToday,
-  type Effort,
+  type ObservationStatus,
   type TodaySummary,
   type Week,
 } from "../../../shared/today";
 
-const LEVEL: Record<Effort, 0 | 1 | 2 | null> = { easy: 0, steady: 1, ready: 2, unknown: null };
-const WORD: Record<Effort, string> = {
-  easy: "Easy",
-  steady: "Steady",
-  ready: "Ready",
-  unknown: "—",
-};
 const KIND: Record<string, string> = {
   run: "Run",
   walk: "Walk",
@@ -93,16 +86,15 @@ function useToday(ownerId: string, session: ApiSession) {
   });
 }
 
-function Dial({ effort, size }: { effort: Effort; size?: number }) {
+function Dial({ status, size }: { status: ObservationStatus; size?: number }) {
   const theme = useTheme();
-  const color = effort === "easy" ? theme.stand : theme.accent;
   return (
-    <DayDial level={LEVEL[effort]} size={size}>
-      <T variant="label" style={{ color: effort === "unknown" ? theme.textFaint : color }}>
-        {WORD[effort]}
+    <DayDial size={size}>
+      <T variant="label" style={{ color: status === "unknown" ? theme.textFaint : theme.accent }}>
+        {status === "observed" ? "Recorded" : "No data"}
       </T>
       <T variant="caption" color="textFaint" style={styles.dialSub}>
-        today
+        history
       </T>
     </DayDial>
   );
@@ -140,14 +132,14 @@ function Compact({
       <Card>
         <Header />
         <Row style={styles.hero}>
-          <DayDial level={null} size={96}>
+          <DayDial size={96}>
             <HeartPulse size={26} color={theme.textFaint} />
           </DayDial>
           <View style={styles.flex}>
             <T variant="heading">See your day at a glance</T>
             <T variant="caption" color="textSecondary">
-              Sleep, heart rate, steps and workouts from Apple Health — and the session that suits
-              the day you’re having. Private to you.
+              Sleep, heart rate, steps and workouts from Apple Health. Your recorded history,
+              private to you.
             </T>
           </View>
         </Row>
@@ -161,13 +153,10 @@ function Compact({
   }
 
   const d = query.data.summary.snapshot;
-  const read = readToday(d);
+  const read = readToday(d, query.data.summary.trends);
   const pick = pickForToday(
-    read,
     sessions.map((s) => ({
       id: s.id,
-      activity: s.activity,
-      anyLevelWelcome: s.abilityFlex === "flexible",
       fitsMe: s.fitsMe,
       startAt: +new Date(s.startAt),
     })),
@@ -216,7 +205,7 @@ function Compact({
           <ChevronRight size={16} color={theme.accent} />
         </Row>
         <Row style={styles.hero}>
-          <Dial effort={read.effort} />
+          <Dial status={read.status} />
           <View style={styles.flex}>
             <T variant="heading">{read.headline}</T>
             {read.lines.slice(0, 2).map((line) => (
@@ -295,7 +284,7 @@ function Detail({ ownerId, session }: { ownerId: string; session: ApiSession }) 
 
   const { summary, minuteNow } = query.data;
   const { snapshot: d, trends: t } = summary;
-  const read = readToday(d);
+  const read = readToday(d, t);
 
   const heart = t.heartToday;
   const glucose = t.glucoseToday;
@@ -316,7 +305,9 @@ function Detail({ ownerId, session }: { ownerId: string; session: ApiSession }) 
         color={theme.stand}
         label="Sleep"
         value={hoursMinutes(d.sleepMin)}
-        note={d.sleepBaseMin !== null ? `Usually ${hoursMinutes(d.sleepBaseMin)}` : "Last night"}
+        note={
+          d.sleepBaseMin !== null ? `Earlier average ${hoursMinutes(d.sleepBaseMin)}` : "Last night"
+        }
         wide={t.sleepStages !== null}
       >
         {t.sleepStages ? (
@@ -343,7 +334,11 @@ function Detail({ ownerId, session }: { ownerId: string; session: ApiSession }) 
         label="Resting heart rate"
         value={String(d.restingHr)}
         unit="bpm"
-        note={d.restingHrBase !== null ? `Usually ${Math.round(d.restingHrBase)}` : "This week"}
+        note={
+          d.restingHrBase !== null
+            ? `Earlier average ${Math.round(d.restingHrBase)} bpm`
+            : "This week"
+        }
       >
         <AreaChart
           id="rhr"
@@ -361,10 +356,10 @@ function Detail({ ownerId, session }: { ownerId: string; session: ApiSession }) 
         key="hrv"
         icon={Activity}
         color={theme.exercise}
-        label="Heart rate variability"
+        label="HRV (SDNN)"
         value={String(d.hrvMs)}
         unit="ms"
-        note={d.hrvBase !== null ? `Usually ${Math.round(d.hrvBase)}` : "This week"}
+        note={d.hrvBase !== null ? `Earlier average ${Math.round(d.hrvBase)} ms` : "This week"}
       >
         <AreaChart
           id="hrv"
@@ -439,7 +434,7 @@ function Detail({ ownerId, session }: { ownerId: string; session: ApiSession }) 
           }
         />
         <Row style={styles.hero}>
-          <Dial effort={read.effort} />
+          <Dial status={read.status} />
           <View style={styles.flex}>
             <T variant="heading">{read.headline}</T>
             {read.lines.map((line) => (
@@ -510,7 +505,7 @@ function Detail({ ownerId, session }: { ownerId: string; session: ApiSession }) 
 
       {tiles.length === 0 && heart.length < 2 && d.workouts.length === 0 && (
         <T variant="caption" color="textSecondary">
-          Wear your watch to bed and for workouts, then sync from Apple Health, and this fills in.
+          Sync the readings you choose to see your recorded history.
         </T>
       )}
       <T variant="caption" color="textFaint">

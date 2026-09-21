@@ -1,9 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Switch, View } from "react-native";
 import { useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { Button, Card, Field, Notice, Row, StateView, T } from "@/components/ui";
+import {
+  Activity,
+  CalendarDays,
+  ClipboardList,
+  Settings2,
+  ShieldCheck,
+  Trash2,
+  Users,
+} from "lucide-react-native";
+import { ActionCard, ChatBubble, Composer, TypingDots } from "@/components/assistant-kit";
+import { ListCard, ListRow, SectionTitle } from "@/components/list";
+import { Spacing } from "@/constants/theme";
+import { Button, Notice, Row, StateView, T } from "@/components/ui";
 import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
 import { createAssistantRun } from "@/lib/assistant/run";
@@ -30,10 +42,12 @@ export function CloudChat({
   ownerId,
   session,
   onPlanning,
+  modeControl,
 }: {
   ownerId: string;
   session: ApiSession;
   onPlanning: PlanningAction;
+  modeControl: ReactNode;
 }) {
   const queryKey = ["private-assistant-chat", ownerId];
   const history = useQuery({
@@ -62,6 +76,7 @@ export function CloudChat({
       ownerId={ownerId}
       session={session}
       onPlanning={onPlanning}
+      modeControl={modeControl}
       history={history}
     />
   );
@@ -72,12 +87,14 @@ function CloudConversation({
   ownerId,
   session,
   onPlanning,
+  modeControl,
   history,
 }: {
   ownerId: string;
   session: ApiSession;
   onPlanning: PlanningAction;
   history: UseQueryResult<ChatHistory, Error>;
+  modeControl: ReactNode;
 }) {
   const router = useRouter();
   const client = useQueryClient();
@@ -233,12 +250,16 @@ function CloudConversation({
     }
   };
   const visible = history.data?.messages ?? [];
+  const icons = {
+    preferences: Settings2,
+    discovery: Users,
+    negotiation: Users,
+    session: CalendarDays,
+    workout: Activity,
+    fitness: ClipboardList,
+  };
   return (
-    <View style={{ gap: 14 }}>
-      <T color="textSecondary">
-        Your private cloud conversation is separate from messages with other members. You review
-        every action.
-      </T>
+    <View style={{ gap: Spacing.three }}>
       {(history.isPending || history.error) && (
         <StateView
           loading={history.isPending}
@@ -246,102 +267,76 @@ function CloudConversation({
           onRetry={() => void history.refetch()}
         />
       )}
-      {settings && (
-        <Card>
-          <Row style={{ justifyContent: "space-between" }}>
-            <T variant="label">Cloud assistant {settings.cloudEnabled ? "on" : "off"}</T>
-            <Switch
-              accessibilityLabel="Allow cloud assistant"
-              value={settings.cloudEnabled}
-              disabled={control.busy}
-              onValueChange={(enabled) =>
-                changePermissions(enabled, enabled && settings.fitnessContextEnabled)
-              }
-            />
-          </Row>
-          {(!settings.cloudEnabled || showPermissions) && (
-            <T variant="caption" color="textSecondary">
-              {CHAT_CONSENT_NOTICE}
-            </T>
-          )}
-          <Button
-            label={showPermissions ? "Hide privacy choices" : "Review privacy choices"}
-            variant="ghost"
-            onPress={() => setShowPermissions((value) => !value)}
-          />
-          {showPermissions && (
-            <>
-              <T variant="caption" color="textSecondary">
-                {CHAT_FITNESS_NOTICE}
-              </T>
-              <Row style={{ justifyContent: "space-between" }}>
-                <T variant="label">Include recent workout summaries</T>
-                <Switch
-                  accessibilityLabel="Share recent fitness summaries with cloud assistant"
-                  value={settings.fitnessContextEnabled}
-                  disabled={control.busy || !settings.cloudEnabled}
-                  onValueChange={(enabled) => changePermissions(true, enabled)}
-                />
-              </Row>
-            </>
-          )}
-          {!settings.providerAvailable && (
-            <Notice>
-              The cloud assistant is not available right now. On-device help and your planning tools
-              are still available.
-            </Notice>
-          )}
-          {control.error && <Notice tone="danger">{control.error}</Notice>}
-        </Card>
+      {settings && !settings.cloudEnabled && (
+        <Notice>
+          Cloud chat is off. Open Privacy choices in Controls below to review and enable it.
+        </Notice>
+      )}
+      {settings && !settings.providerAvailable && (
+        <Notice>
+          Cloud chat is unavailable right now. You can choose on-device help or open Plans.
+        </Notice>
       )}
       {visible.map((message) => (
-        <Card key={message.id}>
-          <T variant="eyebrow">{message.role === "user" ? "You" : "SamePace · Cloud"}</T>
-          <T selectable>
-            {message.text ||
-              (message.status === "interrupted" ? "This reply was interrupted." : "")}
-          </T>
-          {message.status === "interrupted" && (
-            <T variant="caption" color="textSecondary">
-              Incomplete reply
-            </T>
-          )}
-          {message.role === "assistant" &&
-            message.status === "complete" &&
-            message.actions.map((action) => (
-              <View key={action.id} style={{ gap: 5 }}>
+        <ChatBubble
+          key={message.id}
+          from={message.role === "user" ? "me" : "assistant"}
+          source={message.role === "assistant" ? "Cloud" : undefined}
+          footer={
+            <>
+              {message.status === "interrupted" && (
                 <T variant="caption" color="textSecondary">
-                  {action.description}
+                  Incomplete reply
                 </T>
-                <Button
-                  label={action.label}
-                  variant="soft"
-                  disabled={busy || control.busy}
-                  onPress={() => openAction(action)}
-                />
-              </View>
-            ))}
-        </Card>
+              )}
+              {message.role === "assistant" &&
+                message.status === "complete" &&
+                message.actions.map((action) => (
+                  <ActionCard
+                    key={action.id}
+                    icon={icons[action.kind]}
+                    title={action.label}
+                    facts={
+                      action.preferenceDraft
+                        ? [
+                            ...(action.preferenceDraft.activity
+                              ? [action.preferenceDraft.activity]
+                              : []),
+                            ...(action.preferenceDraft.durationMin
+                              ? [`${action.preferenceDraft.durationMin} min`]
+                              : []),
+                          ]
+                        : undefined
+                    }
+                    note={action.description}
+                    primary={{ label: "Review", onPress: () => openAction(action) }}
+                    busy={busy || control.busy}
+                  />
+                ))}
+            </>
+          }
+        >
+          {message.text || (message.status === "interrupted" ? "This reply was interrupted." : "")}
+        </ChatBubble>
       ))}
       {pendingUser &&
         !visible.some(
           (message) => message.role === "user" && message.requestId === pendingUser.requestId,
-        ) && (
-          <Card>
-            <T variant="eyebrow">You</T>
-            <T selectable>{pendingUser.text}</T>
-          </Card>
-        )}
+        ) && <ChatBubble from="me">{pendingUser.text}</ChatBubble>}
       {(busy || partial) && (
-        <Card>
-          <T variant="eyebrow">SamePace · Cloud</T>
-          <T selectable>{partial || "Thinking…"}</T>
-          {!busy && (
-            <T variant="caption" color="textSecondary">
-              Incomplete reply
-            </T>
-          )}
-        </Card>
+        <ChatBubble
+          from="assistant"
+          source="Cloud"
+          footer={
+            !busy ? (
+              <T variant="caption" color="textSecondary">
+                Incomplete reply
+              </T>
+            ) : undefined
+          }
+        >
+          {partial ? <T selectable>{partial}</T> : <TypingDots />}
+        </ChatBubble>
       )}
       {error && <Notice tone="danger">{error}</Notice>}
       {lastTurn && error && !busy && (
@@ -352,69 +347,94 @@ function CloudConversation({
           onPress={() => send(lastTurn)}
         />
       )}
-      <Field
-        label="Message your private assistant"
-        placeholder="Help me plan an easy workout this week"
+      {modeControl}
+      <Composer
         value={text}
-        onChangeText={setText}
-        maxLength={2000}
-        multiline
-        editable={!busy && !control.busy}
+        onChangeText={(value) => setText(value.slice(0, 2000))}
+        onSend={() => send()}
+        onStop={stop}
+        streaming={busy}
+        placeholder="Ask your cloud assistant"
+        disabled={busy || control.busy || !settings?.cloudEnabled || !settings.providerAvailable}
       />
-      {busy ? (
-        <Button label="Stop reply" variant="soft" onPress={stop} />
-      ) : (
-        <Button
-          label="Send to cloud assistant"
-          disabled={
-            !text.trim() || control.busy || !settings?.cloudEnabled || !settings.providerAvailable
-          }
-          onPress={() => send()}
-        />
-      )}
-      <T variant="caption" color="textSecondary">
-        Only messages sent here go to the cloud. On-device conversations and photos are not added.
-      </T>
-      {!clearReview ? (
-        <Button
+      <SectionTitle>Controls</SectionTitle>
+      <ListCard>
+        <ListRow
+          icon={ShieldCheck}
+          label="Privacy choices"
+          value={settings?.cloudEnabled ? "Cloud on" : "Cloud off"}
+          expanded={showPermissions}
+          onPress={() => setShowPermissions((value) => !value)}
+        >
+          {settings && (
+            <View style={{ gap: Spacing.two }}>
+              <T variant="caption" color="textSecondary">
+                {CHAT_CONSENT_NOTICE}
+              </T>
+              <Row style={{ justifyContent: "space-between" }}>
+                <T variant="label" style={{ flex: 1 }}>
+                  Allow cloud chat
+                </T>
+                <Switch
+                  accessibilityLabel="Allow cloud assistant"
+                  value={settings.cloudEnabled}
+                  disabled={control.busy}
+                  onValueChange={(enabled) =>
+                    changePermissions(enabled, enabled && settings.fitnessContextEnabled)
+                  }
+                />
+              </Row>
+              <T variant="caption" color="textSecondary">
+                {CHAT_FITNESS_NOTICE}
+              </T>
+              <Row style={{ justifyContent: "space-between" }}>
+                <T variant="label" style={{ flex: 1 }}>
+                  Include recent workout summaries
+                </T>
+                <Switch
+                  accessibilityLabel="Share recent fitness summaries with cloud assistant"
+                  value={settings.fitnessContextEnabled}
+                  disabled={control.busy || !settings.cloudEnabled}
+                  onValueChange={(enabled) => changePermissions(true, enabled)}
+                />
+              </Row>
+            </View>
+          )}
+        </ListRow>
+        <ListRow
+          icon={Trash2}
           label="Delete cloud conversation"
-          variant="ghost"
-          disabled={control.busy}
+          expanded={clearReview}
           onPress={() => {
+            if (control.busy) return;
             if (runner.busy) stop();
-            setClearReview(true);
+            setClearReview((value) => !value);
           }}
-        />
-      ) : (
-        <Card>
-          <Notice>
-            Delete your saved private cloud conversation? Your workout logs and planning
-            conversations remain available.
-          </Notice>
-          <Button
-            label="Delete conversation"
-            variant="danger"
-            disabled={control.busy}
-            onPress={() => {
-              clearLocal();
-              void control.run(
-                (signal) =>
-                  session.request<ChatHistory>("/assistant/chat", { method: "DELETE", signal }),
-                async (result) => {
-                  await client.cancelQueries({ queryKey, exact: true });
-                  if (session.isCurrent()) client.setQueryData<ChatHistory>(queryKey, result);
-                },
-              );
+        >
+          <ActionCard
+            icon={Trash2}
+            title="Delete this conversation?"
+            note="Removes saved private chat. Your workout logs and plans remain available."
+            primary={{
+              label: "Delete conversation",
+              onPress: () => {
+                clearLocal();
+                void control.run(
+                  (signal) =>
+                    session.request<ChatHistory>("/assistant/chat", { method: "DELETE", signal }),
+                  async (result) => {
+                    await client.cancelQueries({ queryKey, exact: true });
+                    if (session.isCurrent()) client.setQueryData<ChatHistory>(queryKey, result);
+                  },
+                );
+              },
             }}
+            secondary={{ label: "Keep", onPress: () => setClearReview(false) }}
+            busy={control.busy}
           />
-          <Button
-            label="Keep conversation"
-            variant="ghost"
-            disabled={control.busy}
-            onPress={() => setClearReview(false)}
-          />
-        </Card>
-      )}
+        </ListRow>
+      </ListCard>
+      {control.error && <Notice tone="danger">{control.error}</Notice>}
     </View>
   );
 }

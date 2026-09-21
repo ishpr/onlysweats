@@ -6,19 +6,20 @@ import * as Crypto from "expo-crypto";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PrivateAssistantChat } from "@/components/assistant-chat";
 import type { ChatPreferenceDraft } from "../../../shared/conversation";
+import { Segmented } from "@/components/assistant-kit";
 import { AssistantDiscovery } from "@/components/assistant-discovery";
 import { AssistantHero, assistantStatus } from "@/components/assistant-hero";
+import { Approvals, PlanCard, PlanTrack, TimelineItem } from "@/components/assistant-plan";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
 import { ReportLink } from "@/components/report-link";
 import { AssistantCoordinationPanel } from "@/components/assistant-coordination";
 import { AssistantCredentials } from "@/components/assistant-credentials";
 import { AssistantPreferencesEditor } from "@/components/assistant-preferences";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
-import { Button, Card, Chip, Notice, Row, Screen, StateView, T } from "@/components/ui";
+import { Button, Card, Notice, Screen, StateView, T } from "@/components/ui";
 import { usePrivateAction } from "@/hooks/use-private-action";
-import { abilityLabel } from "@/lib/ability";
 import { ApiError, type ApiSession } from "@/lib/api";
-import { formatUsd } from "@/lib/format";
+import { formatUsd, formatWhen } from "@/lib/format";
 import { useRefreshOnFocus } from "@/lib/queries";
 import { ACTIVITIES, type Booking, type Person, type Session, type Venue } from "@/lib/types";
 import type { MemberDiscovery } from "../../../shared/discovery";
@@ -70,7 +71,7 @@ function Assistant({ member, session }: PrivateMemberProps) {
     queryKey: [...key, "negotiations"],
     gcTime: 0,
     retry: false,
-    enabled: showPlanning && Boolean(preferences.data),
+    enabled: Boolean(preferences.data),
     refetchInterval: 10_000,
     queryFn: ({ signal }) =>
       session.request<{ negotiations: AssistantNegotiation[] }>("/agents/negotiations", { signal }),
@@ -129,18 +130,39 @@ function Assistant({ member, session }: PrivateMemberProps) {
       refreshing={list.isRefetching}
     >
       <Stack.Screen options={{ title: "Workout assistant" }} />
-      <Row>
-        <Chip
-          label="Private assistant"
-          selected={!showPlanning}
-          onPress={() => setShowPlanning(false)}
+      {status && (
+        <AssistantHero
+          status={status}
+          brief={brief}
+          primaryLabel={
+            status.negotiationId
+              ? "Review the plan"
+              : showPlanning && showPreferences
+                ? "Hide preferences"
+                : current?.enabled
+                  ? "Review preferences"
+                  : "Set up planning"
+          }
+          onPrimary={() => {
+            setShowPlanning(true);
+            if (status.negotiationId) setSelected(status.negotiationId);
+            else setShowPreferences(showPlanning ? !showPreferences : true);
+          }}
+          onEditBrief={() => {
+            setShowPlanning(true);
+            setShowPreferences(true);
+          }}
         />
-        <Chip
-          label="Planning & approvals"
-          selected={showPlanning}
-          onPress={() => setShowPlanning(true)}
-        />
-      </Row>
+      )}
+      <Segmented
+        label="Assistant view"
+        options={[
+          { value: "chat", label: "Chat" },
+          { value: "plans", label: "Plans" },
+        ]}
+        value={showPlanning ? "plans" : "chat"}
+        onChange={(value) => setShowPlanning(value === "plans")}
+      />
       {!showPlanning && (
         <PrivateAssistantChat
           ownerId={member.id}
@@ -160,9 +182,7 @@ function Assistant({ member, session }: PrivateMemberProps) {
       {showPlanning && (
         <>
           {unavailable ? (
-            <Notice>
-              Your assistant isn’t available yet. Your existing sessions and bookings are unchanged.
-            </Notice>
+            <Notice>Workout planning isn’t available yet.</Notice>
           ) : (
             (preferences.isPending || preferences.error) && (
               <StateView
@@ -174,29 +194,6 @@ function Assistant({ member, session }: PrivateMemberProps) {
           )}
           {preferences.data && (
             <>
-              <AssistantHero
-                status={status!}
-                brief={brief}
-                primaryLabel={
-                  status!.negotiationId
-                    ? status!.state === "needs_you"
-                      ? "Review it"
-                      : "See the plan so far"
-                    : current!.enabled
-                      ? showPreferences
-                        ? "Done"
-                        : "Change what it looks for"
-                      : showPreferences
-                        ? "Hide"
-                        : "Set it up"
-                }
-                onPrimary={() =>
-                  status!.negotiationId
-                    ? setSelected(status!.negotiationId)
-                    : setShowPreferences((value) => !value)
-                }
-                onEditBrief={() => setShowPreferences((value) => !value)}
-              />
               {venues.error && (
                 <StateView error={venues.error} onRetry={() => void venues.refetch()} />
               )}
@@ -380,38 +377,18 @@ function Assistant({ member, session }: PrivateMemberProps) {
   );
 }
 
-function PlanDetails({ plan, venues }: { plan: AssistantPlan; venues: Venue[] }) {
-  const venue = venues.find((item) => item.id === plan.venueId);
-  return (
-    <View style={{ gap: 4 }}>
-      <T variant="heading">{plan.title}</T>
-      <T>
-        {ACTIVITIES[plan.activity].label} · {plan.durationMin} minutes
-      </T>
-      <T>
-        {new Date(plan.startAt).toLocaleString(undefined, {
-          dateStyle: "full",
-          timeStyle: "short",
-        })}{" "}
-        (your local time)
-      </T>
-      {venue ? (
-        <>
-          <T>{venue.name}</T>
-          <T variant="caption" color="textSecondary">
-            {venue.neighborhood} · {venue.type.replaceAll("_", " ")}
-          </T>
-        </>
-      ) : (
-        <Notice>
-          Meeting-place details are unavailable. Refresh the screen before approving this plan.
-        </Notice>
-      )}
-      <T variant="caption" color="textSecondary">
-        {abilityLabel(plan.ability)}
-      </T>
-    </View>
-  );
+function PlanDetails({
+  plan,
+  venues,
+  label,
+  footer,
+}: {
+  plan: AssistantPlan;
+  venues: Venue[];
+  label?: string;
+  footer?: React.ReactNode;
+}) {
+  return <PlanCard plan={plan} venues={venues} label={label} footer={footer} />;
 }
 
 function Conversation({
@@ -499,19 +476,26 @@ function Conversation({
   const consented = value.consentedIds.includes(ownerId);
   const mutual = value.memberIds.every((memberId) => value.consentedIds.includes(memberId));
   const active = ["open", "approved"].includes(value.state) && !value.booked;
+  const buddyId = value.memberIds.find((memberId) => memberId !== ownerId) ?? "";
+  const buddy =
+    value.memberNames?.[buddyId] ??
+    people.find((person) => person.id === buddyId)?.name ??
+    "your workout buddy";
   return (
     <Card>
-      <T variant="heading">Current conversation</T>
-      <T variant="label">
-        With{" "}
-        {value.memberNames?.[value.memberIds.find((memberId) => memberId !== ownerId) ?? ""] ??
-          people.find((person) => value.memberIds.includes(person.id) && person.id !== ownerId)
-            ?.name ??
-          "your workout buddy"}
-      </T>
+      <T variant="heading">With {buddy}</T>
+      <PlanTrack
+        done={value.booked ? 5 : value.state === "approved" ? 3 : value.plan ? 2 : mutual ? 1 : 0}
+        stopped={value.state === "cancelled" || value.state === "expired"}
+      />
       <T variant="caption" color="textSecondary">
-        {value.booked ? "Booked" : value.state} · expires{" "}
-        {new Date(value.expiresAt).toLocaleString()}
+        {value.booked
+          ? "Booked — it’s a session now."
+          : value.state === "cancelled"
+            ? "This plan was ended."
+            : value.state === "expired"
+              ? "This plan ran out of time."
+              : `Open until ${formatWhen(value.expiresAt)}.`}
       </T>
       {value.state === "open" && !consented && (
         <>
@@ -537,19 +521,30 @@ function Conversation({
         </>
       )}
       {consented && !mutual && active && (
-        <Notice>Waiting for your buddy to join before proposals can be exchanged.</Notice>
+        <Notice>Waiting for {buddy} to join. Nothing is shared until they do.</Notice>
       )}
       {value.plan && (
         <>
-          <T variant="label">Proposal revision {value.revision}</T>
-          <PlanDetails plan={value.plan} venues={venues} />
-          <T variant="caption" color="textSecondary">
-            {value.confirmedIds.length} of {value.memberIds.length} people approved this revision.
-            Every change requires fresh approval.
-          </T>
+          <PlanDetails
+            plan={value.plan}
+            venues={venues}
+            label={value.state === "approved" || value.booked ? "Agreed" : "Proposed"}
+          />
+          <Approvals
+            people={value.memberIds.map((memberId) => ({
+              id: memberId,
+              name: memberId === ownerId ? "You" : buddy,
+              approved: value.confirmedIds.includes(memberId),
+            }))}
+            caption={
+              value.confirmedIds.length === value.memberIds.length
+                ? "You’ve both approved this plan."
+                : "Both of you approve before anything is booked. Any change asks again."
+            }
+          />
           {mutual && value.state === "open" && !value.confirmedIds.includes(ownerId) && (
             <Button
-              label={`Approve plan revision ${value.revision}`}
+              label="Approve this plan"
               disabled={action.busy || !venues.some((venue) => venue.id === value.plan!.venueId)}
               onPress={() =>
                 void action.run(
@@ -565,7 +560,7 @@ function Conversation({
             />
           )}
           {value.confirmedIds.includes(ownerId) && value.state === "open" && (
-            <Notice>You approved this revision. Your buddy still needs to review it.</Notice>
+            <Notice>You approved this plan. {buddy} still needs to look at it.</Notice>
           )}
         </>
       )}
@@ -700,24 +695,33 @@ function Candidates({
       </T>
       {result?.reason && <Notice>{result.reason}</Notice>}
       {result?.candidates.map((plan, index) => (
-        <Card key={`${plan.startAt}:${plan.venueId}:${index}`}>
-          <PlanDetails plan={plan} venues={venues} />
-          <Button
-            label={room.plan ? "Send this counterproposal" : "Propose this plan"}
-            disabled={action.busy || !venues.some((venue) => venue.id === plan.venueId)}
-            onPress={() =>
-              void action.run(
-                (signal) =>
-                  session.request(`/agents/negotiations/${room.id}/proposal`, {
-                    method: "POST",
-                    json: { messageId: Crypto.randomUUID(), expectedRevision: room.revision, plan },
-                    signal,
-                  }),
-                onChange,
-              )
-            }
-          />
-        </Card>
+        <PlanDetails
+          key={`${plan.startAt}:${plan.venueId}:${index}`}
+          plan={plan}
+          venues={venues}
+          label={`Option ${index + 1}`}
+          footer={
+            <Button
+              label={room.plan ? "Send this counterproposal" : "Propose this plan"}
+              disabled={action.busy || !venues.some((venue) => venue.id === plan.venueId)}
+              onPress={() =>
+                void action.run(
+                  (signal) =>
+                    session.request(`/agents/negotiations/${room.id}/proposal`, {
+                      method: "POST",
+                      json: {
+                        messageId: Crypto.randomUUID(),
+                        expectedRevision: room.revision,
+                        plan,
+                      },
+                      signal,
+                    }),
+                  onChange,
+                )
+              }
+            />
+          }
+        />
       ))}
       {action.error && <Notice tone="danger">{action.error}</Notice>}
     </View>
@@ -775,7 +779,7 @@ function BookingReview({
   return (
     <Card>
       <T variant="heading">Review booking terms</T>
-      <PlanDetails plan={value.terms.plan} venues={venues} />
+      <PlanDetails plan={value.terms.plan} venues={venues} label="Agreed" />
       <T>
         You will be the {value.terms.hostId === ownerId ? "host" : "participant"}. This is an
         unlisted workout for two people.
@@ -791,10 +795,10 @@ function BookingReview({
         changed preferences requires review again.
       </T>
       {value.approvedIds.includes(ownerId) ? (
-        <Notice>You accepted these terms. Waiting for your buddy’s acceptance.</Notice>
+        <Notice>You accepted. Waiting for your buddy to accept too.</Notice>
       ) : (
         <Button
-          label={`Accept terms and book revision ${value.terms.revision}`}
+          label="Accept and book"
           loading={action.busy}
           disabled={action.busy || !venues.some((venue) => venue.id === value.terms.plan.venueId)}
           onPress={() =>
@@ -851,17 +855,17 @@ function History({
       }),
   });
   const labels: Record<AssistantHistoryEvent["kind"], string> = {
-    consent: "Consent changed",
-    proposal: "Proposal sent",
+    consent: "Joined or left",
+    proposal: "Plan proposed",
     confirmation: "Plan approved",
-    cancel: "Conversation cancelled",
+    cancel: "Plan ended",
     booking_approval: "Booking terms accepted",
     booked: "Workout booked",
   };
   return (
     <View style={{ gap: 12 }}>
       <Button
-        label={expanded ? "Hide conversation history" : "View conversation history"}
+        label={expanded ? "Hide what’s happened" : "See what’s happened so far"}
         variant="ghost"
         onPress={() => setExpanded((value) => !value)}
       />
@@ -875,30 +879,37 @@ function History({
             />
           )}
           {!events.error &&
-            events.data?.events.map((event) => (
-              <View key={event.sequence} style={{ gap: 4 }}>
-                <T variant="label">
-                  {labels[event.kind]} · revision {event.revision}
-                </T>
-                <T variant="caption" color="textSecondary">
-                  {typeof event.data.agentLabel === "string" && event.data.agentLabel !== "Member"
-                    ? `${event.data.agentLabel} (on behalf of ${event.actorId === ownerId ? "you" : "your buddy"})`
+            events.data?.events.map((event, index, all) => (
+              <TimelineItem
+                key={event.sequence}
+                title={labels[event.kind]}
+                mine={event.actorId === ownerId}
+                last={index === all.length - 1}
+                when={formatWhen(event.createdAt)}
+                who={
+                  typeof event.data.agentLabel === "string" && event.data.agentLabel !== "Member"
+                    ? `${event.data.agentLabel}, for ${event.actorId === ownerId ? "you" : "your buddy"}`
                     : event.actorId === ownerId
                       ? "You"
                       : (memberNames?.[event.actorId] ??
                         people.find((person) => person.id === event.actorId)?.name ??
-                        "Your buddy")}{" "}
-                  · {new Date(event.createdAt).toLocaleString()}
-                </T>
+                        "Your buddy")
+                }
+              >
                 {event.kind === "proposal" && event.data.plan ? (
-                  <PlanDetails plan={event.data.plan as AssistantPlan} venues={venues} />
+                  <T variant="caption" color="textSecondary">
+                    {(event.data.plan as AssistantPlan).title} ·{" "}
+                    {formatWhen((event.data.plan as AssistantPlan).startAt)} ·{" "}
+                    {venues.find((venue) => venue.id === (event.data.plan as AssistantPlan).venueId)
+                      ?.name ?? "meeting point"}
+                  </T>
                 ) : null}
                 {event.kind === "consent" && (
                   <T variant="caption" color="textSecondary">
-                    {event.data.allowed ? "Joined the conversation" : "Withdrew consent"}
+                    {event.data.allowed ? "Joined" : "Left, and withdrew consent"}
                   </T>
                 )}
-              </View>
+              </TimelineItem>
             ))}
         </>
       )}

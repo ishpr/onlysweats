@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { View } from "react-native";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { Camera, ShieldCheck, Trash2 } from "lucide-react-native";
+import { ChatBubble, Composer, TypingDots } from "@/components/assistant-kit";
+import { ListCard, ListRow, SectionTitle } from "@/components/list";
+import { Spacing } from "@/constants/theme";
 import { Button, Card, Field, Notice, Row, T } from "@/components/ui";
 import type { ApiSession } from "@/lib/api";
 import { createAssistantRun } from "@/lib/assistant/run";
@@ -44,7 +48,15 @@ export function useLocalCapability(session: ApiSession) {
   return { capability, refresh: () => setRevision((value) => value + 1) };
 }
 
-export function LocalChat({ session, onCloud }: { session: ApiSession; onCloud: () => void }) {
+export function LocalChat({
+  session,
+  onCloud,
+  modeControl,
+}: {
+  session: ApiSession;
+  onCloud: () => void;
+  modeControl: ReactNode;
+}) {
   const router = useRouter();
   const { capability, refresh } = useLocalCapability(session);
   const [history, setHistory] = useState<IntelligenceHistory[]>([]);
@@ -52,6 +64,7 @@ export function LocalChat({ session, onCloud }: { session: ApiSession; onCloud: 
   const [partial, setPartial] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const [lastText, setLastText] = useState<string | null>(null);
   const runner = useMemo(() => createAssistantRun(session.isCurrent), [session]);
   useEffect(() => () => runner.cancel(), [runner]);
@@ -114,19 +127,13 @@ export function LocalChat({ session, onCloud }: { session: ApiSession; onCloud: 
     );
   };
   return (
-    <View style={{ gap: 14 }}>
-      <T color="textSecondary">
-        A private conversation on this iPhone. It is kept only while this view is open.
-      </T>
-      <T variant="caption" color="textSecondary">
-        {LOCAL_AI_NOTICE}
-      </T>
-      {!capability && <Notice>Checking on-device availability…</Notice>}
+    <View style={{ gap: Spacing.three }}>
+      {!capability && <TypingDots label="Checking on-device availability" />}
       {capability && !capability.available && (
         <Card>
           <Notice>{intelligenceReason(capability.reason)}</Notice>
           <Button label="Check availability again" variant="soft" onPress={refresh} />
-          <Button label="Review cloud assistant option" variant="soft" onPress={onCloud} />
+          <Button label="Review cloud option" variant="soft" onPress={onCloud} />
           <Button
             label="Log an exercise manually"
             variant="ghost"
@@ -135,56 +142,66 @@ export function LocalChat({ session, onCloud }: { session: ApiSession; onCloud: 
         </Card>
       )}
       {history.map((message, index) => (
-        <Card key={index}>
-          <T variant="eyebrow">{message.role === "user" ? "You" : "SamePace · On device"}</T>
-          <T selectable>{message.text}</T>
-        </Card>
+        <ChatBubble
+          key={index}
+          from={message.role === "user" ? "me" : "assistant"}
+          source={message.role === "assistant" ? "On this iPhone" : undefined}
+        >
+          {message.text}
+        </ChatBubble>
       ))}
       {busy && (
-        <Card>
-          <T variant="eyebrow">SamePace · On device</T>
-          <T selectable>{partial || "Thinking on your iPhone…"}</T>
-        </Card>
+        <ChatBubble from="assistant" source="On this iPhone">
+          {partial ? <T selectable>{partial}</T> : <TypingDots />}
+        </ChatBubble>
       )}
       {error && <Notice tone="danger">{error}</Notice>}
       {error && lastText && !busy && (
         <Button label="Retry on this iPhone" variant="soft" onPress={() => send(lastText)} />
       )}
-      <Field
-        label="Message on this iPhone"
-        placeholder="Help me describe my workout"
+      {modeControl}
+      <Composer
         value={text}
-        onChangeText={setText}
-        maxLength={1000}
-        multiline
-        editable={!busy}
+        onChangeText={(value) => setText(value.slice(0, 1000))}
+        onSend={() => send()}
+        onStop={stop}
+        streaming={busy}
+        placeholder="Ask on this iPhone"
+        disabled={busy || !capability?.available}
       />
-      {busy ? (
-        <Button label="Stop local reply" variant="soft" onPress={stop} />
-      ) : (
-        <Button
-          label="Send on this iPhone"
-          disabled={!text.trim() || !capability?.available}
-          onPress={() => send()}
+      <SectionTitle>Controls</SectionTitle>
+      <ListCard>
+        <ListRow
+          icon={ShieldCheck}
+          label="On-device privacy"
+          value="Private"
+          expanded={showPrivacy}
+          onPress={() => setShowPrivacy((value) => !value)}
+        >
+          <View style={{ gap: Spacing.one }}>
+            <T variant="caption" color="textSecondary">
+              {LOCAL_AI_NOTICE}
+            </T>
+            <T variant="caption" color="textSecondary">
+              This conversation is kept only while this view is open. It cannot see saved workouts,
+              contact members or make bookings.
+            </T>
+          </View>
+        </ListRow>
+        <ListRow
+          icon={Trash2}
+          label="Clear on-device conversation"
+          onPress={() => {
+            runner.cancel();
+            setBusy(false);
+            setHistory([]);
+            setPartial("");
+            setText("");
+            setError(null);
+            setLastText(null);
+          }}
         />
-      )}
-      <T variant="caption" color="textSecondary">
-        Local chat cannot see your saved workouts, contact members or make bookings. Use the review
-        tools below for workout drafts.
-      </T>
-      <Button
-        label="Clear on-device conversation"
-        variant="ghost"
-        onPress={() => {
-          runner.cancel();
-          setBusy(false);
-          setHistory([]);
-          setPartial("");
-          setText("");
-          setError(null);
-          setLastText(null);
-        }}
-      />
+      </ListCard>
     </View>
   );
 }
@@ -260,12 +277,16 @@ export function LocalDraftTools({
     );
   };
   return (
-    <View style={{ gap: 12 }}>
-      <Button
-        label={expanded ? "Hide local workout tools" : "Draft a workout from a note or photo"}
-        variant="soft"
-        onPress={() => setExpanded((value) => !value)}
-      />
+    <View style={{ gap: Spacing.two }}>
+      <ListCard>
+        <ListRow
+          icon={Camera}
+          label="Draft from a note or photo"
+          detail="Processed on this iPhone"
+          expanded={expanded}
+          onPress={() => setExpanded((value) => !value)}
+        />
+      </ListCard>
       {expanded && (
         <Card>
           <T variant="heading">A draft you can check</T>

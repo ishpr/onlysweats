@@ -2,6 +2,9 @@ import { useState } from "react";
 import { View } from "react-native";
 import { useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
+import { ClipboardList } from "lucide-react-native";
+import { ActionCard } from "@/components/assistant-kit";
+import { Spacing } from "@/constants/theme";
 import { Button, Card, Chip, Field, Notice, Row, T } from "@/components/ui";
 import { storeFitnessDraft } from "@/lib/assistant/draft-handoff";
 import type { ApiSession } from "@/lib/api";
@@ -118,7 +121,7 @@ export function DraftReview({
         multiline
       />
       {exercises.map((exercise, index) => (
-        <View key={index} style={{ gap: 10 }}>
+        <View key={index} style={{ gap: Spacing.two }}>
           <T variant="label">Exercise {index + 1}</T>
           <Field
             label="Exercise name"
@@ -156,10 +159,15 @@ export function DraftReview({
               onChangeText={(weight) => update(index, { weight })}
             />
           )}
-          <Button
-            label={`Review exercise ${index + 1} in fitness log`}
-            variant="soft"
-            onPress={() => review(exercise)}
+          <ActionCard
+            icon={ClipboardList}
+            title={exercise.name || `Exercise ${index + 1}`}
+            facts={[
+              ...(exercise.sets.trim() ? [`${exercise.sets} sets`] : []),
+              ...(exercise.reps.trim() ? [`${exercise.reps} reps per set`] : []),
+            ]}
+            note="Review individual sets and confirm completion in your fitness log before saving."
+            primary={{ label: "Review in fitness log", onPress: () => review(exercise) }}
           />
         </View>
       ))}

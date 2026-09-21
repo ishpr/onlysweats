@@ -34,7 +34,13 @@ Only an opaque next-session route and expiry are placed in the existing `group.a
 
 ## Verification and remaining acceptance
 
+The SDK 57 project uses `expo` 57.0.24 and `expo-build-properties` 57.0.21 with `ios.enableSceneSupport: true`. This is required for a binary built with Xcode 27 to launch correctly on iOS 27. The generated app delegate and scene manifest must be retained through prebuild. See [Expo's SDK 57 scene migration guidance](https://github.com/expo/fyi/blob/main/ios-scene-lifecycle.md#staying-on-sdk-57-with-xcode-27).
+
+As of September 21, 2026, [Expo's current EAS announcement](https://expo.dev/changelog/sdk-58-beta) says Xcode 27 cloud images are still forthcoming and `latest` uses Xcode 26.6. Do not invent an image name or assume `auto` includes the 27 SDK. Local Xcode 27 builds include the new SDK features; older-toolchain builds compile out PCC and the HealthKit 27 capture additions. The local model path requires an SDK containing Foundation Models (Xcode 26 or later), even though the application still gracefully runs below iOS 26 without inference.
+
 The standalone Swift check executable covers exact evidence parsing, missing facts, bounds, cancellation before dispatch, local-file isolation, and actual Vision OCR over a generated synthetic image. It performs no language-model inference. `validation.test.mjs` checks the native result boundary and freshness of workout surface data. These checks are separate from model quality evaluation.
+
+Run `mobile/modules/samepace-intelligence/tests/run-checks.sh` from the repository on a Mac with the current Xcode SDK. It typechecks the native engine and shortcuts against the iOS SDK, checks the opt-in PCC source without executing it, and runs the default-disabled synthetic checks in a temporary directory. The Expo module wrapper and App Intents metadata are additionally verified by the aggregate application build.
 
 Before release, use a newly built physical iPhone client to verify:
 
