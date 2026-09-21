@@ -5,6 +5,12 @@ export type MemberDiscovery = {
   enabled: boolean;
   expiresAt: string | null;
   eligible: boolean;
+  /** I've chosen to be shown only to women, and to be shown only women. */
+  womenOnly: boolean;
+  /** Offered to women, the way a women-only session is posted by women. */
+  canChooseWomenOnly: boolean;
+  /** Set when `reason` is something to verify first: `verify_member` or `verify_government_id`. */
+  needs: string | null;
   candidates: { memberId: string; name: string; activity: Activity; sharedVenueCount: number }[];
   reason: string | null;
 };
