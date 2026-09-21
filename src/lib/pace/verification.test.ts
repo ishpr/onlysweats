@@ -230,6 +230,122 @@ describe("the stand-in, outside production", () => {
 });
 
 describe("Persona", () => {
+  it("allows sandbox keys only locally or in an explicit Vercel preview", () => {
+    const cases: [Record<string, string>, "persona" | null][] = [
+      [{}, "persona"],
+      [{ NODE_ENV: "development" }, "persona"],
+      [{ NODE_ENV: "test" }, "persona"],
+      [{ NODE_ENV: "production" }, null],
+      [{ VERCEL_ENV: "production" }, null],
+      [{ VERCEL_ENV: "production", NODE_ENV: "development" }, null],
+      [{ VERCEL_ENV: "production", NODE_ENV: "production" }, null],
+      [{ VERCEL_ENV: "preview", NODE_ENV: "production" }, "persona"],
+      [{ VERCEL_ENV: "development", NODE_ENV: "production" }, null],
+    ];
+    for (const [env, expected] of cases) {
+      assert.equal(v.providerFor({ ...PERSONA, ...env }), expected, JSON.stringify(env));
+    }
+    assert.equal(
+      v.providerFor({
+        ...PERSONA,
+        PERSONA_API_KEY: " persona_sandbox_test ",
+        NODE_ENV: "production",
+      }),
+      null,
+      "whitespace cannot bypass the environment guard",
+    );
+    assert.equal(
+      v.providerFor({ NODE_ENV: "production", VERCEL_ENV: "preview" }),
+      null,
+      "an explicit preview does not enable the dev approval endpoint in production builds",
+    );
+  });
+
+  it("blocks sandbox starts, refresh approvals and signed webhooks in production", async () => {
+    const id = await member("SandboxIsolation");
+    const p = fakePersona();
+    const started = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(started.url);
+    p.statuses.set(inquiry, "approved");
+    const callsBefore = p.calls.length;
+    const now = Date.now();
+    const body = event(inquiry, id, "approved", "evt_sandbox_production", now);
+    for (const configuration of [
+      { ...PERSONA, NODE_ENV: "production" },
+      { ...PERSONA, VERCEL_ENV: "production" },
+      { ...PERSONA, NODE_ENV: "production", PERSONA_API_KEY: "placeholder" },
+      { ...PERSONA, VERCEL_ENV: "production", PERSONA_API_KEY: "persona_sandox_typo" },
+      { ...PERSONA, NODE_ENV: "production", PERSONA_API_KEY: "" },
+    ]) {
+      const deps = { ...p.deps, env: configuration };
+      await rejects(v.startVerification(sql, id, "government_id", now, deps), 409, /isn’t open/);
+      await rejects(v.startVerification(sql, id, "member", now, deps), 409, /isn’t open/);
+      const refreshed = await v.refreshVerification(sql, id, started.id, now, deps);
+      assert.equal(refreshed.available, false);
+      assert.equal(refreshed.member, "pending");
+      assert.deepEqual(await v.handlePersonaWebhook(sql, body, sign(body, now), now, deps), {
+        status: 401,
+        outcome: "provider_unavailable",
+      });
+      await rejects(v.devComplete(sql, id, started.id, "approved", now, deps), 404);
+    }
+    assert.equal(p.calls.length, callsBefore, "no sandbox API request escaped the guard");
+    assert.equal((await svc.people(sql, [id]))[0].identityVerified, false);
+    assert.equal(
+      (await sql`select id from verification_events where id = 'evt_sandbox_production'`).length,
+      0,
+    );
+    await safety.deleteAccount(sql, id);
+    assert.deepEqual(
+      await v.retryPersonaRedactions(
+        sql,
+        Date.now(),
+        {
+          ...p.deps,
+          env: { ...PERSONA, VERCEL_ENV: "production" },
+        },
+        [inquiry],
+      ),
+      { redacted: 0, failed: 0 },
+    );
+    assert.equal(
+      p.calls.length,
+      callsBefore,
+      "misconfigured production does not call sandbox for deletion",
+    );
+    assert.equal(
+      (await sql`select provider_ref from persona_redaction_jobs where provider_ref = ${inquiry}`)
+        .length,
+      1,
+      "the deletion obligation survives invalid credentials",
+    );
+  });
+
+  it("accepts sandbox preview decisions and real-key production decisions", async () => {
+    for (const env of [
+      { ...PERSONA, VERCEL_ENV: "preview", NODE_ENV: "production" },
+      {
+        ...PERSONA,
+        PERSONA_API_KEY: "persona_production_test",
+        VERCEL_ENV: "production",
+        NODE_ENV: "production",
+      },
+    ]) {
+      const id = await member("AllowedEnvironment");
+      const p = fakePersona();
+      const deps = { ...p.deps, env };
+      const started = await v.startVerification(sql, id, "member", Date.now(), deps);
+      const now = Date.now();
+      const body = event(inquiryOf(started.url), id, "approved", undefined, now);
+      assert.equal(
+        (await v.handlePersonaWebhook(sql, body, sign(body, now), now, deps)).outcome,
+        "approved",
+      );
+      assert.equal((await v.getVerification(sql, id, deps)).member, "approved");
+      assert.equal((await svc.people(sql, [id]))[0].identityVerified, true);
+    }
+  });
+
   it("creates an inquiry with nothing but the member’s id, and resumes it rather than paying twice", async () => {
     const bob = await member("Bob");
     const p = fakePersona();

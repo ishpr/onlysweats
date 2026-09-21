@@ -31,9 +31,19 @@ const DECLINE_WINDOW_MS = 30 * 24 * 60 * 60_000;
 
 const isProduction = (env: Env) => env.VERCEL_ENV === "production" || env.NODE_ENV === "production";
 
+/** Vercel previews run production builds, but use their own sandbox data. */
+function allowsSandbox(env: Env) {
+  if (env.VERCEL_ENV === "production") return false;
+  if (env.VERCEL_ENV === "preview") return true;
+  return env.NODE_ENV !== "production";
+}
+
 function personaConfig(env: Env) {
   const apiKey = env.PERSONA_API_KEY?.trim();
   if (!apiKey) return null;
+  // Sandbox decisions are simulated. Unknown/placeholder keys must not enable
+  // signed webhook writes either: production requires the documented live prefix.
+  if (!allowsSandbox(env) && !apiKey.startsWith("persona_production_")) return null;
   return {
     apiKey,
     templates: {
@@ -585,6 +595,9 @@ export async function handlePersonaWebhook(
   if (!(await verifyPersonaSignature(rawBody, signature, secrets, now))) {
     return { status: 401, outcome: "bad_signature" };
   }
+  // A valid sandbox signature does not authorize a production state change.
+  // Require the same provider configuration used by create and refresh.
+  if (!personaConfig(env)) return { status: 401, outcome: "provider_unavailable" };
   let event: PersonaEvent;
   try {
     event = JSON.parse(rawBody) as PersonaEvent;

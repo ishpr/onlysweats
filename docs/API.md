@@ -337,6 +337,18 @@ Vercel: `PERSONA_API_KEY`, `PERSONA_TEMPLATE_MEMBER`,
 while rotating), then `VERIFICATION_ENFORCED=1` once members have had time to
 verify. With no key, outside production, a `dev` provider stands in.
 
+Sandbox Persona keys are refused in production, including signed webhook
+updates and refreshes: simulated results cannot award a production badge. An
+explicit `VERCEL_ENV=preview` permits a sandbox key even though Vercel sets
+`NODE_ENV=production` for preview builds. Without that explicit preview setting,
+`NODE_ENV=production` refuses sandbox keys; `VERCEL_ENV=production` always does.
+Production requires Persona's documented `persona_production_` key prefix;
+placeholder or unrecognized keys cannot enable signed webhook writes either.
+Use a separate preview database and webhook secret. The development approval
+endpoint remains disabled in all production builds, including previews. Missing
+or rejected provider configuration preserves queued redaction obligations.
+See [Persona setup and acceptance](PERSONA.md) before enabling enforcement.
+
 **Background checks are not built.** The `background` tier is reserved in the
 schema and nothing starts one. In the US a criminal-record check is a consumer
 report under the FCRA: it takes a standalone disclosure and written
