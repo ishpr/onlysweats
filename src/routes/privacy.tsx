@@ -153,10 +153,12 @@ function Privacy() {
             Meeting a new partner requires a separate discovery choice that expires after seven
             days. SamePace compares your entered activity, ability, public venues and available
             times with other opted-in members. Compatible members can see your name and activity and
-            invite you to plan. Exact availability and notes stay private until you both join the
-            conversation. Editing your preferences pauses discovery until you enable it again. Each
-            person separately authorizes any bounded assistant planning run; that permission expires
-            and never authorizes booking or payment.
+            invite you to plan. If you choose “women only”, you are shown only to women and only
+            shown women. A two-strike pause, or a verification you haven’t done once that is
+            required, keeps you out of discovery until it’s sorted. Exact availability and notes
+            stay private until you both join the conversation. Editing your preferences pauses
+            discovery until you enable it again. Each person separately authorizes any bounded
+            assistant planning run; that permission expires and never authorizes booking or payment.
           </p>
         </Section>
 
