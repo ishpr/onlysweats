@@ -327,6 +327,17 @@ governmentId, idRequired }`; each tier is `none`, `pending`, `needs_review`,
   once per event id. A stray late event can't undo a decision; a reviewer's later
   decline can, and clears the badge.
 - Deleting an account atomically queues Persona redaction before removing local checks and badges. Leased retries retain the provider reference until deletion is confirmed; missing credentials or provider failures do not discard the obligation. Timestamp-ordered webhooks cannot revive deleted members or superseded checks.
+- New accountless checks use a versioned local binding from inquiry ID to member,
+  tier, template and environment. A provider reference may be absent on these
+  checks only; a supplied mismatch, unknown/old inquiry, wrong template,
+  mismatched/unknown environment, or any Account relationship is rejected.
+  Dynamic Flow `inquiry-template` and explicit null `account` relationships must
+  be retained in webhook payloads. Legacy rows keep strict reference matching.
+- Creation intent and idempotency data are committed before the provider call.
+  Lost responses survive account deletion without retaining a member identifier
+  in the replay body. Unknown creates older than 23 hours and unexpected Accounts
+  remain operator review obligations. Unknown-environment legacy deletion jobs
+  stay pending rather than being discarded on a wrong-environment `404`.
 
 **Setting it up.** In Persona: two inquiry templates — phone + selfie, and
 government ID + selfie — each with a workflow that approves or declines the
@@ -474,7 +485,7 @@ Discovery compares a bounded pool of 30 candidates, rotated hourly. Both members
 ## Provider activation and later work
 
 - **Stripe activation.** Hosted membership ($12/month after two completed sessions), explicit fee checkout, disputes, refunds and deletion retries are implemented. The user's Stripe account is not set up. Collection remains disabled until credentials, the price/portal configuration and the explicit cluster-density gate are configured and tested. Enforcement has its own off-by-default flag. Existing commitments can still be attended or cancelled; new recurrence waits if enforcement is enabled and membership is missing.
-- **Persona activation.** Code is integrated, including ordered status updates and deletion retries. The user's Persona account/templates are not set up. Production verification remains unavailable and enforcement stays off.
+- **Persona activation.** Shared templates, Sandbox workflows, a restricted API key and a filtered Preview webhook are configured. A disposable accountless API probe passed create/retrieve/resume, exact-template/no-Account checks and inquiry redaction. Full application lifecycle, signed delivery, phone/selfie/ID and Case-retention acceptance remain pending. Production application credentials remain unconfigured and enforcement stays off. See [Persona setup and acceptance](PERSONA.md).
 - Gym sessions matched on `gym_id`, `route_url` in the app.
 - Background checks — see _Verification_ for scope.
 

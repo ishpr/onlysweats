@@ -1,6 +1,51 @@
 # Hosted billing
 
-The Stripe adapter, member billing screen, fee support queue, webhook intake, reconciliation worker, and membership gates are implemented. Payments are **off by default**. No Stripe account, live credentials, or real payment acceptance has been supplied or tested for this release. Local tests use synthetic provider state and a local HTTP server exercising the official `stripe` SDK (22.6.2 in the lockfile).
+The Stripe adapter, member billing screen, fee support queue, webhook intake, reconciliation worker, and membership gates are implemented. Payments are **off by default**. Stripe test mode is configured on an isolated Vercel Preview; production collection and membership enforcement remain off. Live credentials and real payment acceptance have not been supplied or tested. Local tests use synthetic provider state and a local HTTP server exercising the official `stripe` SDK (22.6.2 in the lockfile).
+
+## Configured test environment
+
+The Servesys Corporation Stripe account has the following test-mode resources:
+
+| Resource           | ID / configuration                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Membership product | `prod_VIZMIk3NKzOllT` — SamePace Membership                                                                                    |
+| Recurring price    | `price_1UHyDWLmLwBE307y1wU8vBtO` — USD 1200 every month                                                                        |
+| Customer portal    | `bpc_1UHyG5LmLwBE307ykPCY1NCK` — payment-method updates, invoice history and cancellation at period end; plan changes disabled |
+| Active webhook     | `we_1UHyeOLmLwBE307yb9IKG4ga` — the 18 events below, API version `2026-08-26.dahlia`                                           |
+
+Test credentials are server-side, restricted to Vercel Preview branch
+`codex/persona-provider-setup`, with a separate Preview database and cron secret.
+The stable test host is
+`samepace-git-codex-backlog-completion-servesys-labs.vercel.app`.
+Its webhook uses a dedicated project protection-bypass token; the endpoint still
+requires Stripe's signature and application routes still require member sign-in.
+Do not publish the token-bearing webhook URL. The earlier endpoint
+`we_1UHyJZLmLwBE307yD33lApHB` is disabled.
+
+A disposable synthetic member completed a hosted Stripe test-card checkout for
+$12. The real signed provider webhook arrived, reconciliation processed four
+events and one account without errors, and the membership became active with a
+future period end. The app-created portal showed the paid invoice and allowed
+cancellation; its confirmation retained access until October 20, 2026.
+No real card or member health record was used.
+
+This test exposed a Stripe response variant: the portal set `cancel_at` to the
+paid period end while `cancel_at_period_end` remained false. The adapter now
+recognizes that scheduled cancellation and caps access at an earlier
+`cancel_at`, without extending the paid period. The deployed correction was
+verified against the actual test subscription: the app reported scheduled
+cancellation while membership remained active through its paid period.
+
+Cleanup then invalidated the test member's session, removed its sign-in record,
+scrubbed its profile and completed the provider-deletion job with zero worker
+errors. Stripe confirmed the test customer was deleted and its subscription
+canceled. No outstanding test subscription or pending provider event remained.
+
+The browser return reached Vercel's Preview sign-in gate. This proves the
+provider redirect was issued, not a complete physical-device return flow.
+3DS, failed renewal, refunds, event replay/reordering and outage recovery still
+need actual-provider acceptance. A successful test payment does not authorize
+live collection or establish the cluster-density gate for launch.
 
 ## Operator setup
 

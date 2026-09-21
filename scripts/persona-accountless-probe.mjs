@@ -7,18 +7,22 @@ import { pathToFileURL } from "node:url";
 
 const API = "https://api.withpersona.com/api/v1";
 const VERSION = "2023-01-05";
-const STATE_KIND = "samepace-persona-accountless-probe-v1";
+const STATE_KIND = "samepace-persona-accountless-probe-v2";
 const INQUIRY_ID = /^inq_[a-zA-Z0-9_-]{1,200}$/;
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,255}$/;
-const CHECK_NAMES = [
-  "createReferenceMatches",
-  "createAccountAbsent",
+const REQUIRED_CHECKS = [
+  ...["create", "retrieve", "resume"].flatMap((stage) => [
+    `${stage}ReferenceCompatible`,
+    `${stage}TemplateMatches`,
+    `${stage}AccountAbsent`,
+    `${stage}UpdateTimeValid`,
+  ]),
   "createSessionTokenPresent",
-  "retrieveReferenceMatches",
-  "retrieveAccountAbsent",
-  "resumeReferenceMatches",
-  "resumeAccountAbsent",
   "resumeSessionTokenPresent",
+];
+const CHECK_NAMES = [
+  ...REQUIRED_CHECKS,
+  ...["create", "retrieve", "resume"].map((stage) => `${stage}ReferenceAbsent`),
 ];
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -243,16 +247,28 @@ function inspectInquiry(response, state, stage, requireToken) {
         state.unexpectedAccountIds.push(resource.id);
     }
   }
-  state.checks[`${stage}ReferenceMatches`] =
-    data.attributes?.["reference-id"] === state.referenceId;
+  const reference = data.attributes?.["reference-id"];
+  state.checks[`${stage}ReferenceAbsent`] = reference == null;
+  state.checks[`${stage}ReferenceCompatible`] =
+    reference == null || reference === state.referenceId;
+  const template = data.relationships?.["inquiry-template"]?.data;
+  state.checks[`${stage}TemplateMatches`] =
+    template?.type === "inquiry-template" && template.id === state.templateId;
+  const updatedAt = Date.parse(data.attributes?.["updated-at"] ?? "");
+  state.checks[`${stage}UpdateTimeValid`] =
+    Number.isFinite(updatedAt) && updatedAt <= Date.now() + 5 * 60_000;
   state.checks[`${stage}AccountAbsent`] =
     account?.data === null && !related.some((item) => item.type === "account");
   if (requireToken)
     state.checks[`${stage}SessionTokenPresent`] =
       typeof response.meta?.["session-token"] === "string" &&
       response.meta["session-token"].length > 0;
-  if (!state.checks[`${stage}ReferenceMatches`])
-    throw new ProbeFailure(stage, "reference_binding_unproven");
+  if (!state.checks[`${stage}ReferenceCompatible`])
+    throw new ProbeFailure(stage, "reference_mismatch");
+  if (!state.checks[`${stage}TemplateMatches`])
+    throw new ProbeFailure(stage, "template_binding_unproven");
+  if (!state.checks[`${stage}UpdateTimeValid`])
+    throw new ProbeFailure(stage, "update_time_invalid");
   if (!state.checks[`${stage}AccountAbsent`])
     throw new ProbeFailure(
       stage,
@@ -348,7 +364,6 @@ export async function runProbe(
             data: {
               attributes: {
                 "inquiry-template-id": state.templateId,
-                "reference-id": state.referenceId,
               },
             },
             meta: { "auto-create-inquiry-session": true, "auto-create-account": false },
@@ -430,7 +445,7 @@ export async function runProbe(
   const passed =
     !failure &&
     !options.cleanupOnly &&
-    CHECK_NAMES.every((name) => state?.checks[name] === true) &&
+    REQUIRED_CHECKS.every((name) => state?.checks[name] === true) &&
     state?.cleanupVerified &&
     !state.cleanupPending;
   const summary = {

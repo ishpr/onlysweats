@@ -71,3 +71,25 @@ test("community outcomes deduplicate members and pairs, and require completed at
   assert.equal(old.completed_seats, 0);
   assert.doesNotMatch(JSON.stringify(after), new RegExp(`${f.host}|${f.member}`));
 });
+
+test("verification recovery remains visible after deletion without exposing provider identities", async () => {
+  const sql = await makeDb();
+  const now = new Date();
+  await sql`insert into persona_creation_intents
+    (id, template_id, provider_environment, binding_version, idempotency_key,
+     provider_ref, provider_account_ref, cancel_requested, state, review_reason,
+     next_attempt_at, created_at, updated_at)
+    values
+      ('pci_pending_private', 'itmpl_private', 'sandbox', 1, 'private_pending_key',
+       null, null, true, 'pending', null, ${now}, ${now}, ${now}),
+      ('pci_review_private', 'itmpl_private', 'sandbox', 1, 'private_review_key',
+       'inq_private', 'act_private', true, 'review_required', 'account_detected',
+       ${now}, ${now}, ${now})`;
+  const result = await operationalOverview(sql);
+  assert.equal(result.counts.pending_persona_creations, 1);
+  assert.equal(result.counts.persona_creation_review_required, 1);
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /pci_pending_private|pci_review_private|itmpl_private|inq_private|act_private|private_.*_key/,
+  );
+});

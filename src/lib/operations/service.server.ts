@@ -52,6 +52,8 @@ export async function operationalOverview(sql: Sql, now = Date.now()) {
     (select count(*)::int from apple_revocation_jobs where state = 'failed') as failed_apple_revocations,
     (select count(*)::int from persona_redaction_jobs where state = 'failed') as failed_persona_redactions,
     (select count(*)::int from persona_redaction_jobs where state in ('queued', 'processing')) as pending_persona_redactions,
+    (select count(*)::int from persona_creation_intents where state = 'pending') as pending_persona_creations,
+    (select count(*)::int from persona_creation_intents where state = 'review_required') as persona_creation_review_required,
     (select count(*)::int from billing_disputes where status = 'open') as open_fee_disputes,
     (select count(*)::int from billing_checkouts where status = 'refund_pending') as pending_fee_refunds,
     (select count(*)::int from billing_checkouts where status = 'review_required') as billing_review_required,

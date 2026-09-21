@@ -29,7 +29,9 @@ async function handle({ request }: { request: Request }) {
   const retired = await notify.checkReceipts(sql);
   const { retryAppleRevocations } = await import("@/lib/auth/apple-revoke.server");
   const appleRevocations = await retryAppleRevocations(sql);
-  const { retryPersonaRedactions } = await import("@/lib/pace/verification.server");
+  const { recoverPersonaCreations, retryPersonaRedactions } =
+    await import("@/lib/pace/verification.server");
+  const personaCreations = await recoverPersonaCreations(sql);
   const personaRedactions = await retryPersonaRedactions(sql);
   const { sweepCoordination } = await import("@/lib/agents/coordination.server");
   const coordination = await sweepCoordination(sql);
@@ -45,6 +47,7 @@ async function handle({ request }: { request: Request }) {
     pushed,
     retired,
     appleRevocations,
+    personaCreations,
     personaRedactions,
     coordination,
     billing,

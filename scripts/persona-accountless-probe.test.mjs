@@ -25,6 +25,9 @@ async function fixture() {
 }
 function fakeProvider({
   wrongReference = false,
+  echoReference = false,
+  wrongTemplate = false,
+  omitTemplate = false,
   account = null,
   omitAccount = false,
   lostCreate = false,
@@ -44,12 +47,29 @@ function fakeProvider({
           id: "inq_synthetic",
           type: "inquiry",
           attributes: {
-            "reference-id": wrongReference ? "different-synthetic-reference" : reference,
+            "reference-id": wrongReference
+              ? "different-synthetic-reference"
+              : echoReference
+                ? reference
+                : null,
+            "updated-at": new Date().toISOString(),
             "redacted-at": redacted ? new Date().toISOString() : null,
             status: "created",
             "unneeded-private-field": "synthetic-private-payload-never-print",
           },
-          relationships: omitAccount ? {} : { account: { data: account } },
+          relationships: {
+            ...(omitAccount ? {} : { account: { data: account } }),
+            ...(omitTemplate
+              ? {}
+              : {
+                  "inquiry-template": {
+                    data: {
+                      type: "inquiry-template",
+                      id: wrongTemplate ? "itmpl_wrong" : "itmpl_synthetic",
+                    },
+                  },
+                }),
+          },
         },
         meta: stage === "retrieve" ? {} : { "session-token": TOKEN },
       }),
@@ -73,14 +93,10 @@ function fakeProvider({
         "auto-create-inquiry-session": true,
         "auto-create-account": false,
       });
-      assert.deepEqual(Object.keys(body.data.attributes).sort(), [
-        "inquiry-template-id",
-        "reference-id",
-      ]);
-      assert.match(body.data.attributes["reference-id"], /^[a-f0-9-]{36}$/);
-      reference ??= body.data.attributes["reference-id"];
+      assert.deepEqual(Object.keys(body.data.attributes), ["inquiry-template-id"]);
+      reference ??= init.headers["Idempotency-Key"].split(":").at(-1);
+      assert.match(reference, /^[a-f0-9-]{36}$/);
       idempotency ??= init.headers["Idempotency-Key"];
-      assert.equal(reference, body.data.attributes["reference-id"]);
       assert.equal(idempotency, init.headers["Idempotency-Key"]);
       if (lost) {
         lost = false;
@@ -173,13 +189,30 @@ test("a binding mismatch still redacts the known inquiry and never reports accep
   const provider = fakeProvider({ wrongReference: true });
   const result = await run(options, provider);
   assert.equal(result.status, "failed");
-  assert.equal(result.failureStatus, "reference_binding_unproven");
-  assert.equal(result.checks.createReferenceMatches, false);
+  assert.equal(result.failureStatus, "reference_mismatch");
+  assert.equal(result.checks.createReferenceCompatible, false);
   assert.equal(result.cleanupVerified, true);
   assert.equal(
     provider.calls.some((call) => call.method === "DELETE"),
     true,
   );
+});
+
+test("a supplied reference must match even when absent references are supported", async () => {
+  const { options } = await fixture();
+  const result = await run(options, fakeProvider({ echoReference: true }));
+  assert.equal(result.status, "passed");
+  assert.equal(result.checks.createReferenceAbsent, false);
+  assert.equal(result.checks.resumeReferenceCompatible, true);
+});
+
+test("wrong or omitted Dynamic Flow template binding is rejected and cleaned", async () => {
+  for (const config of [{ wrongTemplate: true }, { omitTemplate: true }]) {
+    const { options } = await fixture();
+    const result = await run(options, fakeProvider(config));
+    assert.equal(result.failureStatus, "template_binding_unproven");
+    assert.equal(result.cleanupVerified, true);
+  }
 });
 
 test("missing Account relationship is indeterminate, never proof of Account absence", async () => {
@@ -251,7 +284,7 @@ test("provider state errors are inconclusive and cleanup still runs", async () =
   assert.equal(result.failureStage, "resume");
   assert.equal(result.failureStatus, "provider_state_or_request_rejected");
   assert.equal(result.httpStatus, 422);
-  assert.equal(result.checks.retrieveReferenceMatches, true);
+  assert.equal(result.checks.retrieveReferenceCompatible, true);
   assert.equal(result.cleanupVerified, true);
 });
 

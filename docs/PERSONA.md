@@ -7,9 +7,11 @@ redirects, signed events and deletion behavior have passed provider acceptance.
 
 ## Current sandbox setup
 
-The following templates are published in Persona Sandbox. These are setup
-records, not evidence that a hosted verification or provider acceptance test has
-passed. Use the template IDs, not their version IDs, in application configuration.
+The following templates are published shared Persona configuration; template
+publication is not isolated to Sandbox. The associated workflows are activated
+only in Sandbox. These are setup records, not evidence that a hosted verification
+or provider acceptance test has passed. Use the template IDs, not their version
+IDs, in application configuration.
 
 | Purpose                  | Template ID                            | Published version ID                    |
 | ------------------------ | -------------------------------------- | --------------------------------------- |
@@ -25,10 +27,23 @@ without reference or status fields in the URL.
 The member route runs phone OTP followed by selfie verification. It bypasses the
 government-ID route, does not require comparison to an ID portrait, and requires
 selfie liveness. The government-ID template retains the default ID verification,
-selfie liveness and ID-portrait comparison checks. These configured checks still
-need actual sandbox pass/fail and completion-path acceptance.
+selfie liveness and ID-portrait comparison checks.
 
-The completed-inquiry decision workflow is published **in Sandbox only**:
+Read-only dashboard inspection confirmed these **Required** settings in the
+published versions. They describe configuration, not verification results.
+
+| Template      | Check                       | Required |
+| ------------- | --------------------------- | -------- |
+| Member        | `selfie_liveness_detection` | `1`      |
+| Member        | `selfie_id_comparison`      | `0`      |
+| Government ID | `selfie_liveness_detection` | `1`      |
+| Government ID | `selfie_id_comparison`      | `1`      |
+| Government ID | `id_selfie_comparison`      | `1`      |
+
+These checks still need actual sandbox pass/fail and completion-path acceptance.
+
+The completed-inquiry decision workflow is published and **activated only in
+Sandbox**:
 
 - Workflow: `wfl_AzLHMsDEmiEGKUUdLkhgj6iCAquWw9`.
 - Published version: `wfv_AzLHMsDTRv1SPKR6GUB1fZWBGR6Say`.
@@ -42,7 +57,8 @@ completion without all their required checks. A published workflow and a
 completed hosted flow are not, by themselves, evidence of successful identity
 verification.
 
-The failed-inquiry review workflow is also published **in Sandbox only**:
+The failed-inquiry review workflow is also published and **activated only in
+Sandbox**:
 
 - Workflow: `wfl_AzLHMsD1H7hubtYvrGyKE576hNco3y`.
 - Published version: `wfv_AzLHMsDofpRAafWg2z5NSSqcy7D3i6`.
@@ -55,12 +71,24 @@ Both workflows are deactivated in Production. Their published configuration
 still requires sandbox acceptance, including the failed-inquiry review path and
 both possible manual decisions.
 
-API-key creation is awaiting the user's Persona dashboard reauthentication. The
-accountless API probe has **not run**, and the separate
-`meta.auto-create-account=false` adapter patch has **not been applied**. The
-template's No Account choice does not establish API behavior; see the accountless
-acceptance section below. Production Persona configuration and verification
-enforcement remain off.
+Sandbox key `api_AzLHMsDGu9YuHAMi6HdGHPpY7N2GoS` is created. Reloading its saved
+settings confirmed only **Access all inquiries** and **Create inquiries** are
+enabled; other permissions, including template read/write, are off. API version
+is `2023-01-05`. The key and signing secret are stored privately and are never
+included in this document or client code.
+
+Webhook `wbh_AzLHMsDHzhj3dfUUqAvkriebVDdeqp` is enabled for the approved protected
+Preview endpoint, using version `2023-01-05`, kebab-case payloads and nine inquiry
+events. Its saved event filter allows only the two exact template IDs above.
+Retain the inquiry's `inquiry-template` and `account` relationship IDs/nulls;
+the adapter fails closed if those relationships are missing. Included identity
+resources are unnecessary.
+
+The narrow live Sandbox API probe passed as recorded below. This branch now
+implements the accountless adapter with a durable local binding; the earlier
+metadata-only patch was insufficient and is superseded. Deployment and full
+application lifecycle acceptance remain separate. Production application
+credentials have not been configured, and verification enforcement remains off.
 
 ## Keep sandbox and production separate
 
@@ -80,9 +108,10 @@ The development approval endpoint stays disabled when either `NODE_ENV` or
 inquiries to test that environment. Do not copy sandbox verification rows or
 approved profile badges into the production database.
 
-Production activation requires a production key, production templates and its
-own webhook secret. A local fake-provider test proves the application's guard;
-it does not prove a real identity check or approval workflow.
+Production activation requires a production key, reviewed template settings and
+workflow activation for Production, and its own webhook secret. A local
+fake-provider test proves the application's guard; it does not prove a real
+identity check or approval workflow.
 Persona documents distinct `persona_sandbox_` and `persona_production_` key
 prefixes in its [API-key guide](https://docs.withpersona.com/api-keys).
 
@@ -92,31 +121,76 @@ that key. Rotate the full provider configuration together, and never promote
 sandbox rows into production. Persona's documented event body has no
 authoritative environment field for the receiver to validate.
 
-## Accountless setup is not accepted yet
+## Accountless binding and provider evidence
 
-The current adapter still omits `meta.auto-create-account`, which defaults to
-`true` in Persona's [versioned inquiry creation schema](https://docs.withpersona.com/2023-01-05/api-reference/inquiries/create-an-inquiry).
-Removing Account-copy workflow steps or setting the template's Account option
-does not establish that API-created inquiries avoid automatic Accounts.
+The adapter explicitly sends `meta.auto-create-account=false` and omits the
+deprecated member `reference-id`. Without the explicit flag, Account creation
+defaults to true in Persona's [versioned inquiry creation schema](https://docs.withpersona.com/2023-01-05/api-reference/inquiries/create-an-inquiry).
+The template's No Account setting alone is not the API contract. Its replacement
+`meta.auto-create-account-reference-id` requires Account creation and is not used.
 
-Before applying `meta.auto-create-account: false`, use a disposable sandbox
-inquiry to prove that the existing `data.attributes.reference-id` survives and
-that no parent Account exists. The app requires that reference on refresh and
-webhook updates. Persona documents the old field as deprecated; its replacement
-`meta.auto-create-account-reference-id` requires Account creation, so it cannot
-be substituted in an accountless request. A fake-provider test can check the
-outgoing flag but cannot prove this provider behavior.
+New verification rows use binding version `1`: the server-created inquiry ID is
+uniquely associated with the signed-in member, tier, requested template and key
+environment. Create, resume, refresh and signed webhook processing require that
+exact binding, the Dynamic Flow `inquiry-template` relationship, and explicit
+`account.data=null`. A missing provider reference is allowed only for these new
+rows; any supplied non-null mismatch is rejected. Legacy version `0` rows remain
+reference-strict. Unknown environments are never inferred from whichever key is
+currently configured, for either badge updates or deletion acknowledgements.
 
-If the probe fails, add durable Account redaction and preserve the Account ID
-before activation. Inquiry redaction does not redact its parent Account, as
-explained in [Persona's redaction guide](https://help.withpersona.com/articles/48Fu5XOdmd1y5v1xvbCkn8/).
+Three disposable member-template inquiries were tested on **2026-09-21 UTC**:
+
+| Inquiry                              | Request and observed result                                                                                                                                                                                                                                             | Cleanup                                          |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `inq_AzLHMsDtK2RgHNoEYo2dQVRT5YC4Pv` | Initial accountless request supplied a synthetic reference. Create returned explicit no Account and a session token, but did not echo that reference. The original reference-equality probe failed and stopped before retrieve/resume.                                  | Inquiry redaction confirmed; no pending cleanup. |
+| `inq_AzLHMsDjRYDLwjjMrRDUsUGhv2Trgq` | Expanded probe accepted an absent reference while requiring the exact template, no Account, valid update timestamps and session tokens. Create, retrieve and resume passed.                                                                                             | Inquiry redaction confirmed; no pending cleanup. |
+| `inq_AzLHMsDNZdkKRoopWG2ogypieqMA1v` | Probe used the adapter's final request body: template only, Account creation disabled, no member reference. Create, retrieve and resume returned the exact template, explicit no Account, absent reference and valid timestamps; create/resume returned session tokens. | Inquiry redaction confirmed; no pending cleanup. |
+
+The probe retained no key, session token or provider payload. Its temporary
+recovery files were removed after successful cleanup. These results establish
+the narrow API contract and inquiry redaction acknowledgement. They do not prove
+phone/selfie checks, government-ID outcomes, signed event delivery, review Case
+retention, or erasure of all child resources.
+
+## Durable creation and cleanup
+
+An opaque creation intent is committed before contacting Persona. It stores the
+requested template and environment, binding version and stable idempotency key.
+The exact replay body contains no member identifier. The returned inquiry ID is
+committed before the binding callback, so a later database rollback cannot erase
+the cleanup identity. No hosted URL is returned before the member binding commits.
+
+Account deletion cancels unresolved intents and scrubs their member/tier
+association. Known inquiries enter the redaction queue; a dispatched create with
+an unknown result can be replayed with the exact same key/body and then redacted.
+Leases fence stale workers. Unknown creates are not replayed after 23 hours;
+they remain `review_required` for operator reconciliation rather than risking a
+second inquiry after idempotency expiry. Known-ID recovery uses that ID.
+
+The admin operating view shows pending Persona creations and creations needing
+review alongside redaction jobs. Operators must inspect `review_required`
+records, resolve unknown creates through the correct Persona environment, and
+confirm cleanup before removing an obligation. Null-environment legacy
+redaction jobs stay pending until positive provider evidence establishes the
+environment; a not-found response from the currently configured key is not proof.
+
+An unexpected Account is rejected and its opaque ID retained for manual review,
+including if it appears after initial binding. The inquiry is queued for
+redaction, but the app never blindly deletes the Account. Inquiry redaction does
+not redact a parent Account, as explained in [Persona's redaction guide](https://help.withpersona.com/articles/48Fu5XOdmd1y5v1xvbCkn8/).
+The runtime key has no Account or Case management permissions. Both configured
+review workflows link Cases only to the Inquiry, but Case retention and deletion
+still require actual provider acceptance. Do not describe an inquiry redaction
+acknowledgement as proof that all biometric data, Cases or child resources have
+been erased.
 
 ## Run the disposable accountless probe
 
-The script is prepared; its synthetic tests are not provider acceptance. Run it
-only after the operator authorizes the sandbox key and published member
+The script's synthetic tests do not replace the provider evidence above. Run it
+only with an operator-authorized sandbox key and published member
 template. It refuses production keys and never starts a browser or submits a
-phone number, photo or document. The only member reference is a fresh UUID.
+phone number, photo or document. A fresh UUID identifies the probe operation;
+no member identifier is sent to Persona.
 
 The key can be in the process's `PERSONA_API_KEY` environment variable or a
 private file containing the raw key or a `PERSONA_API_KEY=...` assignment. Files
@@ -131,19 +205,22 @@ node scripts/persona-accountless-probe.mjs --execute \
   --state-file /private/tmp/samepace-persona-probe-UNIQUE.json
 ```
 
-The probe sends top-level `meta.auto-create-account=false` together with the
-existing `data.attributes.reference-id`, using API version `2023-01-05` and
+The probe sends top-level `meta.auto-create-account=false` and the template ID,
+without a member reference, using API version `2023-01-05` and
 kebab-case responses. It creates, retrieves and resumes one inquiry, requiring
-the exact UUID reference and an explicit `relationships.account.data=null` in
-each response. An omitted relationship is inconclusive, not proof that no
+the same inquiry ID, exact Dynamic Flow template and explicit
+`relationships.account.data=null` in each response. References may be absent;
+any supplied reference must match the private probe UUID. An omitted relationship
+is inconclusive, not proof that no
 Account exists. Create and resume must return a session token; the script only
 records whether it is present. It then redacts the inquiry and reads it back
 with bounded retries, requiring `redacted-at` or a missing-resource response.
 Persona may redact child resources asynchronously, so this confirms the inquiry
 redaction acknowledgement, not independent erasure of every child.
 
-Only a `passed` result, all checks `true`, `cleanupVerified:true`, and
+Only a `passed` result, all required checks `true`, `cleanupVerified:true`, and
 `cleanupPending:false` satisfy this narrow accountless compatibility probe.
+The `ReferenceAbsent` flags describe availability rather than a required outcome.
 An authentication, permission, template, resume-state or validation error does
 not establish that accountless reference binding is unsupported. Full hosted
 verification and webhook acceptance remain separate.
@@ -173,9 +250,12 @@ resuming. Do not remove pending state until the provider resources are reconcile
   inquiries. Completing a hosted flow alone never grants a badge.
 - Exercise hosted return, server refresh, signed webhook delivery, duplicate
   events and review reversals against the isolated preview environment.
-- Verify member-reference binding and deletion with the actual provider. The
-  existing deletion queue redacts inquiries; automatic Persona Account creation
-  must not leave a separate copy of identity material outside that obligation.
+- Verify the durable member/inquiry/template binding through actual signed
+  events and app refresh for both templates. The narrow API probe above is only
+  the first part of lifecycle acceptance.
+- Exercise a real review Case and account deletion, then confirm inquiry, child
+  resource and Case retention behavior with Persona. Unexpected Accounts remain
+  explicit manual review obligations; they must not be silently forgotten.
 - Verify that missing credentials and provider failures leave redaction jobs
   pending, and that later retries finish them.
 - Assign moderation and appeal ownership before requiring verification.
