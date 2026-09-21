@@ -4,6 +4,8 @@ SamePace exposes a consent-scoped workout negotiation service using **A2A 1.0** 
 
 This is a protocol and permission foundation. Matching, model prompts/inference, outbound federation, calendar access, notification delivery for negotiations, automatic booking, and a mobile agent-management interface are not integrated. The first supported relationship is two people who already completed a SamePace booking together; it introduces no member directory or unsolicited agent contact.
 
+The proposed [Jev fitness integration](./JEV-FITNESS.md) places real workout measurements and private typed judgments upstream of this service. Only member-approved preferences feed negotiation; installing the TypeSafe skill does not enable live inference or health-data collection.
+
 The [A2A specification](https://a2a-protocol.org/latest/specification/) defines the protocol. The [official JavaScript SDK](https://github.com/a2aproject/a2a-js) handles JSON-RPC serialization and protocol errors. SamePace's contracts and authorization rules live in `src/lib/agents/contracts.ts`, `service.server.ts`, and `protocol.server.ts`.
 
 ## Enable locally
