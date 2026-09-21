@@ -95,6 +95,25 @@ export function Sheet({
   // The panel is always full height; `y` slides it down. 0 = full, `half`, `closed`.
   const full = window.height - insets.top - Spacing.one;
   const closed = full;
+  // Typing: the footer rides above the keyboard, and the sheet grows by that much — a
+  // one-field sheet stays compact; only one that no longer fits takes the whole screen.
+  const [keyboard, setKeyboard] = useState(0);
+  useEffect(() => {
+    // iOS reports the keyboard first without its suggestion bar, then again with it:
+    // follow every frame change, not just the first "show".
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillChangeFrame" : "keyboardDidShow",
+      (e) => setKeyboard(Math.max(0, window.height - e.endCoordinates.screenY)),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboard(0),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [window.height]);
   // Measured, so a short sheet hugs its content and has no full-screen stop to offer.
   // (At large text sizes a "compact" sheet outgrows half a screen and becomes a scrolling
   // large sheet on its own — its footer stays pinned.)
@@ -103,14 +122,17 @@ export function Sheet({
   const [footH, setFootH] = useState(0);
   const needed = headH + contentH + footH;
   const halfVisible = Math.round(window.height * 0.56);
-  const canFill = needed > halfVisible;
+  const canFill = needed > (keyboard > 0 ? full - Spacing.six : halfVisible);
   const half = Math.round(full - (canFill || needed === 0 ? halfVisible : needed));
 
   const y = useSharedValue(closed);
   const start = useSharedValue(closed);
   // Reduce Motion: no travel at all — the panel and the dim cross-fade in place.
   const appear = useSharedValue(reduced ? 0 : 1);
-  const [atFull, setAtFull] = useState(false);
+  // Where the sheet is resting (0 = full). Layout follows this; only transforms follow `y`
+  // frame by frame — animated layout props are overwritten by React re-renders.
+  const [rest, setRest] = useState(closed);
+  const atFull = rest === 0;
   // Stay mounted through the closing animation.
   const [mounted, setMounted] = useState(visible);
   if (visible && !mounted) setMounted(true);
@@ -118,7 +140,7 @@ export function Sheet({
 
   const settle = (to: number, done?: () => void) => {
     "worklet";
-    runOnJS(setAtFull)(to === 0);
+    runOnJS(setRest)(to);
     if (reduced) {
       if (to === closed) {
         appear.set(
@@ -178,22 +200,6 @@ export function Sheet({
     };
   }, [visible, returnFocusTo]);
 
-  // Typing: the sheet takes the full height and pads itself clear of the keyboard.
-  const [keyboard, setKeyboard] = useState(0);
-  useEffect(() => {
-    const show = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      (e) => setKeyboard(e.endCoordinates.height),
-    );
-    const hide = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      () => setKeyboard(0),
-    );
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
   useEffect(() => {
     if (visible && keyboard > 0 && canFill) settle(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -280,8 +286,9 @@ export function Sheet({
       Extrapolation.CLAMP,
     ),
   }));
-  // At half height the content's visible part ends where the screen does.
-  const body = useAnimatedStyle(() => ({ paddingBottom: Math.max(0, y.value) }));
+  // The panel is taller than what shows, so the footer is pinned to the *visible* bottom
+  // (it follows the sheet as it moves) and the content stops above it.
+  const foot = useAnimatedStyle(() => ({ transform: [{ translateY: -Math.max(0, y.value) }] }));
 
   if (!mounted && !keepMounted) return null;
   const ios = Platform.OS === "ios";
@@ -366,30 +373,34 @@ export function Sheet({
             </View>
           </GestureDetector>
           <GestureDetector gesture={contentDrag}>
-            <Animated.View style={[styles.flex, body]}>
+            <View style={[styles.flex, { paddingBottom: Math.min(rest, half) + footH }]}>
               <ScrollView
                 style={styles.flex}
                 scrollEnabled={atFull || !canFill}
-                contentContainerStyle={[
-                  styles.content,
-                  keyboard > 0 && { paddingBottom: keyboard },
-                ]}
+                contentContainerStyle={styles.content}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
                 onContentSizeChange={(_, height) => setContentH(height)}
               >
                 {children}
               </ScrollView>
-              <View
+              <Animated.View
                 onLayout={(e) => setFootH(e.nativeEvent.layout.height)}
                 style={[
+                  styles.pinned,
+                  foot,
                   footer ? styles.footer : null,
-                  { paddingBottom: Math.max(Spacing.three, insets.bottom) },
+                  {
+                    paddingBottom:
+                      keyboard > 0
+                        ? keyboard + Spacing.two
+                        : Math.max(Spacing.three, insets.bottom),
+                  },
                 ]}
               >
                 {footer}
-              </View>
-            </Animated.View>
+              </Animated.View>
+            </View>
           </GestureDetector>
         </Animated.View>
       </GestureHandlerRootView>
@@ -424,6 +435,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  pinned: { position: "absolute", left: 0, right: 0, bottom: 0 },
   content: { paddingHorizontal: Spacing.three, paddingBottom: Spacing.two, gap: Spacing.two },
   footer: { paddingHorizontal: Spacing.three, paddingTop: Spacing.one, gap: Spacing.one },
 });

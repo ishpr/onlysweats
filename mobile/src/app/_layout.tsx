@@ -15,7 +15,7 @@ import { DarkTheme, DefaultTheme, type Href, Stack, ThemeProvider, useRouter } f
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { AppState, Platform, Pressable, Text } from "react-native";
+import { AppState, Platform, Pressable, StyleSheet, Text } from "react-native";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
@@ -24,6 +24,7 @@ import { HealthSyncBoundary } from "@/hooks/use-health-sync";
 import { useMe } from "@/lib/queries";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { AnimatedSplash } from "@/components/animated-splash";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AppTermsProvider, useAppTermsAccepted } from "@/components/app-terms-gate";
 import { ToastProvider } from "@/components/toast";
 import { GlobalSheetsProvider } from "@/lib/global-sheets";
@@ -64,11 +65,14 @@ export default function RootLayout() {
       }),
   );
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <Routes />
-      </AuthProvider>
-    </QueryClientProvider>
+    // Gestures (swipe rows, sheets) need one root above everything that uses them.
+    <GestureHandlerRootView style={rootStyles.fill}>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Routes />
+        </AuthProvider>
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -285,3 +289,5 @@ function ProtectedRoutes({ signedIn }: { signedIn: boolean }) {
     </Stack>
   );
 }
+
+const rootStyles = StyleSheet.create({ fill: { flex: 1 } });

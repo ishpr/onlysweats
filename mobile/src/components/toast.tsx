@@ -22,6 +22,7 @@ import Animated, {
   FadeOut,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FullWindowOverlay } from "react-native-screens";
 
 import { tabBarHeight } from "@/components/composer-dock";
 import { T } from "@/components/ui";
@@ -74,8 +75,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext value={value}>
       {children}
-      {toast ? <ToastView key={toast.id} toast={toast} onDismiss={dismiss} /> : null}
+      {/* Above every native screen — a modal route would otherwise cover a root-level toast. */}
+      {toast ? (
+        <Overlay>
+          <ToastView key={toast.id} toast={toast} onDismiss={dismiss} />
+        </Overlay>
+      ) : null}
     </ToastContext>
+  );
+}
+
+/** iOS: a window-level layer that passes touches through. Elsewhere screens aren't native modals. */
+function Overlay({ children }: { children: ReactNode }) {
+  if (Platform.OS !== "ios") return <>{children}</>;
+  return (
+    <FullWindowOverlay>
+      <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+        {children}
+      </View>
+    </FullWindowOverlay>
   );
 }
 
