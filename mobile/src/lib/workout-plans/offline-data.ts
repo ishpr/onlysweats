@@ -4,6 +4,11 @@ import type {
   UpdateWorkoutRunInput,
 } from "../../../../shared/workout-plans.ts";
 import type { SetFields } from "./forms.ts";
+import {
+  effectiveRunForTimer,
+  readStoredWorkoutTimer,
+  type StoredWorkoutTimer,
+} from "./timer-record.ts";
 
 export const OFFLINE_TTL = 7 * 24 * 60 * 60_000;
 export const OFFLINE_LEASE = 24 * 60 * 60_000;
@@ -14,6 +19,8 @@ export type OfflineRun = {
   base: WorkoutRun;
   draft: RunDraft;
   active: ActiveSetDraft | null;
+  /** Separate from actuals and upload payloads. Missing on legacy device documents. */
+  timer?: StoredWorkoutTimer | null;
   version: number;
   updatedAt: number;
   pending: { mutationId: string; version: number; payload: UpdateWorkoutRunInput } | null;
@@ -69,6 +76,7 @@ export function newOfflineRun(run: WorkoutRun, now: number): OfflineRun {
     base: run,
     draft: runDraft(run),
     active: null,
+    timer: null,
     version: 0,
     updatedAt: now,
     pending: null,
@@ -109,7 +117,7 @@ export function acknowledgeUpload(
   saved: WorkoutRun,
 ): OfflineRun {
   if (entry.pending?.mutationId !== mutationId) return entry;
-  return {
+  const updated: OfflineRun = {
     ...entry,
     base: saved,
     pending: null,
@@ -117,6 +125,13 @@ export function acknowledgeUpload(
     blocked: false,
     privateOnSync: false,
     draft: entry.version === entry.pending.version ? runDraft(saved) : entry.draft,
+  };
+  return {
+    ...updated,
+    timer:
+      updated.draft.finish || updated.readBlocked
+        ? null
+        : readStoredWorkoutTimer(updated.timer, effectiveRunForTimer(updated), updated.active),
   };
 }
 /** The member explicitly reviewed both versions. Preserve actuals, never prescriptions. */
@@ -341,7 +356,16 @@ export function readOfflineDocument(
       )
         return null;
     }
-    if (item.updatedAt + OFFLINE_TTL > now) runs.push(item as unknown as OfflineRun);
+    if (item.updatedAt + OFFLINE_TTL > now) {
+      const entry = item as unknown as OfflineRun;
+      runs.push({
+        ...entry,
+        timer:
+          entry.conflict || entry.draft.finish || entry.readBlocked
+            ? null
+            : readStoredWorkoutTimer(entry.timer, effectiveRunForTimer(entry), entry.active),
+      });
+    }
   }
   return { schema: 1, binding, ownerId: value.ownerId, verifiedAt: value.verifiedAt, runs };
 }

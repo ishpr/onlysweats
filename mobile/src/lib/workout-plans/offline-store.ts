@@ -1,4 +1,5 @@
 import type { WorkoutRun } from "../../../../shared/workout-plans.ts";
+import { readStoredWorkoutTimer } from "./timer-record.ts";
 import {
   hasPendingRun,
   newOfflineRun,
@@ -35,6 +36,7 @@ export function createOfflineWorkoutStore(deps: {
         "These workout fields could not be safely stored. Check your entries and retry.",
       );
     await deps.write(verified);
+    return verified;
   };
   const access = <T>(
     current: () => boolean,
@@ -140,25 +142,28 @@ export function createOfflineWorkoutStore(deps: {
         if (!entry) {
           if (doc.runs.length >= OFFLINE_CAPACITY) {
             const clean = doc.runs
-              .filter((item) => !hasPendingRun(item) && !item.active)
+              .filter((item) => !hasPendingRun(item) && !item.active && !item.timer)
               .sort((a, b) => a.updatedAt - b.updatedAt)[0];
             if (!clean)
               throw new Error(
-                "Ten workouts have unsynced edits. Sync or discard one before saving another for offline use.",
+                "Ten workouts have saved edits or timers. Sync or discard one before saving another for offline use.",
               );
             doc.runs = doc.runs.filter((item) => item !== clean);
           }
           entry = newOfflineRun(run, deps.now());
         } else if (!hasPendingRun(entry) && !entry.active && run.revision >= entry.base.revision) {
-          entry = newOfflineRun(run, deps.now());
+          entry = {
+            ...newOfflineRun(run, deps.now()),
+            timer: readStoredWorkoutTimer(entry.timer, run, null),
+          };
         } else if (!entry.pending && run.revision > entry.base.revision) {
           entry = { ...entry, conflict: run };
         }
         entry = { ...entry, readBlocked: false };
         doc.runs = [...doc.runs.filter((item) => item.base.id !== run.id), entry];
-        await persist(doc);
+        const saved = await persist(doc);
         notify();
-        return entry;
+        return saved.runs.find((item) => item.base.id === run.id)!;
       });
     },
     update(
@@ -175,9 +180,9 @@ export function createOfflineWorkoutStore(deps: {
           throw new Error("This workout is no longer saved on this device. Open it online again.");
         const entry = { ...change(old), updatedAt: deps.now() };
         doc.runs = doc.runs.map((item) => (item === old ? entry : item));
-        await persist(doc);
+        const saved = await persist(doc);
         notify();
-        return entry;
+        return saved.runs.find((item) => item.base.id === runId)!;
       });
     },
     remove(ownerId: string, runId: string, current: () => boolean) {

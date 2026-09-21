@@ -80,6 +80,18 @@ struct HealthKitReaderChecks {
     let sleepRecord = try HealthKitReader.serialize(sleep, type: "sleep")
     precondition(sleepRecord["stage"] as? String == "rem")
 
+    let importBoundary = start.addingTimeInterval(300)
+    let predicate = HealthKitReader.importPredicate(since: importBoundary)
+    precondition(predicate.evaluate(with: sleep), "An overlapping sleep interval must be imported whole.")
+    precondition(predicate.evaluate(with: workout), "An overlapping workout must be imported whole.")
+    precondition(!predicate.evaluate(with: heartRate), "A reading wholly before the boundary must be excluded.")
+    let boundaryReading = HKQuantitySample(
+      type: .quantityType(forIdentifier: .heartRate)!,
+      quantity: HKQuantity(unit: .count().unitDivided(by: .minute()), doubleValue: 120),
+      start: importBoundary, end: importBoundary
+    )
+    precondition(predicate.evaluate(with: boundaryReading), "The boundary is inclusive.")
+
     let encoded = try HealthKitReader.encodeAnchor(HKQueryAnchor(fromValue: 42))
     let decoded = try HealthKitReader.decodeAnchor(encoded)
     let initial = try HealthKitReader.decodeAnchor(nil)
@@ -95,6 +107,6 @@ struct HealthKitReaderChecks {
       _ = try HealthKitReader.serialize(heartRate, type: "workout")
       preconditionFailure("Unexpected record types must fail instead of dropping data.")
     } catch HealthImportError.invalidRecord { }
-    print("HealthKit serialization checks passed: units, identity, duration, missing data, sleep, secure anchors, invalid records.")
+    print("HealthKit serialization checks passed: units, identity, duration, missing data, sleep, overlapping intervals, secure anchors, invalid records.")
   }
 }

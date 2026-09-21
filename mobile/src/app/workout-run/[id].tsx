@@ -13,6 +13,13 @@ import { AssistantMarkdown } from "@/components/assistant-markdown";
 import { SetFields } from "@/components/workout-plans/set-fields";
 import OnlineRun from "@/components/workout-plans/online-run";
 import { RestTimer } from "@/components/workout-plans/rest-timer";
+import type { TimerPersistence } from "@/components/workout-plans/use-workout-timer";
+import {
+  makeStoredWorkoutTimer,
+  effectiveRunForTimer,
+  scopeForWorkoutTimer,
+  writeOfflineTimer,
+} from "@/lib/workout-plans/timer-record";
 import { ExerciseTimer } from "@/components/workout-plans/exercise-timer";
 import {
   fieldsWithTimedDuration,
@@ -121,12 +128,7 @@ function RunEditor({
   const router = useRouter();
   const client = useQueryClient();
   const action = usePrivateAction(session);
-  const run: WorkoutRun = {
-    ...entry.base,
-    results: entry.draft.results,
-    note: entry.draft.note,
-    status: entry.draft.finish ? "completed" : "in_progress",
-  };
+  const run = effectiveRunForTimer(entry);
   const [note, setNote] = useState(entry.draft.note);
   const [share, setShare] = useState(entry.base.shareAccountability);
   const previousNote = useRef(entry.draft.note);
@@ -160,7 +162,7 @@ function RunEditor({
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const [rest, setRest] = useState<{ seconds: number; key: number } | null>(null);
+  const rest = entry.timer?.kind === "rest" ? entry.timer : null;
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [fieldWrites, setFieldWrites] = useState(0);
   const [syncing, setSyncing] = useState(false);
@@ -183,7 +185,7 @@ function RunEditor({
   const activeTimerIdentity = active
     ? workoutSetTimerIdentity(run, active.exerciseId, active.set.id)
     : null;
-  const currentTimerScope = !blocked && !ended ? activeTimerIdentity : null;
+  const currentTimerScope = !entry.conflict && !ended ? activeTimerIdentity : null;
   useLayoutEffect(() => {
     timerScope.current = currentTimerScope;
     return () => {
@@ -192,6 +194,41 @@ function RunEditor({
   }, [currentTimerScope]);
   const timerCurrent = (identity: string | null) =>
     identity !== null && session.isCurrent() && timerScope.current === identity;
+  const timerPersistence = (
+    kind: "exercise" | "rest",
+    exerciseId: string,
+    setId: string,
+  ): TimerPersistence => {
+    const scope = scopeForWorkoutTimer(run, kind, exerciseId, setId);
+    const record = entry.timer?.clock.scope === scope ? entry.timer : null;
+    return {
+      record,
+      currentId: entry.timer?.id ?? null,
+      save: async (id, clock, expectedId) => {
+        if (!session.isCurrent()) throw new Error("Your account changed.");
+        await offlineWorkouts.update(member.id, run.id, session.isCurrent, (current) => {
+          const target = makeStoredWorkoutTimer(
+            effectiveRunForTimer(current),
+            kind,
+            exerciseId,
+            setId,
+            id,
+            Date.now(),
+            false,
+          );
+          return writeOfflineTimer(current, { ...target, clock }, expectedId);
+        });
+      },
+    };
+  };
+  const skipRest = () => {
+    if (!rest || blocked) return;
+    void action.run(() =>
+      offlineWorkouts.update(member.id, run.id, session.isCurrent, (current) =>
+        writeOfflineTimer(current, null, rest.id),
+      ),
+    );
+  };
   const invalidate = useCallback(async () => {
     await client.invalidateQueries({ queryKey: ["private-workout-runs", member.id] });
     await client.invalidateQueries({ queryKey: ["private-fitness", member.id, "summary"] });
@@ -282,30 +319,40 @@ function RunEditor({
       current,
     ) => current,
     finish = ended,
-    restSeconds?: number,
+    restAfter?: { exerciseId: string; setId: string },
   ) => {
     if (blocked) return;
     void action.run(
       () =>
-        offlineWorkouts.update(member.id, run.id, session.isCurrent, (current) => ({
-          ...current,
-          version: current.version + 1,
-          draft: {
-            results: typeof results === "function" ? results(current.draft.results) : results,
-            note,
-            finish,
-          },
-          active: null,
-        })),
+        offlineWorkouts.update(member.id, run.id, session.isCurrent, (current) => {
+          const next: OfflineRun = {
+            ...current,
+            version: current.version + 1,
+            draft: {
+              results: typeof results === "function" ? results(current.draft.results) : results,
+              note,
+              finish,
+            },
+            active: null,
+            timer: finish || current.timer?.kind === "exercise" ? null : current.timer,
+          };
+          if (restAfter && !finish)
+            next.timer = makeStoredWorkoutTimer(
+              effectiveRunForTimer(next),
+              "rest",
+              restAfter.exerciseId,
+              restAfter.setId,
+              Crypto.randomUUID(),
+              Date.now(),
+            );
+          return next;
+        }),
       async (next) => {
         setNote(next.draft.note);
         setActive(null);
         setFinishing(false);
         setError(null);
         await clearWorkoutRecovery(member.id, run.id).catch(() => undefined);
-        if (restSeconds && !finish)
-          setRest((current) => ({ seconds: restSeconds, key: (current?.key ?? 0) + 1 }));
-        if (finish) setRest(null);
         void sync();
       },
     );
@@ -317,7 +364,9 @@ function RunEditor({
         { ...result, exerciseId, setId: set.id },
       ],
       ended,
-      result.status === "completed" ? set.restSeconds : undefined,
+      result.status === "completed" && set.restSeconds > 0
+        ? { exerciseId, setId: set.id }
+        : undefined,
     );
   };
   const resolve = (choice: "server" | "local" | "private") => {
@@ -525,8 +574,11 @@ function RunEditor({
       )}
       {!ended && rest && (
         <RestTimer
-          key={rest.key}
-          seconds={rest.seconds}
+          key={`${rest.id}:${JSON.stringify(rest.clock)}`}
+          scope={rest.clock.scope}
+          seconds={rest.targetSeconds}
+          persistence={timerPersistence("rest", rest.exerciseId, rest.setId)}
+          onSkip={skipRest}
           disabled={blocked}
           isCurrent={session.isCurrent}
         />
@@ -570,10 +622,12 @@ function RunEditor({
                   <>
                     {!ended && set.durationSeconds !== null && (
                       <ExerciseTimer
-                        key={`${member.id}:${activeTimerIdentity}`}
+                        key={`${member.id}:${activeTimerIdentity}:${entry.timer?.kind === "exercise" ? `${entry.timer.id}:${JSON.stringify(entry.timer.clock)}` : "new"}`}
+                        scope={scopeForWorkoutTimer(run, "exercise", exercise.id, set.id)!}
                         targetSeconds={set.durationSeconds}
+                        persistence={timerPersistence("exercise", exercise.id, set.id)}
                         autoStart={active.timerIdentity === activeTimerIdentity}
-                        disabled={blocked}
+                        disabled={blocked || fieldWrites > 0 || !!fieldError}
                         isCurrent={() => timerCurrent(activeTimerIdentity)}
                         onUseDuration={(seconds) => {
                           if (!timerCurrent(activeTimerIdentity)) return;
@@ -637,7 +691,6 @@ function RunEditor({
                         disabled={blocked || active !== null}
                         onPress={() => {
                           if (blocked || !session.isCurrent()) return;
-                          setRest(null);
                           setError(null);
                           changeActive({
                             exerciseId: exercise.id,

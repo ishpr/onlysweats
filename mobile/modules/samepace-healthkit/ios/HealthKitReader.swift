@@ -45,7 +45,7 @@ final class HealthKitReader {
     let queryType = try Self.sampleType(type)
     let previousAnchor = try Self.decodeAnchor(anchor)
     // This boundary must remain fixed between pages and later syncs.
-    let predicate = HKQuery.predicateForSamples(withStart: since, end: nil, options: .strictStartDate)
+    let predicate = Self.importPredicate(since: since)
     let query = HKAnchoredObjectQuery(
       type: queryType, predicate: predicate, anchor: previousAnchor, limit: limit
     ) { _, samples, deletions, nextAnchor, error in
@@ -67,6 +67,12 @@ final class HealthKitReader {
       } catch { completion(.failure(error)) }
     }
     store.execute(query)
+  }
+
+  static func importPredicate(since: Date) -> NSPredicate {
+    // Preserve full source intervals that overlap the fixed import boundary,
+    // including a night of sleep or workout that started just before it.
+    HKQuery.predicateForSamples(withStart: since, end: nil, options: [])
   }
 
   static func sampleType(_ type: String) throws -> HKSampleType {
