@@ -51,7 +51,7 @@ const GENDERS: { value: Gender; label: string }[] = [
 ];
 
 const APPEARANCES: { value: AppearancePref; label: string }[] = [
-  { value: "system", label: "Match my phone" },
+  { value: "system", label: "System" },
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
 ];
@@ -85,7 +85,7 @@ export default function You() {
 
   if (!me.data) {
     return (
-      <Screen header={<AppHeader />}>
+      <Screen hidesTabBar header={<AppHeader />}>
         <StateView loading={me.isPending} error={me.error} onRetry={() => void me.refetch()} />
       </Screen>
     );
@@ -96,7 +96,12 @@ export default function You() {
   const web = (path: string) => () => void Linking.openURL(`${SITE_URL}${path}`);
 
   return (
-    <Screen header={<AppHeader />} onRefresh={() => void me.refetch()} refreshing={me.isRefetching}>
+    <Screen
+      hidesTabBar
+      header={<AppHeader />}
+      onRefresh={() => void me.refetch()}
+      refreshing={me.isRefetching}
+    >
       <Appear style={styles.hero}>
         <TrackRings
           completed={p.completedCount / milestone}

@@ -7,19 +7,19 @@ import { Children, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { PressScale } from "@/components/motion";
-import { T } from "@/components/ui";
+import { glassSurface, T } from "@/components/ui";
 import { HitTarget, Radius, Spacing } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 
 type IconType = (props: { size?: number; color?: string; strokeWidth?: number }) => ReactNode;
 
 export function ListCard({ children }: { children: ReactNode }) {
   const theme = useTheme();
+  const light = useColorScheme() === "light";
   const rows = Children.toArray(children).filter(Boolean);
   return (
-    <View
-      style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
-    >
+    <View style={[styles.card, glassSurface(theme, light)]}>
       {rows.map((row, i) => (
         <View key={i}>
           {i > 0 && <View style={[styles.divider, { backgroundColor: theme.border }]} />}
@@ -103,7 +103,7 @@ export function SectionTitle({ children }: { children: string }) {
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: Radius.xl, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
+  card: { borderRadius: Radius.xl, borderWidth: StyleSheet.hairlineWidth },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: Spacing.three },
   row: {
     minHeight: HitTarget + 8,

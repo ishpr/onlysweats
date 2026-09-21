@@ -12,7 +12,7 @@ import {
 } from "@/components/goal-picker";
 import { SectionTitle } from "@/components/list";
 import { PressScale } from "@/components/motion";
-import { PhotoPanel, SessionCardFace } from "@/components/session-card";
+import { PhotoCard, SessionCardFace } from "@/components/session-card";
 import { Button, Card, Chip, Field, Notice, Row, Screen, T } from "@/components/ui";
 import { Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
@@ -299,14 +299,14 @@ export default function Post() {
                   on && styles.venueOn,
                 ]}
               >
-                <PhotoPanel venue={v} style={styles.venueFill} stops={[0.05, 0.35, 0.85]}>
+                <PhotoCard venue={v} minHeight={120} photoHeight={72} style={styles.venueFill}>
                   <T variant="label" numberOfLines={2}>
                     {v.name}
                   </T>
                   <T variant="caption" color="textSecondary">
                     {v.neighborhood}
                   </T>
-                </PhotoPanel>
+                </PhotoCard>
               </PressScale>
             );
           })}
@@ -442,11 +442,10 @@ const styles = StyleSheet.create({
   venues: { gap: Spacing.two, paddingRight: Spacing.three },
   venue: {
     width: 168,
-    height: 120,
     borderRadius: Radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
-  venueFill: { flex: 1, padding: Spacing.two, justifyContent: "flex-end" },
+  venueFill: { flex: 1, borderWidth: 0, borderRadius: 0 },
   venueOn: { borderWidth: 2 },
 });

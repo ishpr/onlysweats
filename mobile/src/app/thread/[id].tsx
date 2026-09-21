@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ellipsis } from "lucide-react-native";
-import { useRef, useState } from "react";
+import { HeaderHeightContext } from "expo-router/react-navigation";
+import { use, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -13,7 +14,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { PressScale } from "@/components/motion";
-import { Avatar, Button, Chip, EmptyState, Notice, Row, StateView, T } from "@/components/ui";
+import {
+  Avatar,
+  Backdrop,
+  Button,
+  Chip,
+  EmptyState,
+  Notice,
+  Row,
+  StateView,
+  T,
+} from "@/components/ui";
 import { Fonts, HitTarget, Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
@@ -53,6 +64,7 @@ export default function Chat() {
   const send = useSendMessage(id);
   const [text, setText] = useState("");
   const scroller = useRef<ScrollView>(null);
+  const headerHeight = (use(HeaderHeightContext) ?? 0) * (Platform.OS === "ios" ? 1 : 0);
 
   const booking = mine.data?.bookings.find((b) => b.id === id);
   const session = byId(mine.data?.sessions).get(booking?.sessionId ?? "");
@@ -104,7 +116,11 @@ export default function Chat() {
     ]);
 
   return (
-    <SafeAreaView edges={["bottom"]} style={[styles.fill, { backgroundColor: theme.background }]}>
+    <SafeAreaView
+      edges={["bottom"]}
+      style={[styles.fill, { backgroundColor: theme.background, paddingTop: headerHeight }]}
+    >
+      <Backdrop />
       <KeyboardAvoidingView
         style={styles.fill}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -217,7 +233,7 @@ export default function Chat() {
                 style={[
                   styles.input,
                   {
-                    backgroundColor: theme.backgroundElement,
+                    backgroundColor: theme.field,
                     color: theme.text,
                     borderColor: theme.border,
                   },

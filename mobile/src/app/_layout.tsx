@@ -15,7 +15,7 @@ import { DarkTheme, DefaultTheme, type Href, Stack, ThemeProvider, useRouter } f
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
-import { AppState, Pressable, Text } from "react-native";
+import { AppState, Platform, Pressable, Text } from "react-native";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
@@ -147,7 +147,13 @@ function Routes() {
           headerBackButtonDisplayMode: "minimal",
           headerTintColor: theme.text,
           headerTitleStyle: { fontFamily: "Outfit_600SemiBold" },
-          headerStyle: { backgroundColor: theme.background },
+          // Glass headers on iOS: the page and its colour wash run underneath. Android
+          // can't blur what's behind a view, so it keeps a solid header.
+          headerTransparent: Platform.OS === "ios",
+          headerBlurEffect: dark ? "systemUltraThinMaterialDark" : "systemUltraThinMaterialLight",
+          headerStyle: {
+            backgroundColor: Platform.OS === "ios" ? "transparent" : theme.background,
+          },
         }}
       >
         <Stack.Protected guard={signedIn}>

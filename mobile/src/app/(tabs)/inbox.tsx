@@ -36,6 +36,7 @@ export default function Inbox() {
 
   return (
     <Screen
+      hidesTabBar
       header={<AppHeader />}
       onRefresh={() => void mine.refetch()}
       refreshing={mine.isRefetching}

@@ -5,9 +5,9 @@ import { Alert, Linking, Platform, Share, StyleSheet, View } from "react-native"
 
 import { LeaveStandingSlot } from "@/components/leave-standing-slot";
 import { PressScale } from "@/components/motion";
-import { PhotoPanel, Tag } from "@/components/session-card";
+import { PhotoCard, Tag } from "@/components/session-card";
 import { Avatar, Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
-import { Radius, Spacing } from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
 import { myLevelLabel } from "@/lib/ability";
@@ -291,20 +291,24 @@ export default function SessionDetail() {
       onRefresh={() => void Promise.all([q.refetch(), mine.refetch()])}
       footer={footer}
     >
-      <PhotoPanel venue={venue} style={styles.hero}>
-        <Row style={styles.tags}>
-          <Tag label={ACTIVITIES[session.activity].label} />
-          {status && <Tag label={status} tone={ENDED[session.status] ? "glass" : "accent"} />}
-          {session.visibility === "unlisted" && <Tag label="Invite-only" />}
-          {session.womenOnly && <Tag label="Women-only" />}
-        </Row>
-        <View>
-          <T variant="title">{formatWhen(session.startAt)}</T>
-          <T variant="label" color="textSecondary">
-            {formatDuration(session.durationMin)} · {venue?.name ?? ""}
-          </T>
-        </View>
-      </PhotoPanel>
+      <PhotoCard
+        venue={venue}
+        minHeight={230}
+        photoHeight={168}
+        tags={
+          <Row style={styles.tags}>
+            <Tag label={ACTIVITIES[session.activity].label} />
+            {status && <Tag label={status} tone={ENDED[session.status] ? "glass" : "accent"} />}
+            {session.visibility === "unlisted" && <Tag label="Invite-only" />}
+            {session.womenOnly && <Tag label="Women-only" />}
+          </Row>
+        }
+      >
+        <T variant="title">{formatWhen(session.startAt)}</T>
+        <T variant="label" color="textSecondary">
+          {formatDuration(session.durationMin)} · {venue?.name ?? ""}
+        </T>
+      </PhotoCard>
 
       <View style={styles.header}>
         <T variant="heading">{session.title}</T>
@@ -547,13 +551,6 @@ function Fact({
 }
 
 const styles = StyleSheet.create({
-  hero: {
-    aspectRatio: 16 / 11,
-    borderRadius: Radius.xxl,
-    overflow: "hidden",
-    padding: Spacing.three,
-    justifyContent: "space-between",
-  },
   tags: { flexWrap: "wrap", gap: 6 },
   header: { gap: Spacing.one },
   flex: { flex: 1 },

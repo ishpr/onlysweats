@@ -93,6 +93,7 @@ export default function Find() {
 
   return (
     <Screen
+      hidesTabBar
       header={<AppHeader />}
       onRefresh={() => void Promise.all([open.refetch(), goals.refetch()])}
     >

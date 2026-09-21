@@ -1,5 +1,3 @@
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { CalendarDays, MapPin, Repeat, Target } from "lucide-react-native";
 import { useState } from "react";
@@ -10,11 +8,11 @@ import { LeaveStandingSlot } from "@/components/leave-standing-slot";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
 import { Enter, PressScale } from "@/components/motion";
 import { PushPrompt } from "@/components/push-cards";
-import { SessionCard, Tag, venueImage, type MineTag } from "@/components/session-card";
-import { Button, Card, EmptyState, Row, Screen, StateView, T, withAlpha } from "@/components/ui";
-import { Radius, Spacing } from "@/constants/theme";
+import { PhotoCard, SessionCard, Tag, type MineTag } from "@/components/session-card";
+import { Button, Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
+import { Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
-import { OnPhoto, useTheme } from "@/hooks/use-theme";
+import { useTheme } from "@/hooks/use-theme";
 import { myLevelLabel } from "@/lib/ability";
 import { daysUntil, formatUsd, formatWhen, greeting, inCheckinWindow } from "@/lib/format";
 import { byId } from "@/lib/lookup";
@@ -99,6 +97,7 @@ export default function Home() {
 
   return (
     <Screen
+      hidesTabBar
       onRefresh={refresh}
       header={
         <>
@@ -376,16 +375,7 @@ function until(startAt: string, now: number) {
 }
 
 /** The next thing I've committed to — the one card on Home that should win the eye. */
-function NextUp(props: { plan: Plan; now: number; withName: string | null }) {
-  return (
-    <OnPhoto>
-      <NextUpBody {...props} />
-    </OnPhoto>
-  );
-}
-
-function NextUpBody({ plan, now, withName }: { plan: Plan; now: number; withName: string | null }) {
-  const theme = useTheme();
+function NextUp({ plan, now, withName }: { plan: Plan; now: number; withName: string | null }) {
   const router = useRouter();
   const venues = byId(useVenues().data);
   const { session, booking } = plan;
@@ -394,67 +384,65 @@ function NextUpBody({ plan, now, withName }: { plan: Plan; now: number; withName
   const toSession = () => router.push({ pathname: "/session/[id]", params: { id: session.id } });
 
   return (
-    <View style={[styles.hero, { backgroundColor: theme.backgroundElement }]}>
-      <Image source={venueImage(venue)} style={StyleSheet.absoluteFill} contentFit="cover" />
-      <LinearGradient
-        colors={[
-          withAlpha(theme.background, 0.25),
-          withAlpha(theme.background, 0.7),
-          theme.background,
-        ]}
-        locations={[0, 0.45, 1]}
-        style={StyleSheet.absoluteFill}
-      />
+    <PhotoCard
+      venue={venue}
+      minHeight={260}
+      photoHeight={120}
+      tags={
+        <Row style={styles.between}>
+          <Tag label={planStatus(plan)} tone="accent" />
+          <Tag label="Next up" />
+        </Row>
+      }
+      footer={
+        <Row style={styles.heroActions}>
+          {checkIn && booking ? (
+            <Button
+              style={styles.flex}
+              variant="accent"
+              label="Check in"
+              onPress={() => router.push({ pathname: "/live/[id]", params: { id: booking.id } })}
+            />
+          ) : (
+            <Button style={styles.flex} variant="primary" label="Details" onPress={toSession} />
+          )}
+          {booking && (
+            <Button
+              style={styles.flex}
+              variant="soft"
+              label="Chat"
+              onPress={() => router.push({ pathname: "/thread/[id]", params: { id: booking.id } })}
+            />
+          )}
+        </Row>
+      }
+    >
       <PressScale
         accessibilityRole="button"
         accessibilityLabel={`Next up: ${session.title}, ${formatWhen(session.startAt)}, ${planStatus(plan)}`}
         onPress={toSession}
         scaleTo={0.99}
-        style={styles.heroBody}
       >
-        <Row style={styles.between}>
-          <Tag label={planStatus(plan)} tone="accent" />
-          <T variant="eyebrow" style={{ color: withAlpha(theme.text, 0.8) }}>
-            Next up
+        <T variant="title">{until(session.startAt, now)}</T>
+        <T variant="heading">{session.title}</T>
+        <T variant="label" color="textSecondary">
+          {formatWhen(session.startAt)} · {session.abilityLabel}
+        </T>
+        <Row style={styles.where}>
+          <WhereIcon />
+          <T variant="caption" color="textSecondary">
+            {venue?.name ?? "—"}
+            {withName ? ` · ${plan.tag === "Hosting" ? "with" : "hosted by"} ${withName}` : ""}
           </T>
         </Row>
-        <View>
-          <T variant="title">{until(session.startAt, now)}</T>
-          <T variant="heading">{session.title}</T>
-          <T variant="label" style={{ color: withAlpha(theme.text, 0.85) }}>
-            {formatWhen(session.startAt)} · {session.abilityLabel}
-          </T>
-          <Row style={styles.where}>
-            <MapPin size={14} color={withAlpha(theme.text, 0.82)} />
-            <T variant="caption" style={{ color: withAlpha(theme.text, 0.82) }}>
-              {venue?.name ?? "—"}
-              {withName ? ` · ${plan.tag === "Hosting" ? "with" : "hosted by"} ${withName}` : ""}
-            </T>
-          </Row>
-        </View>
       </PressScale>
-      <Row style={styles.heroActions}>
-        {checkIn && booking ? (
-          <Button
-            style={styles.flex}
-            variant="accent"
-            label="Check in"
-            onPress={() => router.push({ pathname: "/live/[id]", params: { id: booking.id } })}
-          />
-        ) : (
-          <Button style={styles.flex} variant="primary" label="Details" onPress={toSession} />
-        )}
-        {booking && (
-          <Button
-            style={styles.flex}
-            variant="soft"
-            label="Chat"
-            onPress={() => router.push({ pathname: "/thread/[id]", params: { id: booking.id } })}
-          />
-        )}
-      </Row>
-    </View>
+    </PhotoCard>
   );
+}
+
+function WhereIcon() {
+  const theme = useTheme();
+  return <MapPin size={14} color={theme.textSecondary} />;
 }
 
 function weeksToGo(goalDate: string) {
@@ -471,13 +459,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   manage: { gap: Spacing.one, paddingTop: Spacing.one },
   more: { minHeight: 44, justifyContent: "center", paddingHorizontal: Spacing.one },
-  hero: {
-    borderRadius: Radius.xl,
-    overflow: "hidden",
-    minHeight: 260,
-    justifyContent: "space-between",
-  },
-  heroBody: { flex: 1, padding: Spacing.three, gap: Spacing.five, justifyContent: "space-between" },
-  heroActions: { padding: Spacing.three, paddingTop: 0 },
+  heroActions: { marginTop: Spacing.three },
   where: { gap: 6, marginTop: Spacing.half },
 });
