@@ -15,6 +15,9 @@ import * as blocks from "./training-blocks.server";
 import { GOAL_KINDS } from "./types";
 import * as agents from "../agents/service.server";
 import { delegationInput } from "../agents/contracts";
+import * as health from "../health/service.server";
+import { HealthError, pageInput } from "../health/contracts";
+import { healthEnabled, isHealthPath, readHealthBody } from "../health/http.server";
 
 type Ctx = {
   sql: Sql;
@@ -187,9 +190,24 @@ const OPEN_WHEN_SUSPENDED = new Set([
   "DELETE /devices/:token",
   "GET /notifications",
   "POST /notifications/read",
+  // A paused account can still inspect, export, or remove its private records.
+  "GET /health/connection",
+  "DELETE /health/connection",
+  "GET /health/workouts",
+  "GET /health/workouts/:id",
+  "DELETE /health/workouts/:id",
+  "GET /health/export",
 ]);
 
 const routes: [method: string, pattern: string, handler: Handler][] = [
+  ["GET", "/health/connection", async ({ sql, userId }) => ({ connection: await health.getConnection(sql, userId) })],
+  ["POST", "/health/connection", async ({ sql, userId, body }) => ({ connection: await health.connect(sql, userId, body) })],
+  ["DELETE", "/health/connection", async ({ sql, userId }) => { await health.disconnect(sql, userId); return { ok: true }; }],
+  ["POST", "/health/sync", async ({ sql, userId, body }) => ({ connection: await health.sync(sql, userId, body) })],
+  ["GET", "/health/workouts", ({ sql, userId, query }) => health.listWorkouts(sql, userId, pageInput(50).parse(Object.fromEntries(query)))],
+  ["GET", "/health/workouts/:id", async ({ sql, userId, params }) => ({ workout: await health.getWorkout(sql, userId, params.id) })],
+  ["DELETE", "/health/workouts/:id", async ({ sql, userId, params }) => { await health.deleteWorkout(sql, userId, params.id); return { ok: true }; }],
+  ["GET", "/health/export", ({ sql, userId, query }) => health.exportRecords(sql, userId, pageInput(200).parse(Object.fromEntries(query)))],
   // Human control uses the same verified member session as the rest of this
   // API. A scoped sp_agent_ token authenticates only at /api/a2a and cannot
   // create delegations, opt either member in, or approve a proposal here.
@@ -474,6 +492,8 @@ function match(pattern: string, path: string): Record<string, string> | null {
 export async function handleApi(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/v1/, "").replace(/\/+$/, "") || "/";
+  const healthRequest = isHealthPath(path);
+  if (healthRequest && !healthEnabled()) return json({ error: "Not found" }, 404);
   // Hide every agent control route before authentication or database work when
   // the foundation is disabled; deployment defaults to disabled.
   if ((path === "/agents" || path.startsWith("/agents/")) && process.env.A2A_ENABLED !== "true") {
@@ -505,7 +525,7 @@ export async function handleApi(request: Request): Promise<Response> {
     if (!session?.user) return json({ error: "Unauthorized" }, 401);
 
     const sql = await getSql();
-    await ensureDemoCluster(sql);
+    if (!healthRequest) await ensureDemoCluster(sql);
     // First contact creates the profile from the auth identity.
     const me = await svc.ensureProfile(sql, {
       id: session.user.id,
@@ -519,7 +539,9 @@ export async function handleApi(request: Request): Promise<Response> {
     }
 
     let body: unknown = undefined;
-    if (request.method !== "GET" && request.headers.get("content-length") !== "0") {
+    if (healthRequest && request.method !== "GET") {
+      body = await readHealthBody(request);
+    } else if (request.method !== "GET" && request.headers.get("content-length") !== "0") {
       const text = await request.text();
       if (text) {
         try {
@@ -541,18 +563,22 @@ export async function handleApi(request: Request): Promise<Response> {
       body,
     });
     // Whatever that request caused is pushed now; the cron sweeps up anything missed.
-    if (request.method !== "GET") {
+    if (!healthRequest && request.method !== "GET") {
       await notify.deliverDue(sql).catch((err) => console.error("[push]", err));
     }
     return json(data);
   } catch (err) {
+    if (err instanceof HealthError) return json({ error: err.message }, err.status);
     if (err instanceof svc.PaceError) return json({ error: err.message }, err.status);
     if (err instanceof z.ZodError) {
       const first = err.issues[0];
       return json({ error: `${first.path.join(".") || "body"}: ${first.message}` }, 400);
     }
     if ((err as { status?: number })?.status === 403) return json({ error: "Forbidden" }, 403);
-    console.error("[api]", request.method, path, err);
+    // Database errors may contain SQL parameters. Never log a health payload,
+    // anchor, source identifier, or error object from this private boundary.
+    if (healthRequest) console.error("[health] request failed");
+    else console.error("[api]", request.method, path, err);
     return json({ error: "Something broke on our side." }, 500);
   }
 }

@@ -132,7 +132,13 @@ One to four standing slots aimed at a goal and a date — see *Training blocks* 
   answered. A track record (`lib/reputation.ts`) gains blocks finished and people
   helped, as counts, only when above zero.
 
-There is no weight goal and no workout logging, by design.
+Training-block progress is attendance-based, with no weight goal. Optional private Apple Health imports are a separate feature and do not change that progress.
+
+## Apple Health
+
+The standalone `/health` route connects read-only Apple Health access, manually syncs workouts and selected readings, displays private workout history, and supports removal/disconnect. It requires a rebuilt iOS client and `HEALTH_SYNC_ENABLED=true` on the API. The feature defaults off pending physical-device acceptance. Existing tab/navigation files were left for the concurrent design pass; link to this route or reuse `useHealthSync` in the redesigned UI.
+
+See [the integration guide](../docs/APPLE-HEALTH.md) for setup, supported data, API contracts, privacy boundaries, and the device checklist. Android/web/Expo Go cannot read HealthKit. Jev inference and health sharing with agents are not enabled.
 
 ## Not done
 

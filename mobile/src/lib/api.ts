@@ -1,4 +1,7 @@
 import { API_URL } from "./config";
+import { createSessionTransport, type ApiSession, type SessionRequest } from "./session-transport";
+
+export type { ApiSession } from "./session-transport";
 
 /** A rule or auth rejection from the server. `message` is user-facing copy. */
 export class ApiError extends Error {
@@ -11,9 +14,11 @@ export class ApiError extends Error {
 }
 
 let token: string | null = null;
+let sessionVersion = 0;
 let onUnauthorized: (() => void) | null = null;
 
 export function setApiToken(next: string | null) {
+  sessionVersion += 1;
   token = next;
 }
 
@@ -22,9 +27,13 @@ export function setUnauthorizedHandler(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
 
-async function send(path: string, init: RequestInit & { json?: unknown } = {}) {
+async function send(
+  path: string,
+  init: RequestInit & { json?: unknown } = {},
+  requestToken: string | null = token,
+) {
   const headers: Record<string, string> = { accept: "application/json" };
-  if (token) headers.authorization = `Bearer ${token}`;
+  if (requestToken) headers.authorization = `Bearer ${requestToken}`;
   if (init.json !== undefined) headers["content-type"] = "application/json";
   let res: Response;
   try {
@@ -32,11 +41,31 @@ async function send(path: string, init: RequestInit & { json?: unknown } = {}) {
       method: init.method ?? "GET",
       headers,
       body: init.json !== undefined ? JSON.stringify(init.json) : undefined,
+      signal: init.signal,
     });
   } catch {
     throw new ApiError(0, "Can’t reach SamePace. Check your connection.");
   }
   return res;
+}
+
+/** Capture once per mounted member view; old requests cannot adopt a new login. */
+export function captureApiSession(): ApiSession | null {
+  if (!token) return null;
+  const version = sessionVersion;
+  return createSessionTransport({
+    token,
+    version,
+    currentVersion: () => sessionVersion,
+    stale: () => new ApiError(401, "Your session changed. Open this screen again."),
+    send: async <T>(savedToken: string, path: string, init: SessionRequest) => {
+      const response = await send(`/api/v1${path}`, init, savedToken);
+      if (response.status === 401 && version === sessionVersion && !init.signal?.aborted) {
+        onUnauthorized?.();
+      }
+      return parse<T>(response);
+    },
+  });
 }
 
 async function parse<T>(res: Response): Promise<T> {

@@ -16,7 +16,7 @@ function Privacy() {
       >
         <Section title="The short version">
           <ul>
-            <li>We collect what it takes to get two to four people to the same place at the same time — and nothing to build a profile of you.</li>
+            <li>We collect what it takes to get two to four people to the same place at the same time. Optional Apple Health sync keeps your workout records private.</li>
             <li>We don’t show ads, sell data, or run third-party trackers in the app.</li>
             <li>Your location is read only when you tap Check in, and the coordinates are not stored.</li>
             <li>Nobody can search for you. People see you only on a session you posted or joined.</li>
@@ -33,7 +33,13 @@ function Privacy() {
             <li><strong>Reliability.</strong> Strikes, fees and credits recorded on your account under the rules in our Terms.</li>
             <li><strong>Location, once.</strong> When you tap Check in, your phone sends its position so our server can measure the distance to the meeting pin. We record that you checked in and when — not where you were. The app never reads location in the background.</li>
           </ul>
-          <p>We don’t collect your contacts, photos, health data, date of birth, height, weight or relationship status. A training block has no weight goal, and nothing about your workout is logged: the miles it shows are the planned distance of the sessions you checked in to.</p>
+          <p>We don’t collect your contacts, photos, date of birth, height, weight or relationship status. A training block has no weight goal: the miles it shows are the planned distance of the sessions you checked in to, separate from any imported workout.</p>
+        </Section>
+
+        <Section title="Optional Apple Health sync">
+          <p>Where available, you can choose to connect Apple Health and sync workouts to your private SamePace account. A workout includes its source, timestamps, activity, duration, and any distance or active energy supplied with it. You may separately select heart rate, resting heart rate, heart rate variability, sleep, steps, walking and running distance, and active energy readings. Sync starts with the preceding 30 days and imports later changes when you request a sync.</p>
+          <p>We use these records to show your private workout history and calculate summaries. They do not affect attendance, training-block progress, fees, or your public track record. They are not shared with other members, sent to AI services, or included in agent conversations. SamePace only reads Apple Health; it does not write or delete anything there.</p>
+          <p>Turning off a reading in SamePace removes that type of imported reading. Removing a workout hides it from future routine syncs; we keep its source identifier to prevent it from returning. Disconnecting removes all synced health records and sync identifiers from SamePace. Reconnecting starts a new import. Account deletion also removes this data. You can change Apple Health permissions in your device settings, and request an export through <SupportEmail />. Changing device permissions alone does not erase records you already chose to sync.</p>
         </Section>
 
         <Section title="Who sees what">
