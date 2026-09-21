@@ -86,7 +86,7 @@ async function parse<T>(res: Response): Promise<T> {
 /** Call `/api/v1`. Throws `ApiError`; a 401 also signs the user out. */
 export async function api<T>(
   path: string,
-  init: { method?: "GET" | "POST" | "PATCH" | "DELETE"; json?: unknown } = {},
+  init: { method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; json?: unknown } = {},
 ): Promise<T> {
   const res = await send(`/api/v1${path}`, init);
   if (res.status === 401) onUnauthorized?.();

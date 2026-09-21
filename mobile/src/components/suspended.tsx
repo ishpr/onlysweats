@@ -29,6 +29,9 @@ export function Suspended({ reason }: { reason: string }) {
         onPress={() => void Linking.openURL(`mailto:${SUPPORT}?subject=Suspended%20account`)}
       />
       <Button variant="ghost" label="Sign out" onPress={() => void signOut()} />
+      <Button variant="ghost" label="Manage Apple Health data" onPress={() => router.push("/health")} />
+      <Button variant="ghost" label="Fitness data and AI permissions" onPress={() => router.push("/fitness")} />
+      <Button variant="ghost" label="Manage assistant access" onPress={() => router.push("/assistant")} />
       <Button
         variant="ghost"
         label="Delete account"

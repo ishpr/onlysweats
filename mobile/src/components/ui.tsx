@@ -324,23 +324,27 @@ export function Chip({
   label,
   selected,
   onPress,
+  disabled = false,
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
+  disabled?: boolean;
 }) {
   const theme = useTheme();
   return (
     <PressScale
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected }}
+      accessibilityState={{ selected, disabled }}
+      disabled={disabled}
       onPress={onPress}
       feedback="select"
       scaleTo={0.95}
       hitSlop={4}
       style={[
         styles.chip,
+        disabled && styles.dim,
         {
           backgroundColor: selected ? theme.primary : theme.chip,
           borderColor: selected ? theme.primary : theme.border,

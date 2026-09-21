@@ -12,7 +12,8 @@ module.exports = ({ config }) => {
     ...config,
     plugins: [
       ...(config.plugins ?? []),
-      './plugins/with-healthkit',
+      "./plugins/with-healthkit",
+      "expo-sharing",
       ...(iosUrlScheme ? [["@react-native-google-signin/google-signin", { iosUrlScheme }]] : []),
     ],
   };

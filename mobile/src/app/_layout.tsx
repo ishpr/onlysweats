@@ -192,6 +192,10 @@ function Routes() {
           />
           <Stack.Screen name="blocked" options={{ title: "Blocked members" }} />
           <Stack.Screen name="activity" options={{ title: "Notifications" }} />
+          <Stack.Screen name="health" options={{ title: "Apple Health" }} />
+          <Stack.Screen name="fitness" options={{ title: "Fitness log" }} />
+          <Stack.Screen name="workout/[id]" options={{ title: "Workout details" }} />
+          <Stack.Screen name="assistant" options={{ title: "Workout assistant" }} />
           <Stack.Screen
             name="welcome"
             options={{ headerShown: false, presentation: "fullScreenModal", gestureEnabled: false }}

@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, MapPin, Repeat, Target } from "lucide-react-native";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
@@ -8,6 +9,7 @@ import { LeaveStandingSlot } from "@/components/leave-standing-slot";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
 import { Enter, PressScale } from "@/components/motion";
 import { PushPrompt } from "@/components/push-cards";
+import { TodayCard } from "@/components/today-card";
 import { PhotoCard, SessionCard, Tag, type MineTag } from "@/components/session-card";
 import { Button, Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
@@ -41,6 +43,7 @@ type Plan = { session: Session; tag: MineTag; booking?: Booking; joined: number 
 export default function Home() {
   useRefreshOnFocus();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const now = useNow(15_000);
   const me = useMe();
   const mine = useMine();
@@ -93,7 +96,9 @@ export default function Home() {
 
   const levelSet = Object.keys(me.data?.abilities ?? {}).length > 0;
   const name = firstName(me.data?.name);
-  const refresh = () => void Promise.all([mine.refetch(), open.refetch(), me.refetch()]);
+  const refresh = () => void Promise.all([mine.refetch(), open.refetch(), me.refetch(),
+    queryClient.invalidateQueries({ queryKey: ["private-health", meId] }),
+  ]);
 
   return (
     <Screen
@@ -133,6 +138,8 @@ export default function Home() {
               secondary={{ label: "Post a session", onPress: () => router.push("/post") }}
             />
           )}
+
+          {meId && <TodayCard key={meId} ownerId={meId} />}
 
           {!levelSet && (
             <Card>

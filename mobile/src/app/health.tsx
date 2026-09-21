@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Switch, View } from "react-native";
-import { Redirect, Stack } from "expo-router";
+import { Redirect, Stack, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
@@ -9,6 +9,9 @@ import { captureApiSession, type ApiSession } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useMe } from "@/lib/queries";
 import { clearPrivateHealthCache } from "@/lib/health/cache";
+import { usePrivateAction } from "@/hooks/use-private-action";
+import { prepareHealthExport } from "@/lib/health/export";
+import { sharePrivateExport } from "@/lib/health/export-share";
 import type { HealthDataType, PrivateWorkout } from "../../../shared/health";
 
 const OPTIONAL_TYPES: { type: HealthDataType; label: string }[] = [
@@ -44,7 +47,10 @@ function HealthSession({ ownerId }: { ownerId: string }) {
 }
 
 function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSession }) {
+  const router = useRouter();
   const health = useHealthSync({ ownerId, session });
+  const exporting = usePrivateAction(session);
+  const [exportCount, setExportCount] = useState(0);
   const [selection, setSelection] = useState<{ generation: string | null; types: HealthDataType[] } | null>(null);
   const generation = health.connection?.generation ?? null;
   const types: HealthDataType[] = selection && selection.generation === generation
@@ -63,7 +69,7 @@ function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSes
     ),
     retry: false,
   });
-  const busy = removing || ["loading", "connecting", "syncing", "disconnecting"].includes(health.phase);
+  const busy = removing || exporting.busy || ["loading", "connecting", "syncing", "disconnecting"].includes(health.phase);
   const selectionChanged = Boolean(health.connection && [...types].sort().join(",") !== [...health.connection.types].sort().join(","));
   const refreshWorkouts = async () => {
     await clearPrivateHealthCache(queryClient, ownerId);
@@ -103,7 +109,7 @@ function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSes
       <T variant="heading">Your workouts, in one place</T>
       <T color="textSecondary">
         Connect Apple Health to sync workouts and your selected readings to your private SamePace account.
-        They are not shared with other members or sent to AI services.
+        They are not shared with other members. AI assistance has a separate opt-in under Fitness log.
       </T>
       <Card>
         <T variant="label">Choose what to sync</T>
@@ -149,6 +155,18 @@ function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSes
       )}
       {health.error && <Notice tone="danger">{health.error}</Notice>}
       {health.phase === "error" && <Button label="Check connection again" variant="soft" onPress={() => void health.refresh()} />}
+      <Card>
+        <T variant="label">Keep a copy</T>
+        <T variant="caption" color="textSecondary">Export all your synced workout and reading records as a JSON file. You choose where to save this private information.</T>
+        <Button label={exporting.busy ? `Preparing ${exportCount.toLocaleString()} records…` : "Export Apple Health data"}
+          loading={exporting.busy} disabled={busy} variant="soft" onPress={() => void exporting.run(async (signal) => {
+            setExportCount(0);
+            const contents = await prepareHealthExport(session, signal, setExportCount);
+            await sharePrivateExport(contents, () => session.isCurrent() && !signal.aborted);
+          })} />
+        {exporting.error && <Notice tone="danger">{exporting.error}</Notice>}
+        <Button label="Open fitness log" variant="ghost" onPress={() => router.push("/fitness")} />
+      </Card>
       <T variant="heading">Private workouts</T>
       <T variant="caption" color="textSecondary">Imported exercise is separate from your SamePace attendance and training-block progress.</T>
       {actionError && <Notice tone="danger">{actionError}</Notice>}
@@ -164,6 +182,7 @@ function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSes
             {workout.record.activeEnergyKilocalories !== null && <T>{Math.round(workout.record.activeEnergyKilocalories)} kcal recorded</T>}
             <T>{workout.heartRate.sampleMeanBpm === null ? "Heart rate unavailable" : `${Math.round(workout.heartRate.sampleMeanBpm)} bpm sample average · ${workout.heartRate.sampleCount} readings`}</T>
           </View>
+          <Button label="Details and corrections" variant="soft" onPress={() => router.push({ pathname: "/workout/[id]", params: { id: workout.id } })} />
           <Button label="Remove workout" variant="ghost" disabled={busy} onPress={() => setConfirmation({ action: "remove", id: workout.id })} />
           {confirmation?.action === "remove" && confirmation.id === workout.id && confirmControls}
         </Card>

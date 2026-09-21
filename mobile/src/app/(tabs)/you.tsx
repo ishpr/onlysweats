@@ -1,9 +1,11 @@
 import { useRouter } from "expo-router";
 import {
   Bike,
+  Bot,
   Dumbbell,
   FileText,
   Footprints,
+  HeartPulse,
   LifeBuoy,
   Lock,
   LogOut,
@@ -284,6 +286,13 @@ export default function You() {
       </Card>
 
       {update.error && <Notice tone="danger">{update.error.message}</Notice>}
+
+      <SectionTitle>Your training</SectionTitle>
+      <ListCard>
+        <ListRow icon={HeartPulse} label="Apple Health" onPress={() => router.push("/health")} />
+        <ListRow icon={Dumbbell} label="Fitness log" onPress={() => router.push("/fitness")} />
+        <ListRow icon={Bot} label="Workout assistant" onPress={() => router.push("/assistant")} />
+      </ListCard>
 
       <SectionTitle>Notifications</SectionTitle>
       <NotificationSettings me={p} />
