@@ -4,6 +4,8 @@ The vision is a reliable workout community with actual fitness records, editable
 
 This checklist separates implemented software from provider setup, physical-device checks and evidence that still requires real members. A checked implementation item does not certify the whole product for public rollout.
 
+The [functional handoff](FUNCTIONAL-HANDOFF.md) records the merged main baseline, the successful physical Apple sign-in check and prioritized remaining work, excluding Claude's visual redesign.
+
 ## Implemented software
 
 - [x] **Core community:** posting/joining, arrival check-in, standing slots, ratings, training blocks, goal credits, notifications, blocking/reporting, account deletion and admin tools.
