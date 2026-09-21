@@ -1,5 +1,3 @@
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, Pressable, Share, StyleSheet, View } from "react-native";
@@ -7,14 +5,14 @@ import { Alert, Pressable, Share, StyleSheet, View } from "react-native";
 import { BlockEnding } from "@/components/block-ending";
 import { ProgressRing } from "@/components/progress-ring";
 import { ReportLink } from "@/components/report-link";
-import { venueImage } from "@/components/session-card";
+import { PhotoCard, Tag } from "@/components/session-card";
 import { Avatar, Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
-import { Radius, Spacing } from "@/constants/theme";
-import { useTheme } from "@/hooks/use-theme";
+import { Spacing } from "@/constants/theme";
 import { SITE_URL } from "@/lib/config";
 import { daysUntil, formatDate, formatWhen } from "@/lib/format";
 import { byId } from "@/lib/lookup";
 import { reputationLine } from "@/lib/reputation";
+import { useVerifyGate } from "@/lib/verify-gate";
 import {
   useCloneTrainingBlock,
   useJoinTrainingBlock,
@@ -36,7 +34,6 @@ export default function TrainingBlockPage() {
   const { id, invite } = useLocalSearchParams<{ id: string; invite?: string }>();
   useRefreshOnFocus();
   const router = useRouter();
-  const theme = useTheme();
   const me = useMe().data;
   const q = useTrainingBlock(id, invite);
   const venues = byId(useVenues().data);
@@ -45,7 +42,11 @@ export default function TrainingBlockPage() {
   const clone = useCloneTrainingBlock();
   const answer = useResolveBlockRequest();
   const [error, setError] = useState("");
-  const fail = (err: Error) => setError(err.message);
+  const toVerify = useVerifyGate();
+  // "Verify first" isn't an error to show: it's somewhere to go.
+  const fail = (err: Error) => {
+    if (!toVerify(err)) setError(err.message);
+  };
 
   if (!q.data) {
     return (
@@ -102,28 +103,23 @@ export default function TrainingBlockPage() {
 
   return (
     <Screen edges={["bottom"]} onRefresh={() => void q.refetch()} refreshing={q.isRefetching}>
-      <View style={styles.hero}>
-        <Image
-          source={venueImage(venue)}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          transition={200}
-          accessibilityLabel={venue?.name}
-        />
-        <LinearGradient
-          colors={["transparent", "transparent", theme.background]}
-          locations={[0, 0.45, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
-
-      <View style={styles.header}>
-        <T variant="eyebrow" color="textSecondary">
-          {ACTIVITIES[block.activity].label} · training for a goal
-        </T>
+      <PhotoCard
+        venue={venue}
+        minHeight={220}
+        photoHeight={150}
+        tags={
+          <Row style={styles.tags}>
+            <Tag label={ACTIVITIES[block.activity].label} />
+            <Tag label="Training for a goal" tone="accent" />
+            {block.womenOnly && <Tag label="Women-only" />}
+          </Row>
+        }
+      >
         <T variant="title">{block.goalLabel}</T>
-        <T color="textSecondary">{whenLine(block)}</T>
-      </View>
+        <T variant="label" color="textSecondary">
+          {whenLine(block)}
+        </T>
+      </PhotoCard>
 
       {!member && (
         <Card>
@@ -137,10 +133,10 @@ export default function TrainingBlockPage() {
           </T>
           <T variant="caption" color="textSecondary">
             {block.fitsMe === false
-              ? "One or more of these is outside the level on your profile."
+              ? "One or more of these is outside the level you set. You can still join."
               : block.fitsMe === null
-                ? "Set your level under You to see whether it fits."
-                : "Inside your level."}
+                ? "Set your level on Home or under You to see whether it fits."
+                : "Fits your level."}
           </T>
         </Card>
       )}
@@ -378,8 +374,7 @@ function whenLine(block: TrainingBlock) {
 
 const styles = StyleSheet.create({
   // The same frame a listing uses.
-  hero: { aspectRatio: 16 / 10, borderRadius: Radius.xxl, overflow: "hidden" },
-  header: { gap: Spacing.one },
+  tags: { flexWrap: "wrap", gap: 6 },
   section: { gap: Spacing.two },
   progress: { alignItems: "center", gap: Spacing.three },
   between: { justifyContent: "space-between" },

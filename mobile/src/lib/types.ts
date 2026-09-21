@@ -54,6 +54,34 @@ export type Person = {
   abilities: MemberAbilities;
 };
 
+export type VerificationTier = "member" | "government_id";
+type TierState = "none" | "pending" | "needs_review" | "approved" | "declined";
+
+/**
+ * What I've verified. Persona runs the checks and sees the selfie and the ID;
+ * SamePace — and so this app — only ever learns how each one came out.
+ */
+export type Verification = {
+  /** I can verify right now. */
+  available: boolean;
+  /** Unverified members are being turned away from public sessions. */
+  enforced: boolean;
+  provider: "persona" | "dev" | null;
+  /** Phone number and selfie. */
+  member: TierState;
+  governmentId: TierState;
+  /** A report about me was acted on: government ID before more public sessions. */
+  idRequired: boolean;
+};
+
+export type StartedVerification = {
+  id: string;
+  tier: VerificationTier;
+  provider: "persona" | "dev";
+  /** Opened in a browser sheet. `null` for the dev stand-in. */
+  url: string | null;
+};
+
 export type Me = Person & {
   gender: Gender;
   creditCents: number;
@@ -65,6 +93,7 @@ export type Me = Person & {
   /** Set when SamePace has paused the account. Only the profile still loads. */
   suspended: { reason: string } | null;
   isAdmin: boolean;
+  verification: Verification;
 };
 
 export type NotifyPrefs = {
@@ -93,6 +122,7 @@ export type ReportInput = {
   detail?: string;
   sessionId?: string;
   bookingId?: string;
+  negotiationId?: string;
   alsoBlock?: boolean;
 };
 

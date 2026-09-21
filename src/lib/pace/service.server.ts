@@ -5,6 +5,7 @@
  * client-supplied identity.
  */
 import type { Sql } from "../db.ts";
+import { assertMembershipEntitled } from "../billing/service.server.ts";
 import {
   dayAndTime,
   DEFAULT_PREFS,
@@ -38,6 +39,8 @@ import {
   settle,
   STRIKES_TO_FREEZE,
   STRIKE_WINDOW_MS,
+  verificationNeeded,
+  VERIFY_COPY,
 } from "./rules.ts";
 import type {
   Ability,
@@ -58,11 +61,45 @@ import type {
 
 export class PaceError extends Error {
   readonly status: 400 | 403 | 404 | 409;
-  constructor(status: 400 | 403 | 404 | 409, message: string) {
+  /** Machine-readable, for the refusals the app acts on rather than just shows. */
+  readonly code?: string;
+  constructor(status: 400 | 403 | 404 | 409, message: string, code?: string) {
     super(message);
     this.name = "PaceError";
     this.status = status;
+    this.code = code;
   }
+}
+
+/** Nobody is turned away for being unverified until this is switched on. */
+export const verificationEnforced = (env: Record<string, string | undefined> = process.env) =>
+  env.VERIFICATION_ENFORCED === "1";
+
+/**
+ * Refuse, with a code the app acts on, when this member still has something to
+ * verify before posting or joining this. See `rules.verificationNeeded`.
+ */
+export async function requireVerified(
+  sql: Sql,
+  userId: string,
+  what: { visibility: Visibility; womenOnly: boolean },
+) {
+  if (!verificationEnforced()) return;
+  const [p] = await sql<{
+    verified_member_at: Date | null;
+    verified_id_at: Date | null;
+    id_required_at: Date | null;
+  }>`select verified_member_at, verified_id_at, id_required_at from profiles where id = ${userId}`;
+  const need = verificationNeeded(
+    {
+      member: Boolean(p?.verified_member_at),
+      governmentId: Boolean(p?.verified_id_at),
+      idRequired: Boolean(p?.id_required_at),
+    },
+    what,
+    true,
+  );
+  if (need) throw new PaceError(403, VERIFY_COPY[need], `verify_${need}`);
 }
 
 export function newId(prefix: string) {
@@ -653,6 +690,7 @@ export async function postSession(
     const poster = await profileRow(tx, userId);
     if (poster.deleted_at || poster.suspended_at)
       throw new PaceError(403, "Your account cannot post a session.");
+    await assertMembershipEntitled(tx, userId, now);
     const [venue] = await tx<Venue>`select * from venues where id = ${input.venueId}`;
     if (!venue) throw new PaceError(400, "Pick a venue in the cluster.");
     const startAt = new Date(input.startAt).getTime();
@@ -672,6 +710,10 @@ export async function postSession(
       now,
     );
     if (!verdict.ok) throw new PaceError(400, verdict.error);
+    await requireVerified(tx, userId, {
+      visibility: input.visibility,
+      womenOnly: input.womenOnly,
+    });
     await assertNoAssistantOverlap(tx, userId, input.startAt, input.durationMin);
 
     const id = newId("ses");
@@ -896,6 +938,8 @@ export async function bookSeat(
       now,
     );
     if (!verdict.ok) throw new PaceError(409, verdict.error);
+    await requireVerified(tx, userId, { visibility: s.visibility, womenOnly: s.women_only });
+    await assertMembershipEntitled(tx, userId, now);
     await assertNoAssistantOverlap(tx, userId, iso(s.start_at)!, s.duration_min, sessionId);
 
     // Not a regular on this standing slot? Then this is a substitute seat: one
@@ -1559,6 +1603,27 @@ export async function ensureNextOccurrence(
   }
 
   for (const member of members) {
+    try {
+      await assertMembershipEntitled(tx, member, now);
+    } catch (err) {
+      if (!(err instanceof PaceError && err.status === 403)) throw err;
+      // Preserve existing commitments. Only the uncreated occurrence waits for
+      // this member to manage billing; other members do not see billing details.
+      await enqueue(
+        tx,
+        {
+          profileId: member,
+          kind: "standing_slot_membership",
+          category: "account",
+          title: "Review membership for your next workout",
+          body: "Your next standing-slot occurrence is waiting for an active membership. Existing sessions are unchanged.",
+          url: "/billing",
+          dedupeKey: `series:${seriesId}:${at(startAt)}:${member}:membership`,
+        },
+        now,
+      );
+      return null;
+    }
     try {
       await assertNoAssistantOverlap(tx, member, at(startAt), last.duration_min);
     } catch (err) {

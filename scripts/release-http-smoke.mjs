@@ -81,6 +81,9 @@ async function run(base, authOrigin) {
     await api("/fitness/logs", { credential: null, expected: 401 });
     await api("/health/connection", { credential: null, expected: 401 });
     await api("/agents/delegations", { credential: null, expected: 401 });
+    await api("/agents/discovery", { credential: null, expected: 401 });
+    await api("/billing", { credential: null, expected: 401 });
+    await api("/fitness/pilot-consent", { credential: null, expected: 401 });
     passed.push("Unauthenticated fitness, health and agent requests return 401");
 
     stage = "synthetic local signup";
@@ -105,6 +108,19 @@ async function run(base, authOrigin) {
     // Deliberately do not enable consent or send another inference request,
     // including when this local server already has a provider key configured.
     passed.push("AI drafts require separate member consent before provider access");
+
+    stage = "separate feedback consent and disabled discovery";
+    check((await api("/fitness/pilot-consent")).body?.consent?.enabled === false, "Feedback consent must start disabled.");
+    await api("/fitness/pilot-consent", { method: "PUT", json: { enabled: true }, expected: 403 });
+    check((await api("/fitness/logging-sessions", { method: "POST", json: {} })).body?.measurement === null, "No measurement may start without feedback consent.");
+    await api("/fitness/pilot-consent", { method: "PUT", json: { enabled: false } });
+    const discovery = (await api("/agents/discovery")).body?.discovery;
+    check(discovery?.enabled === false && discovery?.candidates?.length === 0, "Discovery must start disabled and reveal no candidates.");
+    await api("/agents/discovery", { method: "PUT", json: { enabled: false } });
+    await api(`/agents/negotiations/${randomUUID()}/coordination`, { expected: 404 });
+    const billing = (await api("/billing")).body;
+    check(billing?.monthlyCents === 1200 && billing?.freeSessionsLeft === 2 && billing?.fees?.length === 0, "Billing must reflect the new member's server-owned records.");
+    passed.push("Pilot measurement, discovery and planning controls enforce explicit consent and ownership; billing starts with two free workouts");
 
     stage = "manual log creation";
     const input = { startedAt: new Date(Date.now() - 3_600_000).toISOString(), exerciseId: "bench_press",
@@ -158,6 +174,9 @@ async function run(base, authOrigin) {
     await api("/fitness/logs", { credential: delegation.token, expected: 401 });
     await api("/fitness/export", { credential: delegation.token, expected: 401 });
     await api("/health/connection", { credential: delegation.token, expected: 401 });
+    await api("/billing", { credential: delegation.token, expected: 401 });
+    await api("/agents/discovery", { credential: delegation.token, expected: 401 });
+    await api("/fitness/pilot-consent", { credential: delegation.token, expected: 401 });
     passed.push("Scoped A2A credentials cannot read fitness or health information");
 
     stage = "delegation revocation";
@@ -171,6 +190,7 @@ async function run(base, authOrigin) {
     stage = "non-admin access";
     await api("/admin/overview", { expected: 404 });
     await api("/admin/operations", { expected: 404 });
+    await api("/admin/billing/disputes", { expected: 404 });
     passed.push("Admin information remains hidden from ordinary members");
   } catch (error) {
     failure = { stage, message: error instanceof SmokeFailure ? error.message : "Unexpected local smoke-test failure." };

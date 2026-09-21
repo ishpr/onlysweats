@@ -260,6 +260,18 @@ export async function suggestPlans(
   assertPlanning(r, now);
   const own = await getPreferences(sql, userId);
   const other = await getPreferences(sql, r.host_id === userId ? r.participant_id : r.host_id);
+  return candidatePlans(sql, own, other, [r.host_id, r.participant_id], now);
+}
+
+/** Only used with mutual room consent or separate, current discovery consent.
+ * Discovery uses the existence of a fit; exact availability stays private. */
+export async function candidatePlans(
+  sql: Sql,
+  own: AssistantPreferences,
+  other: AssistantPreferences,
+  people: string[],
+  now = Date.now(),
+): Promise<AssistantCandidates> {
   const result: AssistantCandidates = {
     candidates: [],
     reason: null,
@@ -288,7 +300,7 @@ export async function suggestPlans(
       reason:
         "The entered distance needs more time even at your fastest selected pace or speed. Increase the workout length or choose a shorter distance together.",
     };
-  const busy = await busyWindows(sql, [r.host_id, r.participant_id], iso(now), iso(now + 14 * DAY));
+  const busy = await busyWindows(sql, people, iso(now), iso(now + 14 * DAY));
   const windows = own.availability
     .flatMap((a) =>
       other.availability.map((b) => ({

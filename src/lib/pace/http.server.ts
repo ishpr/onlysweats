@@ -12,9 +12,12 @@ import * as notify from "./notify.server";
 import * as safety from "./safety.server";
 import * as svc from "./service.server";
 import * as blocks from "./training-blocks.server";
+import * as verification from "./verification.server";
 import { GOAL_KINDS } from "./types";
 import * as agents from "../agents/service.server";
 import * as assistant from "../agents/assistant.server";
+import * as coordination from "../agents/coordination.server";
+import * as discovery from "../agents/discovery.server";
 import { delegationInput } from "../agents/contracts";
 import * as health from "../health/service.server";
 import { HealthError, pageInput } from "../health/contracts";
@@ -25,6 +28,8 @@ import {
   type OperationComponent,
 } from "../operations/service.server";
 import * as fitness from "../fitness/service.server";
+import * as outcomes from "../fitness/outcomes.server";
+import * as billing from "../billing/service.server";
 import { FitnessError, fitnessPageInput } from "../fitness/contracts";
 
 type Ctx = {
@@ -185,6 +190,7 @@ const reportBody = z.object({
   detail: z.string().max(2000).optional(),
   sessionId: z.string().min(1).optional(),
   bookingId: z.string().min(1).optional(),
+  negotiationId: z.uuid().optional(),
   alsoBlock: z.boolean().optional(),
 });
 
@@ -214,6 +220,10 @@ const OPEN_WHEN_SUSPENDED = new Set([
   "POST /devices",
   "DELETE /devices/:token",
   "GET /notifications",
+  "GET /billing",
+  "POST /billing/portal",
+  "POST /billing/refresh",
+  "POST /billing/fees/:id/dispute",
   "POST /notifications/read",
   // A paused account can still inspect, export, or remove its private records.
   "GET /health/connection",
@@ -224,18 +234,160 @@ const OPEN_WHEN_SUSPENDED = new Set([
   "GET /health/export",
   "GET /fitness/consent",
   "PUT /fitness/consent",
+  "GET /fitness/pilot-consent",
+  "PUT /fitness/pilot-consent",
+  "GET /fitness/logging-sessions/:id",
   "GET /fitness/logs",
   "DELETE /fitness/logs/:id",
   "GET /fitness/export",
   "GET /agents/delegations",
   "GET /agents/preferences",
   "PUT /agents/preferences",
+  "GET /agents/discovery",
+  "PUT /agents/discovery",
   "DELETE /agents/delegations/:id",
   "POST /agents/negotiations/:id/consent",
   "POST /agents/negotiations/:id/cancel",
+  "GET /agents/negotiations/:id/coordination",
+  "PUT /agents/negotiations/:id/coordination",
+  "DELETE /agents/negotiations/:id/coordination",
 ]);
 
 const routes: [method: string, pattern: string, handler: Handler][] = [
+  [
+    "POST",
+    "/billing/refresh",
+    ({ sql, userId, body }) => {
+      emptyAgentBody.parse(body ?? {});
+      return billing.refreshBilling(sql, userId);
+    },
+  ],
+  ["GET", "/billing", ({ sql, userId }) => billing.getBilling(sql, userId)],
+  [
+    "POST",
+    "/billing/membership/checkout",
+    ({ sql, userId, body }) => billing.createMembershipCheckout(sql, userId, body),
+  ],
+  [
+    "POST",
+    "/billing/fees/:id/checkout",
+    ({ sql, userId, params, body }) => billing.createFeeCheckout(sql, userId, params.id, body),
+  ],
+  ["POST", "/billing/portal", ({ sql, userId, body }) => billing.createPortal(sql, userId, body)],
+  [
+    "POST",
+    "/billing/fees/:id/dispute",
+    ({ sql, userId, params, body }) => billing.disputeFee(sql, userId, params.id, body),
+  ],
+  [
+    "GET",
+    "/admin/billing/disputes",
+    admin(async ({ sql }) => ({ disputes: await billing.listBillingDisputes(sql) })),
+  ],
+  [
+    "POST",
+    "/admin/billing/disputes/:id/resolve",
+    admin(async ({ sql, adminEmail, params, body }) => ({
+      disputes: await billing.resolveBillingDispute(sql, adminEmail, params.id, body),
+    })),
+  ],
+  [
+    "GET",
+    "/agents/discovery",
+    async ({ sql, userId }) => ({ discovery: await discovery.getDiscovery(sql, userId) }),
+  ],
+  [
+    "PUT",
+    "/agents/discovery",
+    async ({ sql, userId, body }) => ({
+      discovery: await discovery.setDiscovery(sql, userId, body),
+    }),
+  ],
+  [
+    "POST",
+    "/agents/discovery/invitations",
+    async ({ sql, userId, body }) => ({
+      negotiation: agents.view(await discovery.inviteDiscovery(sql, userId, body)),
+    }),
+  ],
+  [
+    "GET",
+    "/fitness/pilot-consent",
+    async ({ sql, userId }) => ({
+      consent: await outcomes.getPilotConsent(sql, userId),
+    }),
+  ],
+  [
+    "PUT",
+    "/fitness/pilot-consent",
+    async ({ sql, userId, body }) => ({
+      consent: await outcomes.setPilotConsent(sql, userId, body),
+    }),
+  ],
+  [
+    "POST",
+    "/fitness/logging-sessions",
+    async ({ sql, userId, body }) => ({
+      measurement: await outcomes.startLoggingSession(sql, userId, body ?? {}),
+    }),
+  ],
+  [
+    "GET",
+    "/fitness/logging-sessions/:id",
+    async ({ sql, userId, params }) => ({
+      outcome: await outcomes.getLoggingOutcome(sql, userId, agentId.parse(params.id)),
+    }),
+  ],
+  [
+    "POST",
+    "/fitness/logging-sessions/:id/feedback",
+    async ({ sql, userId, params, body }) => ({
+      outcome: await outcomes.recordPilotFeedback(sql, userId, agentId.parse(params.id), body),
+    }),
+  ],
+  [
+    "GET",
+    "/agents/negotiations/:id/coordination",
+    async ({ sql, userId, params }) => ({
+      coordination: await coordination.getCoordination(sql, userId, agentId.parse(params.id)),
+    }),
+  ],
+  [
+    "PUT",
+    "/agents/negotiations/:id/coordination",
+    async ({ sql, userId, params, body }) => ({
+      coordination: await coordination.setCoordinationPermission(
+        sql,
+        userId,
+        agentId.parse(params.id),
+        body,
+      ),
+    }),
+  ],
+  [
+    "DELETE",
+    "/agents/negotiations/:id/coordination",
+    async ({ sql, userId, params }) => ({
+      coordination: await coordination.setCoordinationPermission(
+        sql,
+        userId,
+        agentId.parse(params.id),
+        { enabled: false },
+      ),
+    }),
+  ],
+  [
+    "POST",
+    "/agents/negotiations/:id/coordinate",
+    async ({ sql, userId, params, body }) => ({
+      coordination: await coordination.startCoordination(
+        sql,
+        userId,
+        agentId.parse(params.id),
+        body,
+      ),
+    }),
+  ],
   [
     "GET",
     "/fitness/consent",
@@ -500,7 +652,36 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
     async ({ sql, userId, user }) => ({
       ...(await svc.getMe(sql, userId)),
       isAdmin: safety.isAdmin(user),
+      verification: await verification.getVerification(sql, userId),
     }),
+  ],
+  // Identity verification. Persona sees the selfie and the ID; we learn how it came out.
+  [
+    "POST",
+    "/verification",
+    ({ sql, userId, body }) =>
+      verification.startVerification(
+        sql,
+        userId,
+        z.object({ tier: z.enum(["member", "government_id"]) }).parse(body).tier,
+      ),
+  ],
+  [
+    "POST",
+    "/verification/:id/refresh",
+    ({ sql, userId, params }) => verification.refreshVerification(sql, userId, params.id),
+  ],
+  // The stand-in's whole flow. 404 wherever Persona is configured, and in production.
+  [
+    "POST",
+    "/verification/:id/dev-complete",
+    ({ sql, userId, params, body }) =>
+      verification.devComplete(
+        sql,
+        userId,
+        params.id,
+        z.object({ outcome: z.enum(["approved", "declined"]) }).parse(body).outcome,
+      ),
   ],
   [
     "DELETE",
@@ -509,6 +690,7 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
       // Apple asks that deleting the account also revokes the app's access.
       const { revokeAppleAccess } = await import("../auth/apple-revoke.server");
       await revokeAppleAccess(sql, userId);
+      // Persona redaction is queued atomically with deletion and retried by cron.
       await safety.deleteAccount(sql, userId);
       return { ok: true };
     },
@@ -944,7 +1126,11 @@ export async function handleApi(request: Request): Promise<Response> {
   const fitnessRequest = path === "/fitness" || path.startsWith("/fitness/");
   const agentRequest = path === "/agents" || path.startsWith("/agents/");
   const privateFitnessRequest = healthRequest || fitnessRequest;
-  const sensitiveRequest = privateFitnessRequest || agentRequest;
+  const sensitiveRequest =
+    privateFitnessRequest ||
+    agentRequest ||
+    path.startsWith("/billing") ||
+    path.startsWith("/admin/billing");
   const component: OperationComponent | null = healthRequest
     ? "health"
     : fitnessRequest
@@ -1038,7 +1224,12 @@ export async function handleApi(request: Request): Promise<Response> {
   } catch (err) {
     if (err instanceof FitnessError) return respond({ error: err.message }, err.status);
     if (err instanceof HealthError) return respond({ error: err.message }, err.status);
-    if (err instanceof svc.PaceError) return respond({ error: err.message }, err.status);
+    if (err instanceof svc.PaceError) {
+      return respond(
+        err.code ? { error: err.message, code: err.code } : { error: err.message },
+        err.status,
+      );
+    }
     if (err instanceof z.ZodError) {
       const first = err.issues[0];
       return respond({ error: `${first.path.join(".") || "body"}: ${first.message}` }, 400);

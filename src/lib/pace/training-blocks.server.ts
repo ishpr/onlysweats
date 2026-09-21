@@ -5,6 +5,7 @@
  * already record. Nothing here is logged by a member, and no body metric exists.
  */
 import type { Sql } from "../db.ts";
+import { assertMembershipEntitled } from "../billing/service.server.ts";
 import { dayAndTime, enqueue, firstName } from "./notify.server.ts";
 import {
   abilityFits,
@@ -50,6 +51,7 @@ import {
   PaceError,
   people,
   profileRow,
+  requireVerified,
   validRegulars,
   type SessionRow,
 } from "./service.server.ts";
@@ -575,6 +577,7 @@ async function blockFromSlots(
     members = [...new Set([...members, ...regulars])];
   }
   if (!first) throw new PaceError(409, "That standing slot has ended.");
+  for (const member of members) await assertMembershipEntitled(tx, member, now);
 
   const startsOn = clusterDate(now);
   const verdict = validBlock({
@@ -673,7 +676,7 @@ export async function addBlockSlot(
       throw new PaceError(400, "That’s after the goal date.");
     }
 
-    await createSlot(tx, b, userId, members, input, startAt);
+    await createSlot(tx, b, userId, members, input, startAt, now);
     const who = await firstName(tx, userId);
     for (const member of members.filter((m) => m !== userId)) {
       await enqueue(
@@ -704,11 +707,14 @@ async function createSlot(
   members: string[],
   input: BlockSlotInput,
   startAt: number,
+  now = Date.now(),
 ) {
   if (!(await validRegulars(tx, members)))
     throw new PaceError(409, "This group cannot book a new slot.");
-  for (const member of members)
+  for (const member of members) {
+    await assertMembershipEntitled(tx, member, now);
     await assertNoAssistantOverlap(tx, member, at(startAt), input.durationMin);
+  }
   const seriesId = newId("ser");
   await tx`
     insert into series (id, created_by, training_block_id)
@@ -795,6 +801,7 @@ export async function postTrainingBlock(
     starts.push(startAt);
   }
   const startsOn = clusterDate(Math.min(...starts));
+  await requireVerified(sql, userId, { visibility: input.visibility, womenOnly: input.womenOnly });
   const goal = validBlock({
     activity: input.activity,
     goalKind: input.goalKind,
@@ -806,6 +813,8 @@ export async function postTrainingBlock(
 
   const id = newId("tb");
   await sql.transaction(async (tx) => {
+    await tx`select id from profiles where id = ${userId} for no key update`;
+    await requireVerified(tx, userId, { visibility: input.visibility, womenOnly: input.womenOnly });
     await tx`
       insert into training_blocks (
         id, created_by, activity, goal_kind, event_name, starts_on, goal_date, capacity,
@@ -828,7 +837,7 @@ export async function postTrainingBlock(
       women_only: input.womenOnly,
     };
     for (const [i, slot] of input.slots.entries()) {
-      await createSlot(tx, b, userId, [userId], slot, starts[i]);
+      await createSlot(tx, b, userId, [userId], slot, starts[i], now);
     }
   });
   return toDTO(sql, await myBlockRow(sql, userId, id), userId, now);
@@ -840,6 +849,7 @@ export async function postTrainingBlock(
  * the moment it has two people.
  */
 async function admit(tx: Sql, b: BlockRow, profileId: string, now: number) {
+  await assertMembershipEntitled(tx, profileId, now);
   const regulars = (await membersOf(tx, b.id)).map((m) => m.profile_id);
   if (!(await validRegulars(tx, [...new Set([...regulars, profileId])])))
     throw new PaceError(409, "This group cannot add that member.");
@@ -944,6 +954,8 @@ export async function joinTrainingBlock(
       now,
     );
     if (!verdict.ok) throw new PaceError(409, verdict.error);
+    await requireVerified(tx, userId, { visibility: b.visibility, womenOnly: b.women_only });
+    await assertMembershipEntitled(tx, userId, now);
     if (b.join_mode === "instant") return admit(tx, b, userId, now);
 
     const [asked] = await tx<{ status: string }>`

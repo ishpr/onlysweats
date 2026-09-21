@@ -25,7 +25,13 @@ import {
  * Sign in with Apple or Google — no passwords to make, lose or reuse. The server
  * says which of the two it accepts; the device says which it can do.
  */
-export default function SignIn({ hasInvite = false }: { hasInvite?: boolean }) {
+export default function SignIn({
+  hasInvite = false,
+  hasPendingLink = false,
+}: {
+  hasInvite?: boolean;
+  hasPendingLink?: boolean;
+}) {
   const theme = useTheme();
   const scheme = useColorScheme();
   const { signInWithToken } = useAuth();
@@ -81,8 +87,12 @@ export default function SignIn({ hasInvite = false }: { hasInvite?: boolean }) {
       </Appear>
 
       <View style={styles.actions}>
-        {hasInvite && (
-          <Notice>Sign in to open your invite. We’ll bring you back to it here.</Notice>
+        {(hasInvite || hasPendingLink) && (
+          <Notice>
+            {hasInvite
+              ? "Sign in to open your invite. We’ll bring you back to it here."
+              : "Sign in to continue where this link takes you."}
+          </Notice>
         )}
         {error ? <Notice tone="danger">{error}</Notice> : null}
 

@@ -14,6 +14,8 @@ import {
 } from "./service.server.ts";
 import { withdrawCredits } from "./training-blocks.server.ts";
 import { enqueue } from "./notify.server.ts";
+import { queueVerificationRedactions } from "./verification.server.ts";
+import { queueBillingDeletion } from "../billing/service.server.ts";
 import { blockWeeks, goalLabel } from "./rules.ts";
 import type { GoalKind, Person } from "./types.ts";
 
@@ -80,9 +82,10 @@ export type ReportInput = {
   reportedId: string;
   reason: ReportReason;
   detail?: string;
-  /** Where it happened. One of the two is required — members only meet through sessions. */
+  /** Where it happened: a listing/booking or a planning invitation. */
   sessionId?: string;
   bookingId?: string;
+  negotiationId?: string;
   alsoBlock?: boolean;
 };
 
@@ -104,6 +107,17 @@ export async function reportMember(
   if (input.reportedId === userId) throw new PaceError(400, "That’s you.");
   await mustExist(sql, input.reportedId);
 
+  if (input.negotiationId && (input.sessionId || input.bookingId))
+    throw new PaceError(400, "Choose one place to report.");
+  if (input.negotiationId) {
+    // Both members may report an invitation even before opting in, after declining,
+    // or after blocking. It never grants outsiders access to a conversation.
+    const room = await sql`select id from agent_negotiations where id = ${input.negotiationId}
+      and ((host_id = ${userId} and participant_id = ${input.reportedId})
+        or (host_id = ${input.reportedId} and participant_id = ${userId}))`;
+    if (!room.length) throw new PaceError(404, "Conversation unavailable.");
+  }
+
   let sessionId = input.sessionId ?? null;
   if (input.bookingId) {
     const [b] = await sql<{ session_id: string }>`
@@ -111,22 +125,26 @@ export async function reportMember(
     if (!b) throw new PaceError(404, "No booking.");
     sessionId = b.session_id;
   }
-  if (!sessionId) throw new PaceError(400, "Say which session this is about.");
-  const members = await onSession(sql, sessionId);
-  if (!members) throw new PaceError(404, "Session not found.");
-  const [host] = await sql<{ host_id: string; visibility: string }>`
-    select host_id, visibility from sessions where id = ${sessionId}`;
-  // Anyone can report the poster of a listing they can see; reporting someone
-  // else on a session takes being on it too.
-  const aboutPublicPoster = input.reportedId === host.host_id && host.visibility === "public";
-  if (!members.has(input.reportedId) || (!aboutPublicPoster && !members.has(userId))) {
-    throw new PaceError(404, "Session not found.");
+  if (!sessionId && !input.negotiationId)
+    throw new PaceError(400, "Say which session or conversation this is about.");
+  if (sessionId) {
+    const members = await onSession(sql, sessionId);
+    if (!members) throw new PaceError(404, "Session not found.");
+    const [host] = await sql<{ host_id: string; visibility: string }>`
+      select host_id, visibility from sessions where id = ${sessionId}`;
+    const aboutPublicPoster = input.reportedId === host.host_id && host.visibility === "public";
+    if (!members.has(input.reportedId) || (!aboutPublicPoster && !members.has(userId)))
+      throw new PaceError(404, "Session not found.");
   }
 
   const id = await sql.transaction(async (tx) => {
+    // Serialize quota and duplicate checks for the reporting member.
+    await tx`select id from profiles where id = ${userId} for no key update`;
     const [dupe] = await tx<{ id: string }>`
       select id from reports where reporter_id = ${userId} and reported_id = ${input.reportedId}
-        and session_id = ${sessionId} and status = 'open' limit 1`;
+        and session_id is not distinct from ${sessionId}
+        and negotiation_id is not distinct from ${input.negotiationId ?? null}
+        and status = 'open' limit 1`;
     if (dupe) return dupe.id;
     const [{ n }] = await tx<{ n: number }>`
       select count(*) as n from reports
@@ -139,9 +157,9 @@ export async function reportMember(
     }
     const reportId = newId("rep");
     await tx`
-      insert into reports (id, reporter_id, reported_id, session_id, booking_id, reason, detail, created_at)
+      insert into reports (id, reporter_id, reported_id, session_id, booking_id, negotiation_id, reason, detail, created_at)
       values (${reportId}, ${userId}, ${input.reportedId}, ${sessionId}, ${input.bookingId ?? null},
-        ${input.reason}, ${(input.detail ?? "").trim().slice(0, 2000)}, ${at(now)})`;
+        ${input.negotiationId ?? null}, ${input.reason}, ${(input.detail ?? "").trim().slice(0, 2000)}, ${at(now)})`;
     // Reports are read by a person within a day — tell the people who read them.
     const admins = (process.env.ADMIN_EMAILS ?? "")
       .split(",")
@@ -187,6 +205,9 @@ export async function deleteAccount(sql: Sql, userId: string, now = Date.now()) 
       select suspended_at, suspended_reason from profiles where id = ${userId} for update`;
     if (!me) throw new PaceError(404, "No profile.");
     await withdrawEverything(tx, userId, now);
+    await queueVerificationRedactions(tx, userId, now);
+    await queueBillingDeletion(tx, userId, now);
+    await tx`delete from verifications where profile_id = ${userId}`;
 
     // Deleting doesn't undo a suspension.
     if (me.suspended_at) {
@@ -208,6 +229,7 @@ export async function deleteAccount(sql: Sql, userId: string, now = Date.now()) 
     await tx`delete from notifications where profile_id = ${userId}`;
     await tx`delete from agent_delegations where profile_id = ${userId}`;
     await tx`delete from agent_preferences where profile_id = ${userId}`;
+    await tx`delete from agent_discovery_consents where profile_id = ${userId}`;
     // Negotiation events cascade with the room; private proposals do not remain
     // attached to the deliberately retained, anonymized history profile.
     await tx`delete from agent_negotiations where host_id = ${userId} or participant_id = ${userId}`;
@@ -215,7 +237,8 @@ export async function deleteAccount(sql: Sql, userId: string, now = Date.now()) 
       update profiles set
         name = 'Deleted member', handle = ${`deleted${newId("x").slice(2, 14)}`}, initials = '–',
         neighborhood = '', gender = null, abilities = '{}'::jsonb, credit_cents = 0,
-        deleted_at = ${at(now)}
+        deleted_at = ${at(now)}, identity_verified = false, verified_member_at = null,
+        verified_id_at = null, id_required_at = null
       where id = ${userId}`;
     // Cascades to the auth sessions and linked Apple / Google identities.
     await tx`delete from "user" where id = ${userId}`;
@@ -589,6 +612,12 @@ export async function adminResolveReport(
     ) {
       await adminRemoveSession(tx, adminEmail, r.session_id, note, now);
     }
+    // One confirmed report: government ID before any more public sessions (PRD §8).
+    if (input.action !== "dismiss") {
+      await tx`
+        update profiles set id_required_at = coalesce(id_required_at, ${at(now)})
+        where id = ${r.reported_id}`;
+    }
     // A report that was acted on takes back any goal credit the reporter gave them.
     if (input.action !== "dismiss") await withdrawCredits(tx, r.reporter_id, r.reported_id);
     await tx`
@@ -615,6 +644,8 @@ export type AdminMemberDTO = {
   reportsAgainst: number;
   reportsFiled: number;
   upcomingSessions: number;
+  /** What they have verified. Never the selfie or the ID — we don't hold them. */
+  verification: { member: boolean; governmentId: boolean; idRequired: boolean };
   /** Every block they have been in, newest first. Counts only, as on a profile. */
   trainingBlocks: {
     id: string;
@@ -638,6 +669,9 @@ export async function adminGetMember(sql: Sql, profileId: string): Promise<Admin
     frozen_until: Date | null;
     credit_cents: number;
     created_at: Date;
+    verified_member_at: Date | null;
+    verified_id_at: Date | null;
+    id_required_at: Date | null;
   }>`select * from profiles where id = ${profileId}`;
   if (!row) throw new PaceError(404, "No such member.");
   const [person] = await people(sql, [profileId]);
@@ -674,6 +708,11 @@ export async function adminGetMember(sql: Sql, profileId: string): Promise<Admin
     order by tb.created_at desc limit 20`;
   return {
     person,
+    verification: {
+      member: Boolean(row.verified_member_at),
+      governmentId: Boolean(row.verified_id_at),
+      idRequired: Boolean(row.id_required_at),
+    },
     trainingBlocks: blocks.map((b) => ({
       id: b.id,
       goalLabel: goalLabel(

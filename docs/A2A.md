@@ -1,8 +1,8 @@
 # SamePace workout assistants and A2A
 
-SamePace exposes a consent-scoped workout negotiation service using **A2A 1.0** and the official **`@a2a-js/sdk` 1.2.0**. Two members who completed a workout together can enter planning preferences, choose a proposed workout, and review it in the mobile `/assistant` screen. Outside assistants can propose and counter using revocable credentials. **Approving a proposal does not book it: each person must separately accept the exact booking terms through their signed-in account.** The second matching booking acceptance creates one ordinary session and confirmed booking atomically.
+SamePace exposes a consent-scoped workout negotiation service using **A2A 1.0** and the official **`@a2a-js/sdk` 1.2.0**. Members can plan after a completed shared workout or accept a first-time invitation through separately enabled discovery. They enter preferences and review proposals in the mobile `/assistant` screen. Outside assistants can propose and counter using revocable credentials. **Approving a proposal does not book it: each person must separately accept the exact booking terms through their signed-in account.** The second matching booking acceptance creates one ordinary session and confirmed booking atomically.
 
-The implemented planner enumerates a bounded set of options using entered availability, selected public venues, activity and ability. It runs on a member's request; it does not run an autonomous negotiation loop or make model calls. First-time matching, connected calendars, outbound federation and automatic acceptance remain outside this implementation. No member directory or unsolicited agent contact is introduced. Invitations, proposals, confirmations and booking events use the existing durable notification workflow; delivery still depends on configured push providers.
+The implemented planner enumerates a bounded set of options using entered availability, selected public venues, activity and ability. Members can request candidates directly or separately authorize a bounded automatic planning run; the durable coordinator recovers interrupted runs through cron. Ranking is deterministic and makes no model calls. First-time introductions require discovery opt-in and an explicit invitation. Connected calendars, outbound federation and automatic acceptance remain outside this implementation. There is no searchable member directory. Invitations, proposals, confirmations and booking events use the existing durable notification workflow; delivery still depends on configured push providers.
 
 Only explicitly enabled, member-entered preferences feed coordination. This service does not read Apple Health records or private fitness interpretations. A member can choose and approve a planning preference themselves; fitness inference consent never grants an assistant access to health data. See [the Jev fitness design](./JEV-FITNESS.md) for the separate fitness boundary.
 
@@ -10,7 +10,7 @@ The [A2A specification](https://a2a-protocol.org/latest/specification/) defines 
 
 ## Enable locally
 
-Apply the shipped migrations, including `0013_agent_negotiations.sql` and `0016_assistant.sql`, through the normal migration process before using a persistent database. Local PGlite applies them automatically.
+Apply all shipped migrations through the normal migration process before using a persistent database. Agent features use `0013_agent_negotiations.sql`, `0016_assistant.sql`, `0019_agent_runs.sql` and `0023_discovery.sql`. Local PGlite applies them automatically.
 
 ```sh
 A2A_ENABLED=true A2A_BASE_URL=http://localhost:8080 npm run dev
@@ -29,14 +29,14 @@ A2A requests require `Content-Type: application/json` and `A2A-Version: 1.0`. Co
 ## Permission and state model
 
 1. Each person creates a revocable delegation for their assistant. The token is returned once, stored only as a SHA-256 hash, and grants `workout:negotiate` for 1–24 hours (24 by default). It can access that member's mutually consented conversations, not just one selected conversation. A member can hold at most ten active tokens.
-2. A person opens a negotiation using a **completed shared booking**. Creating it records that person's consent; the other person must opt in using their own app session. An existing open conversation for the same booking is returned rather than duplicated. Agents cannot create conversations or consent for people.
+2. A person opens a negotiation using a **completed shared booking**, or explicitly invites an opted-in discovery candidate. Creating it records only the sender's conversation consent; the recipient must join using their own app session. An existing open conversation for the same booking is returned rather than duplicated; first-time introductions have separate quotas and a pair cooldown. Agents cannot create conversations or consent for people.
 3. Either member or delegated assistant submits a complete structured proposal for that conversation. Both people must remain eligible and both must have consented. Blocked, suspended, or deleted members lose ordinary conversation access. No precise meeting pin, private calendar, or home address is exchanged. An optional enabled preference is shared in A2A task metadata only while its mutually consented conversation remains unexpired, uncancelled and unbooked.
 4. A counteroffer is another `propose` command with the current `expectedRevision` and a new `messageId`. Each accepted proposal increments the revision and clears both plan and booking approvals. The exact same message ID and command are idempotent per member and conversation; reusing the ID with different content is rejected. A stale revision is rejected rather than silently replacing a newer plan. A member can counter an approved, unbooked plan; a delegated assistant cannot reopen it.
 5. Each person reviews the current proposal and explicitly confirms its revision through the member API. Clients must require a human action before invoking this endpoint and must never give the agent the person's full app-session token. Delegation tokens cannot confirm proposals. The second matching confirmation sets the negotiation to `approved`, with `booked: false`.
 6. Each person fetches the booking terms, then explicitly accepts their `revision` and `termsHash`. The hash binds the plan, roles, current terms and both preference revisions. After one acceptance, nothing is booked. The second matching acceptance rechecks consent, eligibility, blocks, venue, time, entered availability and overlapping workouts, then uses the existing session/booking services to create one unlisted two-person workout. A changed preference or term requires both people to accept again. Concurrent or repeated execution returns the same booking.
 7. Either person can withdraw consent, which cancels the conversation and clears approvals. A member or authorized delegate can cancel an open negotiation; a member can also cancel an approved plan before booking. Removing authority remains available after blocking or suspension. Revoking a credential or ending a conversation never cancels an existing workout, seat, or standing slot; ordinary workout cancellation handles that separately.
 
-Conversations expire after seven days; an expired open conversation is exposed as `expired` in member DTOs and `TASK_STATE_CANCELED` over A2A. An approved plan keeps its historical `approved` state, but cannot first book after the conversation deadline. Completed booking receipts remain readable subject to member access. Each person can participate in at most 20 unexpired open conversations, including invitations they have not yet accepted; creation checks both people's quotas. A conversation accepts at most 50 proposal revisions. A2A request bodies are capped at 16 KiB. These bounds are not a distributed traffic-rate limiter.
+Conversations created from shared bookings expire after seven days; first-time discovery conversations expire after one day, including after the invitation is accepted. An expired open conversation is exposed as `expired` in member DTOs and `TASK_STATE_CANCELED` over A2A. An approved plan keeps its historical `approved` state, but cannot first book after the conversation deadline. Completed booking receipts remain readable subject to member access. Each person can participate in at most 20 unexpired open conversations, including invitations they have not yet accepted; creation checks both people's quotas. A conversation accepts at most 50 proposal revisions. A2A request bodies are capped at 16 KiB. These bounds are not a distributed traffic-rate limiter.
 
 `ListTasks` filters eligibility, mutual consent, context, state, and status timestamp before pagination. Its total and continuation token cover the full matching collection, including more than 100 historical tasks; the member activity API separately shows only the latest 100 conversations. Expiration uses `expiresAt` as the effective status timestamp, so incremental polling can observe a task becoming canceled without a write to the room.
 
@@ -76,8 +76,9 @@ All paths below are under `/api/v1`. JSON bodies reject unknown properties. Nego
 ```ts
 type NegotiationView = {
   id: string;
-  bookingId: string;
+  bookingId: string | null; // null for first-time discovery invitations
   memberIds: string[];
+  memberNames?: Record<string, string>; // human views only; omitted from delegated-agent responses
   consentedIds: string[];
   state: "open" | "approved" | "cancelled" | "expired";
   revision: number;
@@ -147,6 +148,16 @@ The current terms reflect the existing $5 late-cancellation policy within 12 hou
 Execution serializes with ordinary posting/joining using member locks, then locks the conversation. The stored booking IDs and transaction prevent duplicate execution. Ordinary and training-block booking paths honor an existing assistant reservation. If generation of a recurring occurrence conflicts with an assistant reservation, that occurrence is not created and a deduplicated review notification is queued; the standing slot remains active. This does not read connected calendars or reserve external venues.
 
 The tests include real disposable PostgreSQL checks of concurrent term acceptances and both orderings of ordinary posting versus the final assistant booking acceptance. See `src/lib/operations/postgres-release.test.ts`; these checks do not replace physical-device or production-provider acceptance.
+
+## Bounded automatic planning and new introductions
+
+Each member can authorize a planning run against the current preference and proposal revisions. Permission lasts 24 hours; preferences must have been saved within seven days. `POST /agents/negotiations/:id/coordinate` creates a durable run with an idempotent request ID, at most three steps, a ten-minute deadline and a four-run daily limit. Each side can propose or counterpropose a feasible candidate; the run stops for human review, no match, changed preferences, expiry or revoked access. A cron sweep resumes interrupted runs. Proposal writes and step progress commit together.
+
+The coordinator uses the same durable negotiation service as A2A and deterministic preference ranking. It does not call a model, stream live heart-rate data, confirm a plan, or approve booking terms. External A2A clients still use the scoped HTTP interface; this is not an outbound federation service.
+
+First-time partners can opt into seven-day discovery, independently of room consent. The app compares entered preferences, scans a rotating bounded pool and returns at most five compatible opted-in candidates, with name, activity and shared-venue count only. A first-time invitation has `bookingId:null`; it does not opt the recipient into planning. Human views include participant names. Agents cannot read unjoined rooms or receive the added profile names. Invites expire after a day; repeated contacts, quotas, blocks, suspension, deletion and changed preferences are enforced in code. Either member can report or block an invitation before accepting.
+
+The shared contracts are `shared/assistant.ts` and `shared/discovery.ts`; exact wrapped HTTP shapes are in [API.md](API.md). Concurrent PostgreSQL tests cover duplicate workers, consent withdrawal while a worker waits and rollback/recovery of a proposal and its step.
 
 ## Example: two assistants, one shared conversation
 

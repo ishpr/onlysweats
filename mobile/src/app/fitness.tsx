@@ -2,6 +2,12 @@ import { useState } from "react";
 import { View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { FitnessPilotPermissions, FitnessPilotResult } from "@/components/fitness-pilot";
+import type {
+  FitnessPilotConsent,
+  FitnessLoggingSession,
+  FitnessDraftMeasurement,
+} from "../../../shared/fitness-outcomes";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
 import { Button, Card, Chip, Field, Notice, Row, Screen, StateView, T } from "@/components/ui";
 import { usePrivateAction } from "@/hooks/use-private-action";
@@ -34,6 +40,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
   const [editing, setEditing] = useState<StrengthLog | null>(null);
   const [formVersion, setFormVersion] = useState(0);
   const [removeId, setRemoveId] = useState<string | null>(null);
+  const [outcomeId, setOutcomeId] = useState<string | null>(null);
   const [showAiPermissions, setShowAiPermissions] = useState(false);
   const key = ["private-fitness", member.id];
   const consent = useQuery({
@@ -42,6 +49,13 @@ function Fitness({ member, session }: PrivateMemberProps) {
     retry: false,
     queryFn: ({ signal }) =>
       session.request<{ consent: FitnessConsent }>("/fitness/consent", { signal }),
+  });
+  const pilot = useQuery({
+    queryKey: [...key, "pilot-consent"],
+    gcTime: 0,
+    retry: false,
+    queryFn: ({ signal }) =>
+      session.request<{ consent: FitnessPilotConsent }>("/fitness/pilot-consent", { signal }),
   });
   const logs = useQuery({
     queryKey: [...key, "logs", cursor],
@@ -56,7 +70,8 @@ function Fitness({ member, session }: PrivateMemberProps) {
   const refresh = async () => {
     await client.invalidateQueries({ queryKey: key });
   };
-  const saved = async () => {
+  const saved = async (measurementId?: string) => {
+    setOutcomeId(measurementId ?? null);
     setEditing(null);
     setCursor(null);
     setFormVersion((value) => value + 1);
@@ -128,10 +143,24 @@ function Fitness({ member, session }: PrivateMemberProps) {
         )}
       </Card>
       {action.error && <Notice tone="danger">{action.error}</Notice>}
+      {pilot.data && (
+        <FitnessPilotPermissions
+          consent={pilot.data.consent}
+          aiEnabled={Boolean(consent.data?.consent.enabled && !consent.error)}
+          session={session}
+          onChanged={refresh}
+        />
+      )}
+      {pilot.error && (
+        <Notice>
+          Optional pilot measurements are unavailable. You can keep logging exercises.
+        </Notice>
+      )}
       <LogEditor
         key={`${editing?.id ?? "new"}:${formVersion}:${consent.data?.consent.generation ?? "off"}`}
         session={session}
-        consent={consent.data?.consent}
+        consent={consent.error ? undefined : consent.data?.consent}
+        pilotConsent={pilot.error ? undefined : pilot.data?.consent}
         initial={editing}
         disabled={action.busy}
         onSaved={saved}
@@ -177,6 +206,24 @@ function Fitness({ member, session }: PrivateMemberProps) {
               : " · Load total unavailable"}
           </T>
           {log.note ? <T>{log.note}</T> : null}
+          {log.measurementSessionId &&
+            pilot.data?.consent.enabled &&
+            !pilot.error &&
+            (outcomeId === log.measurementSessionId ? (
+              <FitnessPilotResult
+                key={outcomeId}
+                id={outcomeId}
+                ownerId={member.id}
+                session={session}
+                onDismiss={() => setOutcomeId(null)}
+              />
+            ) : (
+              <Button
+                label="Review logging outcome and optional feedback"
+                variant="ghost"
+                onPress={() => setOutcomeId(log.measurementSessionId!)}
+              />
+            ))}
           <Row>
             <Button
               label="Edit exercise"
@@ -228,8 +275,8 @@ function Fitness({ member, session }: PrivateMemberProps) {
       <Card>
         <T variant="label">Export your fitness log</T>
         <T variant="caption" color="textSecondary">
-          Save all exercise logs, workout corrections and stored AI interpretations. Apple Health
-          source records have their own export on the Apple Health screen.
+          Save all exercise logs, workout corrections, stored AI interpretations and optional pilot
+          outcomes. Apple Health source records have their own export on the Apple Health screen.
         </T>
         <Button
           label="Export fitness data"
@@ -254,6 +301,7 @@ const emptySet = (): SetFields => ({ reps: "", weight: "", unit: "kg" });
 function LogEditor({
   session,
   consent,
+  pilotConsent,
   initial,
   disabled,
   onSaved,
@@ -261,9 +309,10 @@ function LogEditor({
 }: {
   session: ApiSession;
   consent?: FitnessConsent;
+  pilotConsent?: FitnessPilotConsent;
   initial: StrengthLog | null;
   disabled: boolean;
-  onSaved: () => Promise<void>;
+  onSaved: (measurementId?: string) => Promise<void>;
   onCancel: () => void;
 }) {
   const action = usePrivateAction(session);
@@ -278,42 +327,118 @@ function LogEditor({
         unit: set.unit,
       })) ?? [emptySet()],
   );
+  const [measurement, setMeasurement] = useState<{
+    session: FitnessLoggingSession;
+    generation: string | null;
+  } | null>(null);
+  const [appliedDraft, setAppliedDraft] = useState<FitnessDraftMeasurement | null>(null);
+  const [measurementError, setMeasurementError] = useState<string | null>(null);
+  const activeMeasurement =
+    pilotConsent?.enabled && measurement?.generation === pilotConsent.generation && !initial
+      ? measurement?.session
+      : null;
   const [draft, setDraft] = useState<ExerciseDraft | null>(null);
   const busy = disabled || action.busy;
   const updateSet = (index: number, patch: Partial<SetFields>) =>
     setSets((current) => current.map((set, i) => (i === index ? { ...set, ...patch } : set)));
   const save = () =>
-    action.run(async (signal) => {
-      if (!exerciseId) throw new Error("Choose the exercise you completed.");
-      if (exerciseId === "other" && !note.trim())
-        throw new Error("Describe the exercise in your note.");
-      if (!sets.length) throw new Error("Add the sets you completed.");
-      const input: StrengthLogInput = {
-        startedAt: parseLocalDateTime(startedAt),
-        exerciseId,
-        note: note.trim(),
-        sets: sets.map((set, index) => {
-          if (!set.unit)
-            throw new Error(`Choose the weight unit or bodyweight for set ${index + 1}.`);
-          const reps = Number(set.reps);
-          const weight =
-            set.unit === "bodyweight" || !set.weight.trim() ? null : Number(set.weight);
-          if (!set.reps.trim() || !Number.isInteger(reps) || reps < 1 || reps > 1000)
-            throw new Error(`Enter 1–1000 whole reps for set ${index + 1}.`);
-          if (weight !== null && (!Number.isFinite(weight) || weight < 0 || weight > 2000))
-            throw new Error(`Check the weight for set ${index + 1}.`);
-          return { reps, weight, unit: set.unit };
-        }),
-      };
-      return session.request(initial ? `/fitness/logs/${initial.id}` : "/fitness/logs", {
-        method: initial ? "PUT" : "POST",
-        json: initial ? { ...input, expectedRevision: initial.revision } : input,
-        signal,
-      });
-    }, onSaved);
+    action.run(
+      async (signal) => {
+        if (!exerciseId) throw new Error("Choose the exercise you completed.");
+        if (exerciseId === "other" && !note.trim())
+          throw new Error("Describe the exercise in your note.");
+        if (!sets.length) throw new Error("Add the sets you completed.");
+        const input: StrengthLogInput = {
+          startedAt: parseLocalDateTime(startedAt),
+          exerciseId,
+          note: note.trim(),
+          sets: sets.map((set, index) => {
+            if (!set.unit)
+              throw new Error(`Choose the weight unit or bodyweight for set ${index + 1}.`);
+            const reps = Number(set.reps);
+            const weight =
+              set.unit === "bodyweight" || !set.weight.trim() ? null : Number(set.weight);
+            if (!set.reps.trim() || !Number.isInteger(reps) || reps < 1 || reps > 1000)
+              throw new Error(`Enter 1–1000 whole reps for set ${index + 1}.`);
+            if (weight !== null && (!Number.isFinite(weight) || weight < 0 || weight > 2000))
+              throw new Error(`Check the weight for set ${index + 1}.`);
+            return { reps, weight, unit: set.unit };
+          }),
+        };
+        return session.request<{ log: StrengthLog }>(
+          initial ? `/fitness/logs/${initial.id}` : "/fitness/logs",
+          {
+            method: initial ? "PUT" : "POST",
+            json: initial
+              ? { ...input, expectedRevision: initial.revision }
+              : {
+                  ...input,
+                  ...(activeMeasurement
+                    ? {
+                        measurement: {
+                          sessionId: activeMeasurement.id,
+                          ...(appliedDraft?.sessionId === activeMeasurement.id
+                            ? { draftId: appliedDraft.draftId }
+                            : {}),
+                        },
+                      }
+                    : {}),
+                },
+            signal,
+          },
+        );
+      },
+      async ({ log }) => {
+        await onSaved(log.measurementSessionId);
+      },
+    );
   return (
     <Card>
       <T variant="heading">{initial ? "Edit your exercise" : "Log an exercise"}</T>
+      {pilotConsent?.enabled && !initial && (
+        <>
+          <T variant="caption" color="textSecondary">
+            {activeMeasurement
+              ? "This attempt has optional pilot measurement on. Timing includes pauses; save your exercise whenever you are ready."
+              : "Optionally start a measurement for this new attempt. Your exercise saves even if measurement is unavailable."}
+          </T>
+          {!activeMeasurement && (
+            <Button
+              label="Measure this logging attempt"
+              variant="ghost"
+              disabled={busy}
+              onPress={() =>
+                void action.run(
+                  async (signal) => {
+                    setMeasurementError(null);
+                    try {
+                      return await session.request<{ measurement: FitnessLoggingSession | null }>(
+                        "/fitness/logging-sessions",
+                        { method: "POST", json: {}, signal },
+                      );
+                    } catch {
+                      return { measurement: null };
+                    }
+                  },
+                  (result) => {
+                    if (result.measurement) {
+                      setMeasurement({
+                        session: result.measurement,
+                        generation: pilotConsent.generation,
+                      });
+                      setAppliedDraft(null);
+                    } else
+                      setMeasurementError(
+                        "Measurement could not start. You can still save your exercise normally.",
+                      );
+                  },
+                )
+              }
+            />
+          )}
+          {measurementError && <Notice>{measurementError}</Notice>}
+        </>
+      )}
       <Field
         label="What did you do?"
         placeholder="For example: bench press, 3 sets of 8 at 60 kg"
@@ -334,15 +459,21 @@ function LogEditor({
           disabled={busy || !note.trim() || !consent.providerAvailable}
           onPress={() =>
             void action.run(
-              (signal) =>
-                session.request<{ draft: ExerciseDraft }>("/fitness/draft", {
+              (signal) => {
+                setAppliedDraft(null);
+                return session.request<{ draft: ExerciseDraft }>("/fitness/draft", {
                   method: "POST",
-                  json: { note },
+                  json: {
+                    note,
+                    ...(activeMeasurement ? { loggingSessionId: activeMeasurement.id } : {}),
+                  },
                   signal,
-                }),
+                });
+              },
               ({ draft: result }) => {
                 setDraft(result);
                 if (result.status !== "available") return;
+                setAppliedDraft(result.measurement ?? null);
                 setExercise(result.exerciseId);
                 const count =
                   result.sets !== null && result.sets >= 1 && result.sets <= 50 ? result.sets : 0;

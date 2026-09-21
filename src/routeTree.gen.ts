@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as BillingReturnRouteImport } from './routes/billing-return'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as PostRouteImport } from './routes/post'
@@ -19,18 +20,25 @@ import { Route as PrototypeRouteImport } from './routes/prototype'
 import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as VerifiedRouteImport } from './routes/verified'
 import { Route as YouRouteImport } from './routes/you'
 import { Route as DotwellKnownAgentCardDotjsonRouteImport } from './routes/[.]well-known.agent-card[.]json'
+import { Route as DotwellKnownAppleAppSiteAssociationRouteImport } from './routes/[.]well-known.apple-app-site-association'
+import { Route as DotwellKnownAssetlinksDotjsonRouteImport } from './routes/[.]well-known.assetlinks[.]json'
 import { Route as ApiA2aRouteImport } from './routes/api/a2a'
 import { Route as InboxIndexRouteImport } from './routes/inbox.index'
 import { Route as InboxIdRouteImport } from './routes/inbox.$id'
 import { Route as InviteCodeRouteImport } from './routes/invite.$code'
 import { Route as LiveIdRouteImport } from './routes/live.$id'
+import { Route as SessionIdRouteImport } from './routes/session.$id'
 import { Route as SessionsIndexRouteImport } from './routes/sessions.index'
 import { Route as SessionsIdRouteImport } from './routes/sessions.$id'
+import { Route as TrainingBlockIdRouteImport } from './routes/training-block.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronSettleRouteImport } from './routes/api/cron/settle'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
+import { Route as ApiWebhooksPersonaRouteImport } from './routes/api/webhooks/persona'
+import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,6 +48,11 @@ const IndexRoute = IndexRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BillingReturnRoute = BillingReturnRouteImport.update({
+  id: '/billing-return',
+  path: '/billing-return',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HealthRoute = HealthRouteImport.update({
@@ -82,6 +95,11 @@ const TermsRoute = TermsRouteImport.update({
   path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VerifiedRoute = VerifiedRouteImport.update({
+  id: '/verified',
+  path: '/verified',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const YouRoute = YouRouteImport.update({
   id: '/you',
   path: '/you',
@@ -91,6 +109,18 @@ const DotwellKnownAgentCardDotjsonRoute =
   DotwellKnownAgentCardDotjsonRouteImport.update({
     id: '/.well-known/agent-card.json',
     path: '/.well-known/agent-card.json',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DotwellKnownAppleAppSiteAssociationRoute =
+  DotwellKnownAppleAppSiteAssociationRouteImport.update({
+    id: '/.well-known/apple-app-site-association',
+    path: '/.well-known/apple-app-site-association',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DotwellKnownAssetlinksDotjsonRoute =
+  DotwellKnownAssetlinksDotjsonRouteImport.update({
+    id: '/.well-known/assetlinks.json',
+    path: '/.well-known/assetlinks.json',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiA2aRoute = ApiA2aRouteImport.update({
@@ -118,6 +148,11 @@ const LiveIdRoute = LiveIdRouteImport.update({
   path: '/live/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SessionIdRoute = SessionIdRouteImport.update({
+  id: '/session/$id',
+  path: '/session/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SessionsIndexRoute = SessionsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -127,6 +162,11 @@ const SessionsIdRoute = SessionsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
   getParentRoute: () => SessionsRoute,
+} as any)
+const TrainingBlockIdRoute = TrainingBlockIdRouteImport.update({
+  id: '/training-block/$id',
+  path: '/training-block/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
@@ -143,10 +183,21 @@ const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
   path: '/api/v1/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhooksPersonaRoute = ApiWebhooksPersonaRouteImport.update({
+  id: '/api/webhooks/persona',
+  path: '/api/webhooks/persona',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhooksStripeRoute = ApiWebhooksStripeRouteImport.update({
+  id: '/api/webhooks/stripe',
+  path: '/api/webhooks/stripe',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/billing-return': typeof BillingReturnRoute
   '/health': typeof HealthRoute
   '/inbox': typeof InboxRouteWithChildren
   '/post': typeof PostRoute
@@ -155,45 +206,61 @@ export interface FileRoutesByFullPath {
   '/sessions': typeof SessionsRouteWithChildren
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/verified': typeof VerifiedRoute
   '/you': typeof YouRoute
   '/.well-known/agent-card.json': typeof DotwellKnownAgentCardDotjsonRoute
+  '/.well-known/apple-app-site-association': typeof DotwellKnownAppleAppSiteAssociationRoute
+  '/.well-known/assetlinks.json': typeof DotwellKnownAssetlinksDotjsonRoute
   '/api/a2a': typeof ApiA2aRoute
   '/inbox/$id': typeof InboxIdRoute
   '/invite/$code': typeof InviteCodeRoute
   '/live/$id': typeof LiveIdRoute
+  '/session/$id': typeof SessionIdRoute
   '/sessions/$id': typeof SessionsIdRoute
+  '/training-block/$id': typeof TrainingBlockIdRoute
   '/inbox/': typeof InboxIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/settle': typeof ApiCronSettleRoute
   '/api/v1/$': typeof ApiV1SplatRoute
+  '/api/webhooks/persona': typeof ApiWebhooksPersonaRoute
+  '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/billing-return': typeof BillingReturnRoute
   '/health': typeof HealthRoute
   '/post': typeof PostRoute
   '/privacy': typeof PrivacyRoute
   '/prototype': typeof PrototypeRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/verified': typeof VerifiedRoute
   '/you': typeof YouRoute
   '/.well-known/agent-card.json': typeof DotwellKnownAgentCardDotjsonRoute
+  '/.well-known/apple-app-site-association': typeof DotwellKnownAppleAppSiteAssociationRoute
+  '/.well-known/assetlinks.json': typeof DotwellKnownAssetlinksDotjsonRoute
   '/api/a2a': typeof ApiA2aRoute
   '/inbox/$id': typeof InboxIdRoute
   '/invite/$code': typeof InviteCodeRoute
   '/live/$id': typeof LiveIdRoute
+  '/session/$id': typeof SessionIdRoute
   '/sessions/$id': typeof SessionsIdRoute
+  '/training-block/$id': typeof TrainingBlockIdRoute
   '/inbox': typeof InboxIndexRoute
   '/sessions': typeof SessionsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/settle': typeof ApiCronSettleRoute
   '/api/v1/$': typeof ApiV1SplatRoute
+  '/api/webhooks/persona': typeof ApiWebhooksPersonaRoute
+  '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/billing-return': typeof BillingReturnRoute
   '/health': typeof HealthRoute
   '/inbox': typeof InboxRouteWithChildren
   '/post': typeof PostRoute
@@ -202,24 +269,32 @@ export interface FileRoutesById {
   '/sessions': typeof SessionsRouteWithChildren
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/verified': typeof VerifiedRoute
   '/you': typeof YouRoute
   '/.well-known/agent-card.json': typeof DotwellKnownAgentCardDotjsonRoute
+  '/.well-known/apple-app-site-association': typeof DotwellKnownAppleAppSiteAssociationRoute
+  '/.well-known/assetlinks.json': typeof DotwellKnownAssetlinksDotjsonRoute
   '/api/a2a': typeof ApiA2aRoute
   '/inbox/$id': typeof InboxIdRoute
   '/invite/$code': typeof InviteCodeRoute
   '/live/$id': typeof LiveIdRoute
+  '/session/$id': typeof SessionIdRoute
   '/sessions/$id': typeof SessionsIdRoute
+  '/training-block/$id': typeof TrainingBlockIdRoute
   '/inbox/': typeof InboxIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/settle': typeof ApiCronSettleRoute
   '/api/v1/$': typeof ApiV1SplatRoute
+  '/api/webhooks/persona': typeof ApiWebhooksPersonaRoute
+  '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/admin'
+    | '/billing-return'
     | '/health'
     | '/inbox'
     | '/post'
@@ -228,44 +303,60 @@ export interface FileRouteTypes {
     | '/sessions'
     | '/support'
     | '/terms'
+    | '/verified'
     | '/you'
     | '/.well-known/agent-card.json'
+    | '/.well-known/apple-app-site-association'
+    | '/.well-known/assetlinks.json'
     | '/api/a2a'
     | '/inbox/$id'
     | '/invite/$code'
     | '/live/$id'
+    | '/session/$id'
     | '/sessions/$id'
+    | '/training-block/$id'
     | '/inbox/'
     | '/sessions/'
     | '/api/auth/$'
     | '/api/cron/settle'
     | '/api/v1/$'
+    | '/api/webhooks/persona'
+    | '/api/webhooks/stripe'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/admin'
+    | '/billing-return'
     | '/health'
     | '/post'
     | '/privacy'
     | '/prototype'
     | '/support'
     | '/terms'
+    | '/verified'
     | '/you'
     | '/.well-known/agent-card.json'
+    | '/.well-known/apple-app-site-association'
+    | '/.well-known/assetlinks.json'
     | '/api/a2a'
     | '/inbox/$id'
     | '/invite/$code'
     | '/live/$id'
+    | '/session/$id'
     | '/sessions/$id'
+    | '/training-block/$id'
     | '/inbox'
     | '/sessions'
     | '/api/auth/$'
     | '/api/cron/settle'
     | '/api/v1/$'
+    | '/api/webhooks/persona'
+    | '/api/webhooks/stripe'
   id:
     | '__root__'
     | '/'
     | '/admin'
+    | '/billing-return'
     | '/health'
     | '/inbox'
     | '/post'
@@ -274,23 +365,31 @@ export interface FileRouteTypes {
     | '/sessions'
     | '/support'
     | '/terms'
+    | '/verified'
     | '/you'
     | '/.well-known/agent-card.json'
+    | '/.well-known/apple-app-site-association'
+    | '/.well-known/assetlinks.json'
     | '/api/a2a'
     | '/inbox/$id'
     | '/invite/$code'
     | '/live/$id'
+    | '/session/$id'
     | '/sessions/$id'
+    | '/training-block/$id'
     | '/inbox/'
     | '/sessions/'
     | '/api/auth/$'
     | '/api/cron/settle'
     | '/api/v1/$'
+    | '/api/webhooks/persona'
+    | '/api/webhooks/stripe'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  BillingReturnRoute: typeof BillingReturnRoute
   HealthRoute: typeof HealthRoute
   InboxRoute: typeof InboxRouteWithChildren
   PostRoute: typeof PostRoute
@@ -299,14 +398,21 @@ export interface RootRouteChildren {
   SessionsRoute: typeof SessionsRouteWithChildren
   SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
+  VerifiedRoute: typeof VerifiedRoute
   YouRoute: typeof YouRoute
   DotwellKnownAgentCardDotjsonRoute: typeof DotwellKnownAgentCardDotjsonRoute
+  DotwellKnownAppleAppSiteAssociationRoute: typeof DotwellKnownAppleAppSiteAssociationRoute
+  DotwellKnownAssetlinksDotjsonRoute: typeof DotwellKnownAssetlinksDotjsonRoute
   ApiA2aRoute: typeof ApiA2aRoute
   InviteCodeRoute: typeof InviteCodeRoute
   LiveIdRoute: typeof LiveIdRoute
+  SessionIdRoute: typeof SessionIdRoute
+  TrainingBlockIdRoute: typeof TrainingBlockIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCronSettleRoute: typeof ApiCronSettleRoute
   ApiV1SplatRoute: typeof ApiV1SplatRoute
+  ApiWebhooksPersonaRoute: typeof ApiWebhooksPersonaRoute
+  ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -323,6 +429,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/billing-return': {
+      id: '/billing-return'
+      path: '/billing-return'
+      fullPath: '/billing-return'
+      preLoaderRoute: typeof BillingReturnRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/health': {
@@ -381,6 +494,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/verified': {
+      id: '/verified'
+      path: '/verified'
+      fullPath: '/verified'
+      preLoaderRoute: typeof VerifiedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/you': {
       id: '/you'
       path: '/you'
@@ -393,6 +513,20 @@ declare module '@tanstack/react-router' {
       path: '/.well-known/agent-card.json'
       fullPath: '/.well-known/agent-card.json'
       preLoaderRoute: typeof DotwellKnownAgentCardDotjsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/apple-app-site-association': {
+      id: '/.well-known/apple-app-site-association'
+      path: '/.well-known/apple-app-site-association'
+      fullPath: '/.well-known/apple-app-site-association'
+      preLoaderRoute: typeof DotwellKnownAppleAppSiteAssociationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/assetlinks.json': {
+      id: '/.well-known/assetlinks.json'
+      path: '/.well-known/assetlinks.json'
+      fullPath: '/.well-known/assetlinks.json'
+      preLoaderRoute: typeof DotwellKnownAssetlinksDotjsonRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/a2a': {
@@ -430,6 +564,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LiveIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/session/$id': {
+      id: '/session/$id'
+      path: '/session/$id'
+      fullPath: '/session/$id'
+      preLoaderRoute: typeof SessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sessions/': {
       id: '/sessions/'
       path: '/'
@@ -443,6 +584,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/sessions/$id'
       preLoaderRoute: typeof SessionsIdRouteImport
       parentRoute: typeof SessionsRoute
+    }
+    '/training-block/$id': {
+      id: '/training-block/$id'
+      path: '/training-block/$id'
+      fullPath: '/training-block/$id'
+      preLoaderRoute: typeof TrainingBlockIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -463,6 +611,20 @@ declare module '@tanstack/react-router' {
       path: '/api/v1/$'
       fullPath: '/api/v1/$'
       preLoaderRoute: typeof ApiV1SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/persona': {
+      id: '/api/webhooks/persona'
+      path: '/api/webhooks/persona'
+      fullPath: '/api/webhooks/persona'
+      preLoaderRoute: typeof ApiWebhooksPersonaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/stripe': {
+      id: '/api/webhooks/stripe'
+      path: '/api/webhooks/stripe'
+      fullPath: '/api/webhooks/stripe'
+      preLoaderRoute: typeof ApiWebhooksStripeRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -497,6 +659,7 @@ const SessionsRouteWithChildren = SessionsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  BillingReturnRoute: BillingReturnRoute,
   HealthRoute: HealthRoute,
   InboxRoute: InboxRouteWithChildren,
   PostRoute: PostRoute,
@@ -505,14 +668,22 @@ const rootRouteChildren: RootRouteChildren = {
   SessionsRoute: SessionsRouteWithChildren,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
+  VerifiedRoute: VerifiedRoute,
   YouRoute: YouRoute,
   DotwellKnownAgentCardDotjsonRoute: DotwellKnownAgentCardDotjsonRoute,
+  DotwellKnownAppleAppSiteAssociationRoute:
+    DotwellKnownAppleAppSiteAssociationRoute,
+  DotwellKnownAssetlinksDotjsonRoute: DotwellKnownAssetlinksDotjsonRoute,
   ApiA2aRoute: ApiA2aRoute,
   InviteCodeRoute: InviteCodeRoute,
   LiveIdRoute: LiveIdRoute,
+  SessionIdRoute: SessionIdRoute,
+  TrainingBlockIdRoute: TrainingBlockIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCronSettleRoute: ApiCronSettleRoute,
   ApiV1SplatRoute: ApiV1SplatRoute,
+  ApiWebhooksPersonaRoute: ApiWebhooksPersonaRoute,
+  ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

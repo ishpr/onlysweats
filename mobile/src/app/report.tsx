@@ -1,11 +1,13 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
+import { usePrivateAction } from "@/hooks/use-private-action";
 import { Alert, StyleSheet, Switch, View } from "react-native";
 
 import { Button, Card, Chip, Field, Notice, Row, Screen, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
-import { useBlock, useReport } from "@/lib/queries";
 import type { ReportReason } from "@/lib/types";
 
 const REASONS: { value: ReportReason; label: string }[] = [
@@ -17,7 +19,10 @@ const REASONS: { value: ReportReason; label: string }[] = [
   { value: "other", label: "Something else" },
 ];
 
-export default function Report() {
+export default function ReportRoute() {
+  return <PrivateMember component={Report} />;
+}
+function Report({ session }: PrivateMemberProps) {
   const router = useRouter();
   const theme = useTheme();
   const params = useLocalSearchParams<{
@@ -25,10 +30,11 @@ export default function Report() {
     name: string;
     sessionId?: string;
     bookingId?: string;
+    negotiationId?: string;
   }>();
   const name = params.name || "this member";
-  const report = useReport();
-  const block = useBlock();
+  const action = usePrivateAction(session);
+  const client = useQueryClient();
   const [reason, setReason] = useState<ReportReason | null>(null);
   const [detail, setDetail] = useState("");
   const [alsoBlock, setAlsoBlock] = useState(true);
@@ -43,7 +49,19 @@ export default function Report() {
         {
           text: "Block",
           style: "destructive",
-          onPress: () => block.mutate(params.memberId, { onSuccess: () => router.back() }),
+          onPress: () =>
+            void action.run(
+              (signal) =>
+                session.request("/blocks", {
+                  method: "POST",
+                  json: { memberId: params.memberId },
+                  signal,
+                }),
+              async () => {
+                await client.invalidateQueries();
+                router.back();
+              },
+            ),
         },
       ],
     );
@@ -76,6 +94,7 @@ export default function Report() {
               key={r.value}
               label={r.label}
               selected={reason === r.value}
+              disabled={action.busy}
               onPress={() => setReason(r.value)}
             />
           ))}
@@ -83,6 +102,7 @@ export default function Report() {
         <Field
           label="Anything that helps us act on it (optional)"
           value={detail}
+          editable={!action.busy}
           onChangeText={setDetail}
           multiline
           maxLength={2000}
@@ -102,40 +122,47 @@ export default function Report() {
           <Switch
             accessibilityLabel={`Also block ${name}`}
             value={alsoBlock}
+            disabled={action.busy}
             onValueChange={setAlsoBlock}
             trackColor={{ true: theme.accent, false: theme.backgroundSelected }}
           />
         </Row>
       </Card>
 
-      {(report.error ?? block.error) && (
-        <Notice tone="danger">{(report.error ?? block.error)!.message}</Notice>
-      )}
-
+      {action.error && <Notice tone="danger">{action.error}</Notice>}
       <Button
         variant="danger"
         label="Send report"
-        disabled={!reason}
-        loading={report.isPending}
-        onPress={() =>
-          reason &&
-          report.mutate(
-            {
-              reportedId: params.memberId,
-              reason,
-              detail: detail.trim() || undefined,
-              sessionId: params.sessionId || undefined,
-              bookingId: params.bookingId || undefined,
-              alsoBlock,
+        disabled={!reason || action.busy}
+        loading={action.busy}
+        onPress={() => {
+          if (!reason) return;
+          void action.run(
+            (signal) =>
+              session.request("/reports", {
+                method: "POST",
+                signal,
+                json: {
+                  reportedId: params.memberId,
+                  reason,
+                  detail: detail.trim() || undefined,
+                  sessionId: params.sessionId || undefined,
+                  bookingId: params.bookingId || undefined,
+                  negotiationId: params.negotiationId || undefined,
+                  alsoBlock,
+                },
+              }),
+            async () => {
+              setSent(true);
+              await client.invalidateQueries();
             },
-            { onSuccess: () => setSent(true) },
-          )
-        }
+          );
+        }}
       />
       <Button
         variant="ghost"
         label={`Block ${name} without reporting`}
-        loading={block.isPending}
+        disabled={action.busy}
         onPress={blockOnly}
       />
     </Screen>
