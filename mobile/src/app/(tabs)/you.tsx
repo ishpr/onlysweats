@@ -43,7 +43,7 @@ import { useAuth } from "@/lib/auth";
 import { SITE_URL } from "@/lib/config";
 import { formatUsd, formatWhen } from "@/lib/format";
 import { useMe, useUpdateMe } from "@/lib/queries";
-import type { Gender } from "@/lib/types";
+import type { Gender, Verification } from "@/lib/types";
 
 const GENDERS: { value: Gender; label: string }[] = [
   { value: "woman", label: "Woman" },
@@ -287,6 +287,32 @@ export default function You() {
 
       {update.error && <Notice tone="danger">{update.error.message}</Notice>}
 
+      <SectionTitle>Verification</SectionTitle>
+      <Card>
+        <T variant="caption" color="textSecondary">
+          {verificationLine(p.verification)}
+        </T>
+        {p.verification.available &&
+          (p.verification.member !== "approved" || p.verification.governmentId !== "approved") && (
+            <Button
+              variant="soft"
+              label={
+                p.verification.member !== "approved"
+                  ? "Verify your phone and face"
+                  : "Verify your ID"
+              }
+              onPress={() =>
+                router.push({
+                  pathname: "/verify",
+                  params: {
+                    tier: p.verification.member !== "approved" ? "member" : "government_id",
+                  },
+                })
+              }
+            />
+          )}
+      </Card>
+
       <SectionTitle>Your training</SectionTitle>
       <ListCard>
         <ListRow icon={HeartPulse} label="Apple Health" onPress={() => router.push("/health")} />
@@ -352,6 +378,22 @@ export default function You() {
       </ListCard>
     </Screen>
   );
+}
+
+function verificationLine(v: Verification) {
+  if (v.idRequired && v.governmentId !== "approved") {
+    return "A report about you was acted on, so public sessions need a government ID check first.";
+  }
+  if (v.governmentId === "approved") return "Phone, face and government ID verified.";
+  if (v.member === "approved") {
+    return "Phone and face verified. Women-only sessions also ask for a government ID.";
+  }
+  if (v.member === "needs_review") {
+    return "A person is looking at your check. You’ll hear either way.";
+  }
+  return v.enforced
+    ? "Public sessions ask for a verified phone and face. It takes about a minute, once."
+    : "Verify your phone and face — it takes about a minute, once. Other members see “Verified”; SamePace never sees your photo.";
 }
 
 function Legend({ color, value, label }: { color: string; value: string; label: string }) {

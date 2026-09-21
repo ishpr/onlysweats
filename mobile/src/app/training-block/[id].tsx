@@ -15,6 +15,7 @@ import { SITE_URL } from "@/lib/config";
 import { daysUntil, formatDate, formatWhen } from "@/lib/format";
 import { byId } from "@/lib/lookup";
 import { reputationLine } from "@/lib/reputation";
+import { useVerifyGate } from "@/lib/verify-gate";
 import {
   useCloneTrainingBlock,
   useJoinTrainingBlock,
@@ -45,7 +46,11 @@ export default function TrainingBlockPage() {
   const clone = useCloneTrainingBlock();
   const answer = useResolveBlockRequest();
   const [error, setError] = useState("");
-  const fail = (err: Error) => setError(err.message);
+  const toVerify = useVerifyGate();
+  // "Verify first" isn't an error to show: it's somewhere to go.
+  const fail = (err: Error) => {
+    if (!toVerify(err)) setError(err.message);
+  };
 
   if (!q.data) {
     return (

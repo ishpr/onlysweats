@@ -16,6 +16,7 @@ import { formatDuration, formatWhen, inCheckinWindow, isLateCancel } from "@/lib
 import { byId } from "@/lib/lookup";
 import { firstName } from "@/lib/names";
 import { reputationLine } from "@/lib/reputation";
+import { useVerifyGate } from "@/lib/verify-gate";
 import {
   useBookingAction,
   useBookSeat,
@@ -51,6 +52,7 @@ export default function SessionDetail() {
   const act = useBookingAction();
   const cancelListing = useCancelSession();
   const [error, setError] = useState("");
+  const toVerify = useVerifyGate();
   const [justJoined, setJustJoined] = useState(false);
 
   if (!q.data) {
@@ -83,7 +85,10 @@ export default function SessionDetail() {
       : undefined;
   const live = Boolean(liveSeat) && inCheckinWindow(session.startAt, now);
 
-  const fail = (err: Error) => setError(err.message);
+  // "Verify first" isn't an error to show: it's somewhere to go.
+  const fail = (err: Error) => {
+    if (!toVerify(err)) setError(err.message);
+  };
   // On a block that still takes people, a free seat that isn't a substitute's is a
   // regular's: every week, so it's asked for on the block's page, never here.
   const regularSeat =

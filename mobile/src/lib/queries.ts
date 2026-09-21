@@ -20,8 +20,11 @@ import type {
   ReportInput,
   Series,
   Session,
+  StartedVerification,
   TrainingBlock,
   Venue,
+  Verification,
+  VerificationTier,
 } from "./types";
 
 type SessionList = { sessions: Session[]; people: Person[] };
@@ -207,6 +210,38 @@ export function useReport() {
       res.blocked
         ? Promise.all([refresh(), qc.invalidateQueries({ queryKey: keys.blocks })])
         : undefined,
+  });
+}
+
+// ── Verification ─────────────────────────────────────────────────────────────
+
+/** Begin — or pick back up — an identity check. Persona's flow opens at `url`. */
+export const useStartVerification = () =>
+  useMutation({
+    mutationFn: (tier: VerificationTier) =>
+      api<StartedVerification>("/verification", { method: "POST", json: { tier } }),
+  });
+
+/** Back from the browser sheet: have the server re-read how the check came out. */
+export function useRefreshVerification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<Verification>(`/verification/${id}/refresh`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.me }),
+  });
+}
+
+/** The dev stand-in's whole flow. The server 404s this wherever Persona is set up. */
+export function useDevCompleteVerification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; outcome: "approved" | "declined" }) =>
+      api<Verification>(`/verification/${v.id}/dev-complete`, {
+        method: "POST",
+        json: { outcome: v.outcome },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.me }),
   });
 }
 

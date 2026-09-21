@@ -18,6 +18,7 @@ import { Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
 import { abilityLabel, defaultAbility } from "@/lib/ability";
+import { ApiError } from "@/lib/api";
 import { atCluster, dayLabel, formatDate, formatDuration, formatWhen } from "@/lib/format";
 import {
   useAddBlockSlot,
@@ -28,6 +29,7 @@ import {
   useVenues,
 } from "@/lib/queries";
 import { ACTIVITIES, type Ability, type Activity } from "@/lib/types";
+import { useVerifyGate } from "@/lib/verify-gate";
 
 const HOURS = Array.from({ length: 17 }, (_, i) => i + 5); // 5 AM – 9 PM
 const MINUTES = [0, 15, 30, 45];
@@ -109,24 +111,32 @@ export default function Post() {
     joinMode: instant ? ("instant" as const) : ("approve" as const),
     womenOnly,
   };
+  const toVerify = useVerifyGate();
   const toBlock = (b: { id: string }) =>
     router.replace({ pathname: "/training-block/[id]", params: { id: b.id } });
 
   function publish() {
-    if (blockId) return addSlot.mutate({ blockId, slot }, { onSuccess: toBlock });
+    if (blockId) {
+      return addSlot.mutate({ blockId, slot }, { onSuccess: toBlock, onError: toVerify });
+    }
     if (asBlock) {
       return postBlock.mutate(
         { ...shared, ...goalFields(goal), slots: [slot] },
-        { onSuccess: toBlock },
+        { onSuccess: toBlock, onError: toVerify },
       );
     }
     post.mutate(
       { ...shared, ...slot },
-      { onSuccess: (s) => router.replace({ pathname: "/session/[id]", params: { id: s.id } }) },
+      {
+        onSuccess: (s) => router.replace({ pathname: "/session/[id]", params: { id: s.id } }),
+        onError: toVerify,
+      },
     );
   }
   const busy = post.isPending || postBlock.isPending || addSlot.isPending;
-  const error = post.error ?? postBlock.error ?? addSlot.error;
+  const raw = post.error ?? postBlock.error ?? addSlot.error;
+  // A "verify first" refusal opens the verify screen instead of showing here.
+  const error = raw instanceof ApiError && raw.code?.startsWith("verify_") ? null : raw;
 
   const canPost =
     title.trim().length > 0 && !tooSoon(hour, minute) && !(asBlock && !blockId && !goalReady(goal));
