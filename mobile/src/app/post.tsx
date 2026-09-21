@@ -1,5 +1,3 @@
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { type ReactNode, useState } from "react";
 import { ScrollView, StyleSheet, Switch, View } from "react-native";
@@ -14,8 +12,8 @@ import {
 } from "@/components/goal-picker";
 import { SectionTitle } from "@/components/list";
 import { PressScale } from "@/components/motion";
-import { SessionCardFace, venueImage } from "@/components/session-card";
-import { Button, Card, Chip, Field, Notice, Row, Screen, T, withAlpha } from "@/components/ui";
+import { PhotoPanel, SessionCardFace } from "@/components/session-card";
+import { Button, Card, Chip, Field, Notice, Row, Screen, T } from "@/components/ui";
 import { Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
@@ -301,17 +299,14 @@ export default function Post() {
                   on && styles.venueOn,
                 ]}
               >
-                <Image source={venueImage(v)} style={StyleSheet.absoluteFill} contentFit="cover" />
-                <LinearGradient
-                  colors={[withAlpha(theme.background, 0.05), withAlpha(theme.background, 0.85)]}
-                  style={StyleSheet.absoluteFill}
-                />
-                <T variant="label" numberOfLines={2}>
-                  {v.name}
-                </T>
-                <T variant="caption" style={{ color: withAlpha(theme.text, 0.8) }}>
-                  {v.neighborhood}
-                </T>
+                <PhotoPanel venue={v} style={styles.venueFill} stops={[0.05, 0.35, 0.85]}>
+                  <T variant="label" numberOfLines={2}>
+                    {v.name}
+                  </T>
+                  <T variant="caption" color="textSecondary">
+                    {v.neighborhood}
+                  </T>
+                </PhotoPanel>
               </PressScale>
             );
           })}
@@ -451,8 +446,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
-    padding: Spacing.two,
-    justifyContent: "flex-end",
   },
+  venueFill: { flex: 1, padding: Spacing.two, justifyContent: "flex-end" },
   venueOn: { borderWidth: 2 },
 });

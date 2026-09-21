@@ -34,10 +34,13 @@ export type NextSessionProps = {
 
 const NextSession = (props: NextSessionProps, env: WidgetEnvironment) => {
   "widget";
-  const ink = "#050506";
-  const text = "#F5F5F7";
-  const muted = "#A1A1A6";
-  const accent = "#30D158";
+  // Same two palettes as the app (constants/theme.ts) — repeated here because a
+  // widget function can't see anything outside its own body.
+  const light = env.colorScheme === "light";
+  const ink = light ? "#FFFFFF" : "#050506";
+  const text = light ? "#0F1419" : "#F5F5F7";
+  const muted = light ? "#536471" : "#A1A1A6";
+  const accent = light ? "#0B7A2E" : "#30D158";
   const lock = env.widgetFamily.startsWith("accessory");
   const empty = props.title === "";
 

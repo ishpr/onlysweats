@@ -1,5 +1,3 @@
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Clock, Ellipsis, MapPin, Repeat, UserCheck, Users } from "lucide-react-native";
 import { type ReactNode, useState } from "react";
@@ -7,18 +5,8 @@ import { Alert, Linking, Platform, Share, StyleSheet, View } from "react-native"
 
 import { LeaveStandingSlot } from "@/components/leave-standing-slot";
 import { PressScale } from "@/components/motion";
-import { Tag, venueImage } from "@/components/session-card";
-import {
-  Avatar,
-  Button,
-  Card,
-  Notice,
-  Row,
-  Screen,
-  StateView,
-  T,
-  withAlpha,
-} from "@/components/ui";
+import { PhotoPanel, Tag } from "@/components/session-card";
+import { Avatar, Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
 import { Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
@@ -303,23 +291,7 @@ export default function SessionDetail() {
       onRefresh={() => void Promise.all([q.refetch(), mine.refetch()])}
       footer={footer}
     >
-      <View style={[styles.hero, { backgroundColor: theme.backgroundElement }]}>
-        <Image
-          source={venueImage(venue)}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          transition={200}
-          accessible={false}
-        />
-        <LinearGradient
-          colors={[
-            withAlpha(theme.background, 0.15),
-            withAlpha(theme.background, 0.6),
-            theme.background,
-          ]}
-          locations={[0, 0.5, 1]}
-          style={StyleSheet.absoluteFill}
-        />
+      <PhotoPanel venue={venue} style={styles.hero}>
         <Row style={styles.tags}>
           <Tag label={ACTIVITIES[session.activity].label} />
           {status && <Tag label={status} tone={ENDED[session.status] ? "glass" : "accent"} />}
@@ -328,11 +300,11 @@ export default function SessionDetail() {
         </Row>
         <View>
           <T variant="title">{formatWhen(session.startAt)}</T>
-          <T variant="label" style={{ color: withAlpha(theme.text, 0.85) }}>
+          <T variant="label" color="textSecondary">
             {formatDuration(session.durationMin)} · {venue?.name ?? ""}
           </T>
         </View>
-      </View>
+      </PhotoPanel>
 
       <View style={styles.header}>
         <T variant="heading">{session.title}</T>

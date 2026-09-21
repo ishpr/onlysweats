@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Linking, StyleSheet, View } from "react-native";
 
 import { LevelPicker } from "@/components/ability-picker";
@@ -36,6 +36,7 @@ import {
 import { Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { myLevelLabel } from "@/lib/ability";
+import { type AppearancePref, loadAppearance, saveAppearance } from "@/lib/appearance";
 import { useAuth } from "@/lib/auth";
 import { SITE_URL } from "@/lib/config";
 import { formatUsd, formatWhen } from "@/lib/format";
@@ -47,6 +48,12 @@ const GENDERS: { value: Gender; label: string }[] = [
   { value: "man", label: "Man" },
   { value: "nonbinary", label: "Non-binary" },
   { value: null, label: "Rather not say" },
+];
+
+const APPEARANCES: { value: AppearancePref; label: string }[] = [
+  { value: "system", label: "Match my phone" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
 ];
 
 const LEVELS = [
@@ -71,6 +78,10 @@ export default function You() {
   const update = useUpdateMe();
   const [name, setName] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [appearance, setAppearance] = useState<AppearancePref>("system");
+  useEffect(() => {
+    void loadAppearance().then(setAppearance);
+  }, []);
 
   if (!me.data) {
     return (
@@ -271,6 +282,23 @@ export default function You() {
 
       <SectionTitle>Notifications</SectionTitle>
       <NotificationSettings me={p} />
+
+      <SectionTitle>Appearance</SectionTitle>
+      <Card>
+        <Row style={styles.wrap} accessibilityRole="radiogroup" accessibilityLabel="Appearance">
+          {APPEARANCES.map((a) => (
+            <Chip
+              key={a.value}
+              label={a.label}
+              selected={appearance === a.value}
+              onPress={() => {
+                setAppearance(a.value);
+                void saveAppearance(a.value);
+              }}
+            />
+          ))}
+        </Row>
+      </Card>
 
       <SectionTitle>Safety and account</SectionTitle>
       <ListCard>

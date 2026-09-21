@@ -31,6 +31,7 @@ import {
   Spacing,
   type ThemeColor,
 } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 
 import { Appear, PressScale, Skeleton } from "./motion";
@@ -76,6 +77,9 @@ export function T({
 /** The web body's soft colour wash: stand-blue from the top, a hint of move. */
 function Backdrop() {
   const theme = useTheme();
+  const scheme = useColorScheme();
+  // Light mode is a clean white page; the glow belongs to the dark theme.
+  if (scheme === "light") return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <LinearGradient

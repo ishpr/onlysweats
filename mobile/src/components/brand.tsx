@@ -81,10 +81,10 @@ export function LiveBanner({ bookingId }: { bookingId: string }) {
           <View
             style={[styles.banner, { backgroundColor: theme.move, opacity: pressed ? 0.85 : 1 }]}
           >
-            <T variant="label" style={styles.onMove}>
+            <T variant="label" style={{ color: theme.onDanger }}>
               Check-in is open
             </T>
-            <T variant="label" style={[styles.onMove, styles.dim]}>
+            <T variant="label" style={[{ color: theme.onDanger }, styles.dim]}>
               Live session
             </T>
           </View>
@@ -125,6 +125,5 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   // White on move-pink is 3.9:1 — large/medium-weight UI text, passes 3:1.
-  onMove: { color: "#FFF7F9" },
   dim: { opacity: 0.85 },
 });

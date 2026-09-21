@@ -14,7 +14,7 @@ import { SessionCard, Tag, venueImage, type MineTag } from "@/components/session
 import { Button, Card, EmptyState, Row, Screen, StateView, T, withAlpha } from "@/components/ui";
 import { Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
-import { useTheme } from "@/hooks/use-theme";
+import { OnPhoto, useTheme } from "@/hooks/use-theme";
 import { myLevelLabel } from "@/lib/ability";
 import { daysUntil, formatUsd, formatWhen, greeting, inCheckinWindow } from "@/lib/format";
 import { byId } from "@/lib/lookup";
@@ -376,7 +376,15 @@ function until(startAt: string, now: number) {
 }
 
 /** The next thing I've committed to — the one card on Home that should win the eye. */
-function NextUp({ plan, now, withName }: { plan: Plan; now: number; withName: string | null }) {
+function NextUp(props: { plan: Plan; now: number; withName: string | null }) {
+  return (
+    <OnPhoto>
+      <NextUpBody {...props} />
+    </OnPhoto>
+  );
+}
+
+function NextUpBody({ plan, now, withName }: { plan: Plan; now: number; withName: string | null }) {
   const theme = useTheme();
   const router = useRouter();
   const venues = byId(useVenues().data);

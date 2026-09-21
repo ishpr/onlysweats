@@ -15,21 +15,22 @@ import { DarkTheme, DefaultTheme, type Href, Stack, ThemeProvider, useRouter } f
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
-import { Appearance, AppState, Platform, Pressable, Text } from "react-native";
+import { AppState, Pressable, Text } from "react-native";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { ApiError } from "@/lib/api";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { AnimatedSplash } from "@/components/animated-splash";
+import { loadAppearance } from "@/lib/appearance";
 import { haptic } from "@/lib/haptics";
 import { onNotificationOpened, syncPush } from "@/lib/push";
 
 SplashScreen.preventAutoHideAsync();
 // No native cross-fade: the in-app mark is already exactly where the still one was.
 SplashScreen.setOptions({ fade: false });
-// Native chrome (keyboard, alerts, share sheet) follows the pinned dark scheme too.
-if (Platform.OS !== "web") Appearance.setColorScheme("dark");
+// The member's light / dark / system choice, applied before the first screen draws.
+void loadAppearance();
 
 // React Query's window-focus refetch, mapped to the app returning to the foreground.
 AppState.addEventListener("change", (state) => focusManager.setFocused(state === "active"));

@@ -18,6 +18,7 @@ import { T, withAlpha } from "@/components/ui";
 import { Fonts, Radius, Spacing } from "@/constants/theme";
 import { welcomeKey } from "@/app/welcome";
 import { useSurfaces } from "@/hooks/use-surfaces";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptic } from "@/lib/haptics";
 import { Suspended } from "@/components/suspended";
@@ -88,6 +89,7 @@ type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>["tab
 /** The web's frosted bottom bar: four tabs, then the white Post button. */
 function TabBar({ state, navigation }: TabBarProps) {
   const theme = useTheme();
+  const scheme = useColorScheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   // Requests I have to answer — never my own outgoing ones. They're listed on Home.
@@ -98,7 +100,7 @@ function TabBar({ state, navigation }: TabBarProps) {
   return (
     <Bar
       intensity={50}
-      tint="dark"
+      tint={scheme}
       style={[
         styles.bar,
         {
@@ -106,7 +108,7 @@ function TabBar({ state, navigation }: TabBarProps) {
           // the labels. The home indicator only occupies the lowest ~13 pt, so tuck the
           // bar down to just clear it; the 48 pt targets stay fully above the indicator.
           paddingBottom: Math.max(Spacing.one, insets.bottom - 18),
-          backgroundColor: withAlpha(theme.background, Platform.OS === "ios" ? 0.62 : 0.96),
+          backgroundColor: Platform.OS === "ios" ? theme.glass : theme.background,
           borderTopColor: withAlpha(theme.text, 0.12),
         },
       ]}
@@ -145,7 +147,7 @@ function TabBar({ state, navigation }: TabBarProps) {
               </TabIcon>
               {route.name === "index" && waiting > 0 && (
                 <View style={[styles.dot, { backgroundColor: theme.move }]}>
-                  <T style={styles.dotText}>{waiting}</T>
+                  <T style={[styles.dotText, { color: theme.onDanger }]}>{waiting}</T>
                 </View>
               )}
             </View>
@@ -209,5 +211,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dotText: { fontFamily: Fonts.medium, fontSize: 10, lineHeight: 14, color: "#FFF7F9" },
+  dotText: { fontFamily: Fonts.medium, fontSize: 10, lineHeight: 14 },
 });

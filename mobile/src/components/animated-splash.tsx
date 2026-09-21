@@ -21,7 +21,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { T } from "@/components/ui";
-import { useTheme } from "@/hooks/use-theme";
+import { OnPhoto, useTheme } from "@/hooks/use-theme";
 
 // Geometry from brand/build.py, in the splash image's own scale: app.json shows
 // the mark 76 pt wide from a 72-unit-wide crop.
@@ -47,7 +47,16 @@ function Figure({ x, color, lean }: { x: number; color: string; lean: { value: n
   );
 }
 
-export function AnimatedSplash({ onDone }: { onDone: () => void }) {
+/** Always dark, like the native splash it takes over from — whatever the app's theme. */
+export function AnimatedSplash(props: { onDone: () => void }) {
+  return (
+    <OnPhoto>
+      <SplashBody {...props} />
+    </OnPhoto>
+  );
+}
+
+function SplashBody({ onDone }: { onDone: () => void }) {
   const theme = useTheme();
   const reduced = useReducedMotion();
   const left = useSharedValue(LEAN);

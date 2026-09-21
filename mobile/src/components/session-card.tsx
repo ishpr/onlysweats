@@ -2,12 +2,13 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link } from "expo-router";
 import { Clock, MapPin, Users } from "lucide-react-native";
-import { StyleSheet, View } from "react-native";
+import type { ReactNode } from "react";
+import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 
 import { PressScale } from "@/components/motion";
 import { T, withAlpha } from "@/components/ui";
 import { Fonts, Radius, Spacing } from "@/constants/theme";
-import { useTheme } from "@/hooks/use-theme";
+import { OnPhoto, useTheme } from "@/hooks/use-theme";
 import { API_URL } from "@/lib/config";
 import { formatDuration, formatWhen, inCheckinWindow } from "@/lib/format";
 import { ACTIVITIES, type Session, type Venue } from "@/lib/types";
@@ -15,6 +16,66 @@ import { ACTIVITIES, type Session, type Venue } from "@/lib/types";
 /** Venue photos are served by the API host (`public/venues/*`). */
 export const venueImage = (venue?: Venue) =>
   venue ? { uri: `${API_URL}${venue.image}` } : undefined;
+
+/**
+ * A venue photo under a dark scrim, with whatever is laid on top reading the dark
+ * tokens — in both themes. Used by the hero on a session and the place tiles on Post.
+ */
+export function PhotoPanel({
+  venue,
+  style,
+  stops = [0.15, 0.6, 1],
+  children,
+}: {
+  venue?: Venue;
+  style?: StyleProp<ViewStyle>;
+  /** Scrim opacity at the top, middle and bottom. */
+  stops?: [number, number, number];
+  children: ReactNode;
+}) {
+  return (
+    <OnPhoto>
+      <PhotoPanelBody venue={venue} style={style} stops={stops}>
+        {children}
+      </PhotoPanelBody>
+    </OnPhoto>
+  );
+}
+
+function PhotoPanelBody({
+  venue,
+  style,
+  stops,
+  children,
+}: {
+  venue?: Venue;
+  style?: StyleProp<ViewStyle>;
+  stops: [number, number, number];
+  children: ReactNode;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={[{ backgroundColor: theme.background, overflow: "hidden" }, style]}>
+      <Image
+        source={venueImage(venue)}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        transition={200}
+        accessible={false}
+      />
+      <LinearGradient
+        colors={[
+          withAlpha(theme.background, stops[0]),
+          withAlpha(theme.background, stops[1]),
+          withAlpha(theme.background, stops[2]),
+        ]}
+        locations={[0, 0.5, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      {children}
+    </View>
+  );
+}
 
 /** What a listing looks like. Shared by the feed and the Post screen's preview. */
 export type SessionFace = Pick<
@@ -34,18 +95,23 @@ const seatsLabel = (n: number) => (n === 0 ? "Full" : `${n} ${n === 1 ? "spot" :
 /** What this session is to me, when it is anything: shown instead of "is it my level". */
 export type MineTag = "Joined" | "Waiting for approval" | "Hosting";
 
-export function SessionCardFace({
-  session,
-  venue,
-  fits,
-  mine,
-}: {
+export function SessionCardFace(props: FaceProps) {
+  return (
+    <OnPhoto>
+      <Face {...props} />
+    </OnPhoto>
+  );
+}
+
+type FaceProps = {
   session: SessionFace;
   venue?: Venue;
   /** `true` = inside my level. Only ever shown as a positive — never "not for you". */
   fits?: boolean | null;
   mine?: MineTag;
-}) {
+};
+
+function Face({ session, venue, fits, mine }: FaceProps) {
   const theme = useTheme();
   const live = inCheckinWindow(session.startAt);
   return (
