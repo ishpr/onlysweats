@@ -131,7 +131,7 @@ function Assistant({ member, session }: PrivateMemberProps) {
       refreshing={list.isRefetching}
     >
       <Stack.Screen options={{ title: "Workout assistant" }} />
-      {status && (
+      {showPlanning && status && (
         <AssistantHero
           status={status}
           brief={brief}
