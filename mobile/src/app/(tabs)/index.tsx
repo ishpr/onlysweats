@@ -9,9 +9,9 @@ import { LeaveStandingSlot } from "@/components/leave-standing-slot";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
 import { Enter, PressScale } from "@/components/motion";
 import { PushPrompt } from "@/components/push-cards";
-import { TodayCard } from "@/components/today-card";
+import { TodayCard, TrainingShortcuts } from "@/components/today-card";
 import { PhotoCard, SessionCard, Tag, type MineTag } from "@/components/session-card";
-import { Button, Card, EmptyState, Field, Row, Screen, StateView, T } from "@/components/ui";
+import { Button, Card, Field, Row, Screen, StateView, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
@@ -47,6 +47,7 @@ export default function Home() {
   const queryClient = useQueryClient();
   const now = useNow(15_000);
   const me = useMe();
+  const theme = useTheme();
   const mine = useMine();
   const open = useSessions();
   const venues = byId(useVenues().data);
@@ -126,6 +127,17 @@ export default function Home() {
         ) : null}
       </T>
 
+      {/* Today leads: how the day looks, then what's planned for it. */}
+      {meId && (
+        <TodayCard
+          key={meId}
+          ownerId={meId}
+          sessions={(open.data?.sessions ?? []).filter(
+            (s) => !mineIds.has(s.id) && s.seatsLeft > 0 && +new Date(s.startAt) > now,
+          )}
+        />
+      )}
+
       {mine.isPending ? (
         <StateView loading rows={2} />
       ) : mine.error ? (
@@ -138,16 +150,37 @@ export default function Home() {
           {next ? (
             <NextUp plan={next} now={now} withName={otherName(next, people, meId)} />
           ) : (
-            <EmptyState
-              icon={CalendarDays}
-              title="Nothing planned yet"
-              body="Find someone doing the same workout at your level — or post yours and let them find you."
-              action={{ label: "Find a session", onPress: () => router.push("/sessions") }}
-              secondary={{ label: "Post a session", onPress: () => router.push("/post") }}
-            />
+            // Compact, so both ways forward sit above the fold under Today.
+            <Card>
+              <Row style={styles.planRow}>
+                <View style={[styles.planIcon, { backgroundColor: theme.accentSoft }]}>
+                  <CalendarDays size={20} color={theme.accent} />
+                </View>
+                <View style={styles.flex}>
+                  <T variant="label">Nothing planned yet</T>
+                  <T variant="caption" color="textSecondary">
+                    Find a buddy doing your workout at your level — or post yours.
+                  </T>
+                </View>
+              </Row>
+              <Row>
+                <Button
+                  style={styles.flex}
+                  variant="soft"
+                  label="Post a session"
+                  onPress={() => router.push("/post")}
+                />
+                <Button
+                  style={styles.flex}
+                  variant="accent"
+                  label="Find a session"
+                  onPress={() => router.push("/sessions")}
+                />
+              </Row>
+            </Card>
           )}
 
-          {meId && <TodayCard key={meId} ownerId={meId} />}
+          <TrainingShortcuts />
 
           {!levelSet && (
             <Card>
@@ -503,6 +536,14 @@ function weeksToGo(goalDate: string) {
 }
 
 const styles = StyleSheet.create({
+  planRow: { alignItems: "center", gap: Spacing.two },
+  planIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   section: { gap: Spacing.two },
   between: { justifyContent: "space-between", alignItems: "center" },
   flex: { flex: 1 },

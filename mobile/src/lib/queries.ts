@@ -145,7 +145,9 @@ export function useUpdateMe() {
       notify?: Partial<NotifyPrefs>;
     }) => api<Me>("/me", { method: "PATCH", json: patch }),
     onSuccess: (me) => {
-      qc.setQueryData(keys.me, me);
+      // Merge: the reply to a PATCH has the profile but not everything `GET /me` adds.
+      qc.setQueryData<Me>(keys.me, (before) => (before ? { ...before, ...me } : undefined));
+      void qc.invalidateQueries({ queryKey: keys.me });
       // A new level changes which sessions fit.
       void qc.invalidateQueries({ queryKey: ["sessions"] });
     },

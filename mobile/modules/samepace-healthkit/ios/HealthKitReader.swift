@@ -79,6 +79,7 @@ final class HealthKitReader {
     case "steps": return HKObjectType.quantityType(forIdentifier: .stepCount)!
     case "distance": return HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning)!
     case "active_energy": return HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!
+    case "blood_glucose": return HKObjectType.quantityType(forIdentifier: .bloodGlucose)!
     default: throw HealthImportError.invalidType
     }
   }
@@ -148,6 +149,7 @@ final class HealthKitReader {
       case "steps": unit = .count(); label = "count"
       case "distance": unit = .meter(); label = "m"
       case "active_energy": unit = .kilocalorie(); label = "kcal"
+      case "blood_glucose": unit = HKUnit.gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci)); label = "mg/dL"
       default: throw HealthImportError.invalidRecord
       }
       guard quantity.quantity.is(compatibleWith: unit) else { throw HealthImportError.invalidRecord }

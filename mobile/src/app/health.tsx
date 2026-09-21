@@ -23,6 +23,7 @@ const OPTIONAL_TYPES: { type: HealthDataType; label: string }[] = [
   { type: "steps", label: "Steps" },
   { type: "distance", label: "Walking and running distance" },
   { type: "active_energy", label: "Active energy" },
+  { type: "blood_glucose", label: "Blood glucose" },
 ];
 
 /** Standalone integration route; the redesign can link here or reuse the hook. */

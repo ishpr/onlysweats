@@ -39,6 +39,7 @@ Useful entry points:
 | `steps` | Source step count |
 | `distance` | Walking/running distance samples, meters |
 | `active_energy` | Source active-energy samples, kcal |
+| `blood_glucose` | Source glucose samples, mg/dL |
 
 Workouts are required; other reading types are individually selected. Workout totals supplied by HealthKit are part of the workout object, distinct from optionally imported distance/energy sample streams. Every object retains its HealthKit UUID, source bundle/name, timestamps, and units. Sleep stages and overlapping sources are not summed into invented daily totals.
 
