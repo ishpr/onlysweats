@@ -20,3 +20,14 @@ export function useTheme(): Theme {
 export function OnPhoto({ children }: { children: ReactNode }) {
   return createElement(Forced, { value: "dark" }, children);
 }
+
+/** Everything inside reads one theme's tokens, whatever the app is set to. */
+export function ForceTheme({
+  scheme,
+  children,
+}: {
+  scheme: "light" | "dark";
+  children: ReactNode;
+}) {
+  return createElement(Forced, { value: scheme }, children);
+}

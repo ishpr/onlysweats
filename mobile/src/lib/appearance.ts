@@ -7,6 +7,14 @@ import * as SecureStore from "expo-secure-store";
 import { Appearance, Platform } from "react-native";
 
 export type AppearancePref = "system" | "light" | "dark";
+
+/**
+ * What the PHONE was set to when the app started, read before any in-app choice is
+ * applied. The native launch screen follows the phone, so the launch animation that
+ * takes over from it has to as well — even if the member picked the other theme.
+ */
+export const systemSchemeAtLaunch: "light" | "dark" =
+  Appearance.getColorScheme() === "light" ? "light" : "dark";
 const KEY = "samepace.appearance";
 
 export function applyAppearance(pref: AppearancePref) {

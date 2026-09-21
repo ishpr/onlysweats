@@ -318,6 +318,10 @@ def main() -> None:
     splash = write(PNG / ".splash.svg", svg("14 12 72 76", mark(ON_DARK)))
     render(splash, img / "splash-icon.png", 228)
     splash.unlink()
+    # The same mark in the light-surface colours, for the launch screen in light mode.
+    splash_light = write(PNG / ".splash-light.svg", svg("14 12 72 76", mark(ON_LIGHT)))
+    render(splash_light, img / "splash-icon-light.png", 228)
+    splash_light.unlink()
     render(icon_micro, img / "favicon.png", 48)
     # Android status-bar icon for push: the system tints it, so white on transparent.
     note = write(PNG / ".notification.svg", svg("0 0 100 100", scaled(mark({"a": "#FFFFFF", "b": "#FFFFFF"}), 1.1)))

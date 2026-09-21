@@ -21,7 +21,8 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { T } from "@/components/ui";
-import { OnPhoto, useTheme } from "@/hooks/use-theme";
+import { ForceTheme, useTheme } from "@/hooks/use-theme";
+import { systemSchemeAtLaunch } from "@/lib/appearance";
 
 // Geometry from brand/build.py, in the splash image's own scale: app.json shows
 // the mark 76 pt wide from a 72-unit-wide crop.
@@ -47,12 +48,15 @@ function Figure({ x, color, lean }: { x: number; color: string; lean: { value: n
   );
 }
 
-/** Always dark, like the native splash it takes over from — whatever the app's theme. */
+/**
+ * Drawn in the theme the PHONE is in — that's what the native launch screen it takes
+ * over from used — whatever the member chose inside the app.
+ */
 export function AnimatedSplash(props: { onDone: () => void }) {
   return (
-    <OnPhoto>
+    <ForceTheme scheme={systemSchemeAtLaunch}>
       <SplashBody {...props} />
-    </OnPhoto>
+    </ForceTheme>
   );
 }
 
