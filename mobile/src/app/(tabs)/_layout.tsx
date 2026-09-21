@@ -78,7 +78,10 @@ function TabBar({ state, navigation }: TabBarProps) {
       style={[
         styles.bar,
         {
-          paddingBottom: Math.max(10, insets.bottom),
+          // The full safe-area inset (34 pt on a Face ID iPhone) leaves a dead band under
+          // the labels. The home indicator only occupies the lowest ~13 pt, so tuck the
+          // bar down to just clear it; the 48 pt targets stay fully above the indicator.
+          paddingBottom: Math.max(Spacing.one, insets.bottom - 18),
           backgroundColor: withAlpha(theme.background, Platform.OS === "ios" ? 0.62 : 0.96),
           borderTopColor: withAlpha(theme.text, 0.12),
         },
