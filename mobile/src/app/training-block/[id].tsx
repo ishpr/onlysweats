@@ -83,8 +83,8 @@ export default function TrainingBlockPage() {
 
   function confirmLeave() {
     Alert.alert(
-      "Leave this training block?",
-      "You leave every weekly slot in it. Seats inside 12 hours follow the usual rule. With one person left, the block ends.",
+      "Leave this goal?",
+      "You leave every weekly session in it. A session less than 12 hours away still costs $5 to leave. With one person left, the goal ends.",
       [
         { text: "Stay", style: "cancel" },
         {
@@ -119,7 +119,7 @@ export default function TrainingBlockPage() {
 
       <View style={styles.header}>
         <T variant="eyebrow" color="textSecondary">
-          {ACTIVITIES[block.activity].label} · training block
+          {ACTIVITIES[block.activity].label} · training for a goal
         </T>
         <T variant="title">{block.goalLabel}</T>
         <T color="textSecondary">{whenLine(block)}</T>
@@ -128,11 +128,11 @@ export default function TrainingBlockPage() {
       {!member && (
         <Card>
           <T variant="eyebrow" color="stand">
-            {block.seatsLeft} of {block.capacity - 1} seats open
+            {block.seatsLeft} of {block.capacity - 1} spots left
             {block.womenOnly ? " · women-only" : ""}
           </T>
           <T variant="caption" color="textSecondary">
-            Joining takes a seat on every slot below, every week until {formatDate(block.goalDate)}.
+            Joining means every weekly session below, every week until {formatDate(block.goalDate)}.
             You can leave at any time.
           </T>
           <T variant="caption" color="textSecondary">
@@ -148,7 +148,7 @@ export default function TrainingBlockPage() {
       {member && block.status === "forming" && (
         <Notice>
           Waiting for a second person. Your sessions are in Sessions, and joining one joins the
-          block. If nobody does within two weeks, it’s called off.
+          block. If nobody does within two weeks, it’s cancelled.
         </Notice>
       )}
 
@@ -200,7 +200,7 @@ export default function TrainingBlockPage() {
               </T>
               <T variant="caption" color="textSecondary">
                 {block.my.planned === 0
-                  ? "Counts from your first check-in in this block."
+                  ? "Counts from your first check-in toward this goal."
                   : "A session counts when you check in at the pin. A week someone else calls off isn’t held against you."}
               </T>
               {block.my.keptMiles > 0 && (
@@ -227,7 +227,7 @@ export default function TrainingBlockPage() {
         {block.slots.length === 0 && (
           <Card>
             <T variant="caption" color="textSecondary">
-              No weekly slots are running.
+              No weekly sessions are running.
             </T>
           </Card>
         )}
@@ -270,7 +270,7 @@ export default function TrainingBlockPage() {
       </View>
 
       <View style={styles.section}>
-        <T variant="heading">In this block</T>
+        <T variant="heading">Training together</T>
         {people
           .filter((p) => block.memberIds.includes(p.id))
           .map((p) => (
@@ -295,14 +295,14 @@ export default function TrainingBlockPage() {
 
       {block.viewer === "pending" && (
         <Notice>
-          You’ve asked to join. Anyone in the block can approve — you’ll hear either way.
+          You’ve asked to join. Anyone in the group can approve — you’ll hear either way.
         </Notice>
       )}
       {block.viewer === "declined" && <Notice>This one isn’t open to you.</Notice>}
       {block.viewer === "visitor" && block.joinable && (
         <Button
           variant="accent"
-          label={block.joinMode === "approve" ? "Ask to join the block" : "Join the block"}
+          label={block.joinMode === "approve" ? "Ask to join" : "Join — every week"}
           loading={join.isPending}
           onPress={confirmJoin}
         />
@@ -313,7 +313,7 @@ export default function TrainingBlockPage() {
             {block.seatsLeft === 0
               ? "This block is full."
               : "Fewer than four weeks are left, so it isn’t taking new people."}{" "}
-            You can start one like it: same goal, same date, same weekly slots.
+            You can start one like it: same goal, same date, same weekly sessions.
           </Notice>
           <Button
             variant="soft"
@@ -347,14 +347,14 @@ export default function TrainingBlockPage() {
       {member && mine && running && block.slots.length < 4 && (
         <Button
           variant="soft"
-          label="Add a weekly slot"
+          label="Add a weekly session"
           onPress={() => router.push({ pathname: "/post", params: { blockId: block.id } })}
         />
       )}
       {member && running && (
         <Button
           variant="ghost"
-          label="Leave this training block"
+          label="Leave this goal"
           loading={leave.isPending}
           onPress={confirmLeave}
         />

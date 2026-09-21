@@ -296,7 +296,7 @@ export default function You() {
         ) : null}
       </ListCard>
       <T variant="caption" color="textFaint">
-        To report or block someone, open their session or your thread with them.
+        To report or block someone, open their session or your chat with them.
       </T>
 
       <ListCard>

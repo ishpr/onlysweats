@@ -170,10 +170,10 @@ function Routes() {
               headerLeft: () => <CloseButton />,
             }}
           />
-          <Stack.Screen name="training-block/[id]" options={{ title: "" }} />
+          <Stack.Screen name="training-block/[id]" options={{ title: "Goal" }} />
           <Stack.Screen
             name="training-block/new"
-            options={{ title: "Training block", presentation: "modal" }}
+            options={{ title: "Train for a goal", presentation: "modal" }}
           />
           <Stack.Screen
             name="report"

@@ -17,6 +17,7 @@ import {
   type StyleProp,
   type TextInputProps,
   type TextProps,
+  type ViewProps,
   type ViewStyle,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -198,8 +199,19 @@ export function Card({ children, style }: { children: ReactNode; style?: StylePr
   );
 }
 
-export function Row({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
-  return <View style={[styles.row, style]}>{children}</View>;
+export function Row({
+  children,
+  style,
+  ...rest
+}: Omit<ViewProps, "style" | "children"> & {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <View style={[styles.row, style]} {...rest}>
+      {children}
+    </View>
+  );
 }
 
 // ── Controls ─────────────────────────────────────────────────────────────────

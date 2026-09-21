@@ -62,7 +62,7 @@ async function register(n: Notifications): Promise<void> {
       ["sessions", "Sessions", n.AndroidImportance.HIGH],
       ["messages", "Messages", n.AndroidImportance.HIGH],
       ["reminders", "Reminders", n.AndroidImportance.DEFAULT],
-      ["substitutes", "Open seats at your level", n.AndroidImportance.DEFAULT],
+      ["substitutes", "Fill-in spots at your level", n.AndroidImportance.DEFAULT],
       ["account", "Fees, strikes and your account", n.AndroidImportance.HIGH],
       ["default", "Other", n.AndroidImportance.DEFAULT],
     ] as const;

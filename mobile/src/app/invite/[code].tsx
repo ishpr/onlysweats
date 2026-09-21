@@ -1,12 +1,9 @@
-import { Link, Redirect, useLocalSearchParams } from "expo-router";
-import { View } from "react-native";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 
-import { Button, Screen, StateView, T } from "@/components/ui";
+import { EmptyState, Screen, StateView } from "@/components/ui";
 import SignIn from "@/app/sign-in";
 import { useAuth } from "@/lib/auth";
-import { formatWhen } from "@/lib/format";
-import { byId } from "@/lib/lookup";
-import { useInvite, useVenues } from "@/lib/queries";
+import { useInvite } from "@/lib/queries";
 
 export default function Invite() {
   const { signedIn } = useAuth();
@@ -17,13 +14,21 @@ export default function Invite() {
 
 function InviteDetails() {
   const { code } = useLocalSearchParams<{ code: string }>();
+  const router = useRouter();
   const invite = useInvite(code);
-  const venues = byId(useVenues().data);
 
   if (!invite.data) {
     return (
       <Screen edges={["bottom"]}>
-        <StateView loading={invite.isPending} error={invite.error} />
+        {invite.error ? (
+          <EmptyState
+            title="This invite isn’t open any more"
+            body="It may have expired, or the session was cancelled. Ask whoever sent it for a new link."
+            action={{ label: "Find a session", onPress: () => router.replace("/sessions") }}
+          />
+        ) : (
+          <StateView loading />
+        )}
       </Screen>
     );
   }
@@ -38,21 +43,10 @@ function InviteDetails() {
       />
     );
   }
-  const { session, people } = invite.data;
+  // The invite is the key; the session page is where the decision gets made.
   return (
-    <Screen edges={["bottom"]}>
-      <View>
-        <T variant="eyebrow" color="textSecondary">
-          Unlisted invite
-        </T>
-        <T variant="title">{people[0]?.name.split(" ")[0]} opened a seat</T>
-        <T color="textSecondary">
-          {session.title} · {formatWhen(session.startAt)} · {venues.get(session.venueId)?.name}
-        </T>
-      </View>
-      <Link href={{ pathname: "/session/[id]", params: { id: session.id, invite: code } }} asChild>
-        <Button label="See the listing" />
-      </Link>
-    </Screen>
+    <Redirect
+      href={{ pathname: "/session/[id]", params: { id: invite.data.session.id, invite: code } }}
+    />
   );
 }

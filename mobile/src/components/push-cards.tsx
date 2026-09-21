@@ -12,14 +12,14 @@ const KINDS: { key: keyof NotifyPrefs; label: string; hint: string }[] = [
   {
     key: "sessions",
     label: "Sessions",
-    hint: "Someone joins, asks, cancels, or a session is called off.",
+    hint: "Someone joins, asks to join or leaves, or a session is cancelled.",
   },
-  { key: "messages", label: "Messages", hint: "A new message in one of your threads." },
+  { key: "messages", label: "Messages", hint: "A new message in one of your chats." },
   { key: "reminders", label: "Reminders", hint: "An hour before, and when check-in opens." },
   {
     key: "substitutes",
-    label: "Open seats",
-    hint: "A seat at your level opens on a standing slot.",
+    label: "Fill-in spots",
+    hint: "A weekly group at your level needs someone for one week.",
   },
 ];
 
@@ -41,7 +41,8 @@ export function NotificationSettings({ me }: { me: Me }) {
       )}
       {push.status === "unavailable" && (
         <T variant="caption" color="textSecondary">
-          Push isn’t available on this device. Everything still shows up under Inbox → Activity.
+          Push isn’t available on this device. Everything still shows up under the bell at the top
+          of Home.
         </T>
       )}
       {push.status === "undetermined" && (
@@ -124,8 +125,8 @@ export function PushPrompt() {
     <Card>
       <T variant="label">Know the moment someone joins</T>
       <T variant="caption" color="textSecondary">
-        We’ll tell you when someone takes your seat, messages you, or a session is called off — plus
-        a reminder an hour before. No marketing, ever.
+        We’ll tell you when someone joins your session, messages you, or a session is cancelled —
+        plus a reminder an hour before. No marketing, ever.
       </T>
       <Row>
         <Button style={styles.flex} variant="soft" label="Not now" onPress={dismiss} />
@@ -149,7 +150,7 @@ function RegistrationRetry({ push }: { push: ReturnType<typeof usePush> }) {
         {push.status === "granted"
           ? "Permission is on, but this phone isn’t connected for notifications yet."
           : "We couldn’t connect notifications on this phone."}{" "}
-        {push.error} Everything still appears in Inbox → Activity.
+        {push.error} Everything still appears in the bell at the top of Home.
       </T>
       <Button
         variant="soft"

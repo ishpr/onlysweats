@@ -11,16 +11,16 @@ export function LeaveStandingSlot({ seriesId }: { seriesId: string }) {
       {leave.error && <Notice tone="danger">{leave.error.message}</Notice>}
       <Button
         variant="ghost"
-        label="Leave standing slot"
+        label="Leave this weekly session"
         loading={leave.isPending}
         onPress={() =>
           Alert.alert(
-            "Leave this standing slot?",
-            "You’ll stop being booked each week, and your upcoming seats are released at no charge. Sessions already started are unchanged. The slot ends if fewer than two regulars remain; otherwise the remaining regulars continue.",
+            "Leave this weekly session?",
+            "You’ll stop being added each week, and your upcoming sessions in it are cancelled at no cost. It ends if fewer than two people are left.",
             [
               { text: "Keep my place", style: "cancel" },
               {
-                text: "Leave standing slot",
+                text: "Leave",
                 style: "destructive",
                 onPress: () => leave.mutate(seriesId),
               },

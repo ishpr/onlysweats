@@ -55,7 +55,7 @@ export const isLateCancel = (startAt: string, now = Date.now()) =>
 
 /** Nobody pays to join. What costs money is not showing up. */
 export const POLICY_LINE =
-  "Free to join. Cancel 12 hours ahead at no cost. Inside 12 hours it’s $5 — waived if someone takes your seat. A no-show is $10 and a strike.";
+  "Free to join. Free to leave until 12 hours before. After that it’s $5 — waived if someone takes your spot. Not showing up is $10 and a strike.";
 
 /**
  * A wall-clock time in the cluster, `days` from today, as an instant. Tries both
