@@ -14,8 +14,8 @@ The client never decides seats, check-in or fees.
   types in `src/lib/pace/types.ts`, safety + admin in `src/lib/pace/safety.server.ts`,
   training blocks in
   `src/lib/pace/training-blocks.server.ts`, schema in `migrations/0002_pace.sql`,
-  `0004_safety.sql`, `0007_training_blocks.sql`, `0008_training_block_requests.sql` and
-  `0009_goal_credits.sql`.
+  `0004_safety.sql`, `0007_training_blocks.sql`, `0008_training_block_requests.sql`,
+  `0009_goal_credits.sql` and `0010_admin_training_blocks.sql`.
   ("pace" stays the code shorthand; the product name is SamePace.)
 
 ## Auth
@@ -164,12 +164,13 @@ verified, so a password sign-up never qualifies. The web page is `/admin`.
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| GET | `/admin/overview` | Counts: members, paused, upcoming sessions, open reports, fees assessed. |
+| GET | `/admin/overview` | Counts: members, paused, upcoming sessions, running training blocks, open reports, fees assessed. |
 | GET | `/admin/reports?status=open\|actioned\|dismissed` | The queue, with the booking's thread when the report points at one. |
 | POST | `/admin/reports/:id/resolve` | `{ action: "dismiss" \| "suspend" \| "remove_session" \| "suspend_and_remove", note? }` |
-| GET | `/admin/members?q=` · `/admin/members/:id` | Lookup by name or handle. Admin only — members never get a directory. |
+| GET | `/admin/members?q=` · `/admin/members/:id` | Lookup by name or handle, with the blocks they have been in. Admin only — members never get a directory. |
 | POST | `/admin/members/:id/suspend` · `/unsuspend` | `{ note }` — the member sees the note. |
-| POST | `/admin/sessions/:id/remove` | `{ note }`. Seats released free. |
+| POST | `/admin/sessions/:id/remove` | `{ note }`. Seats released free. One week of a running training block takes the whole block down: its listing comes back every week with the same words. |
+| POST | `/admin/training-blocks/:id/remove` | `{ note }`. Slots end, every session still on the calendar is called off, seats released free. Whoever started it is told why; the others that their seats are gone. Check-ins, progress and credits already recorded stay. |
 | GET | `/admin/actions` | Append-only audit log. |
 
 ## Ability

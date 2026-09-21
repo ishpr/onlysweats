@@ -65,7 +65,8 @@ the API restarts — mint a new one.
 ## Layout
 
 - `src/app` — routes. `(tabs)` = Today · Sessions · Inbox · You; stack screens for
-  a listing, a thread, the live check-in, posting, and invite links.
+  a listing, a thread, the live check-in, posting, invite links, and training
+  blocks (`training-block/[id]` the block page, `training-block/new` the goal form).
 - `src/lib` — `api.ts` (fetch + bearer token), `auth.tsx` (keychain session),
   `queries.ts` (every server call), `format.ts` (Dallas-time + money).
 - `src/components/ui.tsx` — primitives. `src/constants/theme.ts` — tokens, the same
@@ -108,9 +109,30 @@ uploaded to EAS.
   entrance, skeletons, the check-in success mark) and
   `src/components/animated-splash.tsx` (launch). All of it honours Reduce Motion.
 
+## Training blocks
+
+One to four standing slots aimed at a goal and a date — see *Training blocks* in
+`../docs/API.md`. In the app:
+
+- **Start one** from a standing slot ("Give it a finish line", on Today and the
+  live screen) or from Post ("Training block"). `post.tsx` is one form with three
+  jobs: a session, a block's first slot, or — with `blockId` — another weekly slot.
+  The goal pickers are `components/goal-picker.tsx`.
+- **Find and join** from the Training blocks row on Sessions, or from one of a
+  block's sessions, which sends you to the block. Joining is every slot, every
+  week, and sits behind a confirmation that says so — never a tap on one session.
+- **The block page** shows my sessions kept out of planned (`progress-ring.tsx`)
+  and the planned miles of the sessions I kept. Nobody sees another member's count.
+- **When it ends**, `components/block-ending.tsx` asks a finisher who helped them
+  stick to it, then what happens to the slots. Today pins a card until it's
+  answered. A track record (`lib/reputation.ts`) gains blocks finished and people
+  helped, as counts, only when above zero.
+
+There is no weight goal and no workout logging, by design.
+
 ## Not done
 
-Membership billing and fee collection (the server only keeps a ledger), training
-blocks, gym matching, a map, phone verification, fee disputes. Invite links open
+Membership billing and fee collection (the server only keeps a ledger), gym
+matching, a map, phone verification, fee disputes. Invite links open
 `https://samepace.app/invite/<code>`, which hands off to the app; universal links
 (no hand-off page) still need the associated-domains files.

@@ -14,11 +14,19 @@ export const Route = createFileRoute("/admin")({
 
 // ── API ──────────────────────────────────────────────────────────────────────
 
-type Person = { id: string; name: string; handle: string; neighborhood: string };
+type Person = {
+  id: string;
+  name: string;
+  handle: string;
+  neighborhood: string;
+  blocksFinished: number;
+  helpedCount: number;
+};
 type Overview = {
   members: number;
   suspended: number;
   upcomingSessions: number;
+  trainingBlocks: number;
   completedSeats: number;
   noShows: number;
   openReports: number;
@@ -37,7 +45,14 @@ type Report = {
   reportedId: string;
   reportsAgainst: number;
   reportedSuspended: boolean;
-  session: { id: string; title: string; activity: string; startAt: string; status: string } | null;
+  session: {
+    id: string;
+    title: string;
+    activity: string;
+    startAt: string;
+    status: string;
+    trainingBlockId: string | null;
+  } | null;
   messages: { fromId: string; text: string; createdAt: string }[];
 };
 type Member = {
@@ -49,6 +64,17 @@ type Member = {
   reportsAgainst: number;
   reportsFiled: number;
   upcomingSessions: number;
+  trainingBlocks: {
+    id: string;
+    goalLabel: string;
+    status: string;
+    endedReason: string | null;
+    goalDate: string;
+    startedIt: boolean;
+    left: boolean;
+    members: number;
+    finished: boolean | null;
+  }[];
   joinedAt: string;
 };
 type Action = {
@@ -291,6 +317,7 @@ function Console() {
           <Stat label="Members" value={overview.members} />
           <Stat label="Paused" value={overview.suspended} />
           <Stat label="Upcoming sessions" value={overview.upcomingSessions} />
+          <Stat label="Training blocks" value={overview.trainingBlocks} />
           <Stat label="Completed seats" value={overview.completedSeats} />
           <Stat label="No-shows" value={overview.noShows} />
           <Stat label="Fees assessed" value={usd(overview.feesAssessedCents)} />
@@ -395,6 +422,9 @@ function ReportCard({
         <p className="text-sm text-muted">
           Session: {r.session.title} · {r.session.activity} · {when(r.session.startAt)} ·{" "}
           {r.session.status}
+          {r.session.trainingBlockId
+            ? " · one week of a training block — taking it down takes the whole block down"
+            : ""}
         </p>
       )}
 
@@ -436,7 +466,7 @@ function ReportCard({
                 className={focus}
                 onClick={() => void resolve("remove_session")}
               >
-                Take session down
+                {r.session.trainingBlockId ? "Take block down" : "Take session down"}
               </Button>
             )}
             <Button variant="danger" disabled={busy} className={focus} onClick={() => void resolve("suspend")}>
@@ -498,6 +528,17 @@ function Members({ onChanged }: { onChanged: () => Promise<void> }) {
     }
   }
 
+  async function removeBlock(blockId: string, label: string) {
+    const note = window.prompt(`Why take “${label}” down? This goes in the audit log.`);
+    if (!note?.trim()) return;
+    try {
+      await api(`/admin/training-blocks/${blockId}/remove`, { method: "POST", json: { note } });
+      await Promise.all([search(q), onChanged()]);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   return (
     <Panel title="Members">
       <form
@@ -544,6 +585,37 @@ function Members({ onChanged }: { onChanged: () => Promise<void> }) {
                 <span className="text-sm text-danger">
                   Paused {when(m.suspended.at)} — {m.suspended.reason}
                 </span>
+              )}
+              <span className="text-sm text-muted">
+                {m.person.blocksFinished} blocks finished · helped {m.person.helpedCount} finish
+              </span>
+              {m.trainingBlocks.length > 0 && (
+                <ul className="flex flex-col gap-1 pt-1 text-sm text-muted">
+                  {m.trainingBlocks.map((b) => {
+                    const running = b.status === "forming" || b.status === "active";
+                    return (
+                      <li key={b.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span>
+                          <span className="text-fg">{b.goalLabel}</span> · {b.status}
+                          {b.endedReason ? ` (${b.endedReason.replace("_", " ")})` : ""} · until{" "}
+                          {b.goalDate} · {b.members} in it
+                          {b.startedIt ? " · started it" : ""}
+                          {b.left ? " · left" : ""}
+                          {b.finished === true ? " · finished" : ""}
+                        </span>
+                        {running && (
+                          <Button
+                            variant="soft"
+                            className={focus}
+                            onClick={() => void removeBlock(b.id, b.goalLabel)}
+                          >
+                            Take block down
+                          </Button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </div>
             <Button
