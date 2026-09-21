@@ -1,5 +1,7 @@
 import { API_URL } from "./config";
 import { fetch as streamingFetch } from "expo/fetch";
+import { Platform } from "react-native";
+import { authRequestPolicy } from "./auth-request-policy";
 import { createSessionTransport, type ApiSession, type SessionRequest } from "./session-transport";
 
 export type { ApiSession } from "./session-transport";
@@ -36,7 +38,13 @@ async function send(
   init: RequestInit & { json?: unknown } = {},
   requestToken: string | null = token,
 ) {
-  const headers: Record<string, string> = { accept: "application/json" };
+  const authPolicy = path.startsWith("/api/auth/")
+    ? authRequestPolicy(API_URL, Platform.OS)
+    : undefined;
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    ...authPolicy?.headers,
+  };
   if (requestToken) headers.authorization = `Bearer ${requestToken}`;
   if (init.json !== undefined) headers["content-type"] = "application/json";
   let res: Response;
@@ -44,6 +52,7 @@ async function send(
     res = await fetch(`${API_URL}${path}`, {
       method: init.method ?? "GET",
       headers,
+      ...(authPolicy?.credentials ? { credentials: authPolicy.credentials } : {}),
       body: init.json !== undefined ? JSON.stringify(init.json) : undefined,
       signal: init.signal,
     });
@@ -169,10 +178,11 @@ export async function socialSignInRequest(
   provider: "apple" | "google",
   idToken: { token: string; nonce?: string; user?: unknown },
 ): Promise<AuthResult> {
-  const res = await send("/api/auth/sign-in/social", {
-    method: "POST",
-    json: { provider, idToken },
-  });
+  const res = await send(
+    "/api/auth/sign-in/social",
+    { method: "POST", json: { provider, idToken } },
+    null,
+  );
   const bearer = res.headers.get("set-auth-token");
   const body = await parse<{ user: AuthResult["user"] }>(res);
   if (!bearer) throw new ApiError(500, "Signed in, but no session came back.");
