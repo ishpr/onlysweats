@@ -20,10 +20,20 @@ import { Platform } from "react-native";
 export const Colors = {
   light: {
     background: "#FFFFFF",
-    backgroundElement: "#F5F6F8",
-    backgroundSelected: "#E8EAEE",
-    /** Floating chrome over content: the tab bar, pinned footers. */
-    glass: "rgba(255,255,255,0.78)",
+    /** Cards: frosted, see-through white over the page's colour wash. */
+    backgroundElement: "rgba(255,255,255,0.58)",
+    backgroundSelected: "rgba(15,20,25,0.06)",
+    /** Floating chrome over content (tab bar, pinned footers): tint laid over a live blur. */
+    glass: "rgba(255,255,255,0.55)",
+    /** The bright edge a pane of glass catches. */
+    glassEdge: "rgba(255,255,255,0.95)",
+    /** Inputs: a quiet solid, so a field never disappears into the page. */
+    field: "rgba(15,20,25,0.045)",
+    /** The main button and the chosen chip. Green in light — never a black slab on white. */
+    primary: "#0B7A2E",
+    onPrimary: "#FFFFFF",
+    /** An unchosen chip: white with a hairline, so it reads on the page and on a card. */
+    chip: "rgba(255,255,255,0.72)",
     text: "#0F1419",
     textSecondary: "#536471",
     textFaint: "#66737F",
@@ -39,9 +49,14 @@ export const Colors = {
   },
   dark: {
     background: "#050506",
-    backgroundElement: "rgba(22,22,24,0.72)",
-    backgroundSelected: "rgba(245,245,247,0.08)",
-    glass: "rgba(5,5,6,0.62)",
+    backgroundElement: "rgba(255,255,255,0.065)",
+    backgroundSelected: "rgba(245,245,247,0.10)",
+    glass: "rgba(12,12,14,0.45)",
+    glassEdge: "rgba(255,255,255,0.14)",
+    field: "rgba(255,255,255,0.07)",
+    primary: "#F5F5F7",
+    onPrimary: "#050506",
+    chip: "rgba(255,255,255,0.07)",
     text: "#F5F5F7",
     textSecondary: "#A1A1A6",
     textFaint: "#8A8A90",

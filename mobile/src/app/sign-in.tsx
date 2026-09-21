@@ -8,6 +8,7 @@ import { Lockup } from "@/components/brand";
 import { Appear, PressScale } from "@/components/motion";
 import { Notice, Screen, StateView, T, TYPE } from "@/components/ui";
 import { HitTarget, Radius, Spacing } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { fetchAuthConfig } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -26,6 +27,7 @@ import {
  */
 export default function SignIn({ hasInvite = false }: { hasInvite?: boolean }) {
   const theme = useTheme();
+  const scheme = useColorScheme();
   const { signInWithToken } = useAuth();
   const config = useQuery({ queryKey: ["auth-config"], queryFn: fetchAuthConfig });
   const [appleOk, setAppleOk] = useState(false);
@@ -87,8 +89,13 @@ export default function SignIn({ hasInvite = false }: { hasInvite?: boolean }) {
         {showApple && (
           <AppleAuthentication.AppleAuthenticationButton
             buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-            // The white button is the one Apple specifies for dark backgrounds.
-            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+            // Apple's own rule: the white button on dark backgrounds, the outlined white
+            // one on light. Never the black slab on a white page.
+            buttonStyle={
+              scheme === "dark"
+                ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                : AppleAuthentication.AppleAuthenticationButtonStyle.WHITE_OUTLINE
+            }
             cornerRadius={Radius.pill}
             style={styles.provider}
             onPress={() => void run("apple", signInWithApple)}
@@ -104,7 +111,7 @@ export default function SignIn({ hasInvite = false }: { hasInvite?: boolean }) {
             style={[
               styles.provider,
               styles.google,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+              { backgroundColor: theme.chip, borderColor: theme.border },
             ]}
           >
             {busy === "google" ? (

@@ -8,6 +8,7 @@ import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 import { PressScale } from "@/components/motion";
 import { T, withAlpha } from "@/components/ui";
 import { Fonts, Radius, Spacing } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { OnPhoto, useTheme } from "@/hooks/use-theme";
 import { API_URL } from "@/lib/config";
 import { formatDuration, formatWhen, inCheckinWindow } from "@/lib/format";
@@ -18,44 +19,99 @@ export const venueImage = (venue?: Venue) =>
   venue ? { uri: `${API_URL}${venue.image}` } : undefined;
 
 /**
- * A venue photo under a dark scrim, with whatever is laid on top reading the dark
- * tokens — in both themes. Used by the hero on a session and the place tiles on Post.
+ * The photo card, in two builds.
+ *
+ * **Dark**: the photograph fills the card and fades into the page; tags and text sit
+ * on it, reading the dark tokens.
+ *
+ * **Light**: a dusk photo fading to black is a black slab on a white page, so the
+ * photograph sits on top — tags over it, under a whisper of scrim — and the text
+ * goes below on the light surface, in the light theme's own ink. No black anywhere
+ * but the picture itself.
  */
-export function PhotoPanel({
+export function PhotoCard({
   venue,
-  style,
-  stops = [0.15, 0.6, 1],
+  tags,
   children,
+  footer,
+  style,
+  photoHeight = 132,
+  minHeight = 176,
 }: {
   venue?: Venue;
-  style?: StyleProp<ViewStyle>;
-  /** Scrim opacity at the top, middle and bottom. */
-  stops?: [number, number, number];
+  tags?: ReactNode;
   children: ReactNode;
+  /** Actions under the text (buttons), inside the card. */
+  footer?: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  /** Light build: how tall the photograph is. */
+  photoHeight?: number;
+  /** Dark build: the card's minimum height. */
+  minHeight?: number;
 }) {
+  const scheme = useColorScheme();
+  const theme = useTheme();
+  if (scheme === "light") {
+    return (
+      // The shadow sits on an outer view: `overflow: hidden` (for the photo's rounded
+      // corners) would clip it.
+      <View style={[styles.lightShadow, glassShadow, style]}>
+        <View
+          style={[
+            styles.lightCard,
+            { backgroundColor: theme.backgroundElement, borderColor: theme.glassEdge },
+          ]}
+        >
+          <OnPhoto>
+            <View style={{ height: photoHeight }}>
+              <Image
+                source={venueImage(venue)}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                transition={200}
+                accessible={false}
+              />
+              <LinearGradient
+                colors={["rgba(5,5,6,0.45)", "rgba(5,5,6,0)"]}
+                locations={[0, 0.6]}
+                style={StyleSheet.absoluteFill}
+              />
+              {tags ? <View style={styles.lightTags}>{tags}</View> : null}
+            </View>
+          </OnPhoto>
+          <View style={styles.lightBody}>{children}</View>
+          {footer ? <View style={styles.lightFooter}>{footer}</View> : null}
+        </View>
+      </View>
+    );
+  }
   return (
     <OnPhoto>
-      <PhotoPanelBody venue={venue} style={style} stops={stops}>
+      <DarkPhotoCard venue={venue} tags={tags} footer={footer} style={style} minHeight={minHeight}>
         {children}
-      </PhotoPanelBody>
+      </DarkPhotoCard>
     </OnPhoto>
   );
 }
 
-function PhotoPanelBody({
+function DarkPhotoCard({
   venue,
-  style,
-  stops,
+  tags,
   children,
+  footer,
+  style,
+  minHeight,
 }: {
   venue?: Venue;
-  style?: StyleProp<ViewStyle>;
-  stops: [number, number, number];
+  tags?: ReactNode;
   children: ReactNode;
+  footer?: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  minHeight: number;
 }) {
   const theme = useTheme();
   return (
-    <View style={[{ backgroundColor: theme.background, overflow: "hidden" }, style]}>
+    <View style={[styles.card, { minHeight, backgroundColor: theme.background }, style]}>
       <Image
         source={venueImage(venue)}
         style={StyleSheet.absoluteFill}
@@ -65,14 +121,18 @@ function PhotoPanelBody({
       />
       <LinearGradient
         colors={[
-          withAlpha(theme.background, stops[0]),
-          withAlpha(theme.background, stops[1]),
-          withAlpha(theme.background, stops[2]),
+          withAlpha(theme.background, 0.1),
+          withAlpha(theme.background, 0.55),
+          theme.background,
         ]}
         locations={[0, 0.5, 1]}
         style={StyleSheet.absoluteFill}
       />
-      {children}
+      <View style={styles.top}>{tags}</View>
+      <View style={styles.darkBody}>
+        {children}
+        {footer}
+      </View>
     </View>
   );
 }
@@ -95,45 +155,13 @@ const seatsLabel = (n: number) => (n === 0 ? "Full" : `${n} ${n === 1 ? "spot" :
 /** What this session is to me, when it is anything: shown instead of "is it my level". */
 export type MineTag = "Joined" | "Waiting for approval" | "Hosting";
 
-export function SessionCardFace(props: FaceProps) {
-  return (
-    <OnPhoto>
-      <Face {...props} />
-    </OnPhoto>
-  );
-}
-
-type FaceProps = {
-  session: SessionFace;
-  venue?: Venue;
-  /** `true` = inside my level. Only ever shown as a positive — never "not for you". */
-  fits?: boolean | null;
-  mine?: MineTag;
-};
-
-function Face({ session, venue, fits, mine }: FaceProps) {
-  const theme = useTheme();
+export function SessionCardFace({ session, venue, fits, mine }: FaceProps) {
   const live = inCheckinWindow(session.startAt);
   return (
-    <View
-      style={[styles.card, live && styles.featured, { backgroundColor: theme.backgroundElement }]}
-    >
-      <Image
-        source={venueImage(venue)}
-        style={StyleSheet.absoluteFill}
-        contentFit="cover"
-        transition={200}
-      />
-      <LinearGradient
-        colors={[
-          withAlpha(theme.background, 0.1),
-          withAlpha(theme.background, 0.55),
-          theme.background,
-        ]}
-        locations={[0, 0.5, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={styles.top}>
+    <PhotoCard
+      venue={venue}
+      minHeight={live ? 224 : 176}
+      tags={
         <View style={styles.chips}>
           <Tag label={ACTIVITIES[session.activity].label} />
           {mine ? (
@@ -148,26 +176,33 @@ function Face({ session, venue, fits, mine }: FaceProps) {
           {session.abilityFlex === "flexible" && <Tag label="Any level welcome" />}
           {session.visibility === "unlisted" && <Tag label="Invite-only" />}
         </View>
+      }
+    >
+      <T variant="eyebrow" color="textSecondary">
+        {formatWhen(session.startAt)}
+      </T>
+      <T variant="heading" style={styles.title}>
+        {session.title || "Give it a name"}
+      </T>
+      <T variant="label" style={styles.level}>
+        {session.abilityLabel}
+      </T>
+      <View style={styles.meta}>
+        <Meta icon={MapPin} text={venue?.name ?? "—"} />
+        <Meta icon={Clock} text={formatDuration(session.durationMin)} />
+        <Meta icon={Users} text={seatsLabel(session.seatsLeft)} />
       </View>
-      <View>
-        <T variant="eyebrow" style={{ color: withAlpha(theme.text, 0.75) }}>
-          {formatWhen(session.startAt)}
-        </T>
-        <T variant="heading" style={styles.title}>
-          {session.title || "Give it a title"}
-        </T>
-        <T variant="label" style={styles.level}>
-          {session.abilityLabel}
-        </T>
-        <View style={styles.meta}>
-          <Meta icon={MapPin} text={venue?.name ?? "—"} />
-          <Meta icon={Clock} text={formatDuration(session.durationMin)} />
-          <Meta icon={Users} text={seatsLabel(session.seatsLeft)} />
-        </View>
-      </View>
-    </View>
+    </PhotoCard>
   );
 }
+
+type FaceProps = {
+  session: SessionFace;
+  venue?: Venue;
+  /** `true` = inside my level. Only ever shown as a positive — never "not for you". */
+  fits?: boolean | null;
+  mine?: MineTag;
+};
 
 /**
  * Discovery shows the workout, the level, the time and the place — never a face
@@ -195,11 +230,10 @@ export function SessionCard({
 
 function Meta({ icon: Icon, text }: { icon: typeof Clock; text: string }) {
   const theme = useTheme();
-  const color = withAlpha(theme.text, 0.82);
   return (
     <View style={styles.metaItem}>
-      <Icon size={14} color={color} />
-      <T variant="caption" style={{ color }}>
+      <Icon size={14} color={theme.textSecondary} />
+      <T variant="caption" color="textSecondary">
         {text}
       </T>
     </View>
@@ -242,16 +276,28 @@ export function Tag({
   );
 }
 
+const glassShadow = {
+  shadowColor: "#0F1419",
+  shadowOpacity: 0.08,
+  shadowRadius: 18,
+  shadowOffset: { width: 0, height: 8 },
+  elevation: 2,
+} as const;
+
 const styles = StyleSheet.create({
   card: {
-    minHeight: 176,
     borderRadius: Radius.xl,
     overflow: "hidden",
     padding: Spacing.three,
     justifyContent: "space-between",
     gap: Spacing.four,
   },
-  featured: { minHeight: 224 },
+  darkBody: { gap: 0 },
+  lightShadow: { borderRadius: Radius.xl },
+  lightCard: { borderRadius: Radius.xl, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
+  lightTags: { position: "absolute", top: Spacing.two, left: Spacing.two, right: Spacing.two },
+  lightBody: { padding: Spacing.three, gap: 0 },
+  lightFooter: { paddingHorizontal: Spacing.three, paddingBottom: Spacing.three },
   top: {
     flexDirection: "row",
     justifyContent: "space-between",
