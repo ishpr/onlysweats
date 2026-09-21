@@ -8,7 +8,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import {
   Activity,
-  Bot,
   ChevronRight,
   Droplet,
   Dumbbell,
@@ -593,7 +592,8 @@ function Tile({
 }
 
 /**
- * The training tools, one tap from Home instead of three screens deep in You.
+ * The training tools, one tap from Home instead of three screens deep in You. (The
+ * assistant has its own row above these — see `AssistantSpot`.)
  */
 export function TrainingShortcuts() {
   const router = useRouter();
@@ -602,9 +602,8 @@ export function TrainingShortcuts() {
     icon: LucideIcon;
     label: string;
     hint: string;
-    href: "/assistant" | "/fitness" | "/health";
+    href: "/fitness" | "/health";
   }[] = [
-    { icon: Bot, label: "Assistant", hint: "Finds your buddy", href: "/assistant" },
     { icon: NotebookPen, label: "Fitness log", hint: "What you did", href: "/fitness" },
     { icon: HeartPulse, label: "Workouts", hint: "Apple Health", href: "/health" },
   ];

@@ -9,6 +9,7 @@ import { LeaveStandingSlot } from "@/components/leave-standing-slot";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
 import { Enter, PressScale } from "@/components/motion";
 import { PushPrompt } from "@/components/push-cards";
+import { AssistantSpot } from "@/components/assistant-hero";
 import { TodayCard, TrainingShortcuts } from "@/components/today-card";
 import { PhotoCard, SessionCard, Tag, type MineTag } from "@/components/session-card";
 import { Button, Card, Field, Row, Screen, StateView, T } from "@/components/ui";
@@ -180,6 +181,8 @@ export default function Home() {
             </Card>
           )}
 
+          {/* The assistant gets its own row: alive when it is working for you. */}
+          {meId && <AssistantSpot key={`assistant-${meId}`} ownerId={meId} />}
           <TrainingShortcuts />
 
           {!levelSet && (
