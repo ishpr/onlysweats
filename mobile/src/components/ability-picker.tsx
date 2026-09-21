@@ -3,7 +3,7 @@
  * (`LevelPicker`). Always about the workout: a pace, a speed, a distance, a plain
  * word. Never about a body, and never something other members rate.
  */
-import { ScrollView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 import { Chip, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
@@ -43,15 +43,12 @@ function Choices<V>({
       <T variant="caption" color="textSecondary">
         {label}
       </T>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.chips}
-      >
+      {/* Wrapped, never a sideways scroller: every option — and the chosen one — stays in view. */}
+      <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel={label}>
         {options.map((o) => (
           <Chip key={text(o)} label={text(o)} selected={selected(o)} onPress={() => onPick(o)} />
         ))}
-      </ScrollView>
+      </View>
     </View>
   );
 }
@@ -250,5 +247,5 @@ export function LevelPicker({
 
 const styles = StyleSheet.create({
   group: { gap: Spacing.one },
-  chips: { gap: Spacing.one, paddingRight: Spacing.three },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.one },
 });

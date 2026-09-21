@@ -15,21 +15,22 @@ import { DarkTheme, DefaultTheme, type Href, Stack, ThemeProvider, useRouter } f
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
-import { Appearance, AppState, Platform, Pressable, Text } from "react-native";
+import { AppState, Pressable, Text } from "react-native";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { ApiError } from "@/lib/api";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { AnimatedSplash } from "@/components/animated-splash";
+import { loadAppearance } from "@/lib/appearance";
 import { haptic } from "@/lib/haptics";
 import { onNotificationOpened, syncPush } from "@/lib/push";
 
 SplashScreen.preventAutoHideAsync();
 // No native cross-fade: the in-app mark is already exactly where the still one was.
 SplashScreen.setOptions({ fade: false });
-// Native chrome (keyboard, alerts, share sheet) follows the pinned dark scheme too.
-if (Platform.OS !== "web") Appearance.setColorScheme("dark");
+// The member's light / dark / system choice, applied before the first screen draws.
+void loadAppearance();
 
 // React Query's window-focus refetch, mapped to the app returning to the foreground.
 AppState.addEventListener("change", (state) => focusManager.setFocused(state === "active"));
@@ -151,8 +152,8 @@ function Routes() {
       >
         <Stack.Protected guard={signedIn}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="session/[id]" options={{ title: "" }} />
-          <Stack.Screen name="thread/[id]" options={{ title: "Thread" }} />
+          <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
+          <Stack.Screen name="thread/[id]" options={{ title: "Chat" }} />
           <Stack.Screen
             name="live/[id]"
             options={{
@@ -162,18 +163,33 @@ function Routes() {
               headerLeft: () => <CloseButton />,
             }}
           />
-          <Stack.Screen name="post" options={{ title: "Post a session", presentation: "modal" }} />
-          <Stack.Screen name="training-block/[id]" options={{ title: "" }} />
+          <Stack.Screen
+            name="post"
+            options={{
+              title: "New session",
+              presentation: "modal",
+              headerLeft: () => <CloseButton />,
+            }}
+          />
+          <Stack.Screen name="training-block/[id]" options={{ title: "Goal" }} />
           <Stack.Screen
             name="training-block/new"
-            options={{ title: "Training block", presentation: "modal" }}
+            options={{ title: "Train for a goal", presentation: "modal" }}
           />
           <Stack.Screen
             name="report"
-            options={{ title: "Report or block", presentation: "modal" }}
+            options={{
+              title: "Report or block",
+              presentation: "modal",
+              headerLeft: () => <CloseButton />,
+            }}
           />
           <Stack.Screen name="blocked" options={{ title: "Blocked members" }} />
-          <Stack.Screen name="activity" options={{ title: "Activity" }} />
+          <Stack.Screen name="activity" options={{ title: "Notifications" }} />
+          <Stack.Screen
+            name="welcome"
+            options={{ headerShown: false, presentation: "fullScreenModal", gestureEnabled: false }}
+          />
           <Stack.Screen name="delete-account" options={{ title: "Delete account" }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>

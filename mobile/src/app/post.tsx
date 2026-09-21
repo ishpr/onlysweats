@@ -1,9 +1,8 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { type ReactNode, useState } from "react";
+import { ScrollView, StyleSheet, Switch, View } from "react-native";
 
 import { AbilityPicker } from "@/components/ability-picker";
-import { ChipRow as Picker } from "@/components/chip-row";
 import {
   DEFAULT_GOAL,
   goalDateOf,
@@ -11,11 +10,15 @@ import {
   GoalPicker,
   goalReady,
 } from "@/components/goal-picker";
+import { SectionTitle } from "@/components/list";
+import { PressScale } from "@/components/motion";
+import { PhotoPanel, SessionCardFace } from "@/components/session-card";
 import { Button, Card, Chip, Field, Notice, Row, Screen, T } from "@/components/ui";
-import { Spacing } from "@/constants/theme";
+import { Radius, Spacing } from "@/constants/theme";
+import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
-import { defaultAbility } from "@/lib/ability";
-import { atCluster, dayLabel, formatDate, formatWhen } from "@/lib/format";
+import { abilityLabel, defaultAbility } from "@/lib/ability";
+import { atCluster, dayLabel, formatDate, formatDuration, formatWhen } from "@/lib/format";
 import {
   useAddBlockSlot,
   useMe,
@@ -51,6 +54,7 @@ export default function Post() {
   }>();
   const router = useRouter();
   const theme = useTheme();
+  const now = useNow(60_000);
   const me = useMe().data;
   const venues = useVenues().data ?? [];
   const post = usePostSession();
@@ -67,8 +71,12 @@ export default function Post() {
   const ability = picked ?? defaultAbility(activity, me?.abilities);
   const [flexible, setFlexible] = useState(false);
   const [venueId, setVenueId] = useState("katy");
-  const [title, setTitle] = useState(unlisted ? "Easy one — just us" : "The one I’m doing anyway");
-  const [detail, setDetail] = useState("I’m going either way. Join if you’ll be at the pin.");
+  // `null` = untouched: the name follows the activity and time until I write my own.
+  // Nothing is pre-written for me — a default I didn't read would end up on every
+  // card, notification and share message.
+  const [titleEdit, setTitle] = useState<string | null>(null);
+  const [detail, setDetail] = useState("");
+  const [durationEdit, setDuration] = useState<number | null>(null);
   // Everyone in the block is confirmed into a new slot, so it starts two days out.
   const firstDay = blockId ? 2 : 0;
   const [days, setDays] = useState(blockId ? 3 : 1);
@@ -80,7 +88,10 @@ export default function Post() {
   const [womenOnly, setWomenOnly] = useState(false);
 
   const start = atCluster(days, hour, minute);
-  const open = capacity - 1;
+  const durationMin = durationEdit ?? DURATION[activity];
+  const title = titleEdit ?? `${partOfDay(hour)} ${NOUN[activity]}`;
+  // Today's hours that have already gone (plus the 30 minutes a post needs).
+  const tooSoon = (h: number, m: number) => +atCluster(days, h, m) < now + 35 * 60_000;
 
   const slot = {
     venueId,
@@ -89,7 +100,7 @@ export default function Post() {
     ability,
     abilityFlex: flexible ? ("flexible" as const) : ("strict" as const),
     startAt: start.toISOString(),
-    durationMin: DURATION[activity],
+    durationMin,
   };
   const shared = {
     activity,
@@ -117,171 +128,325 @@ export default function Post() {
   const busy = post.isPending || postBlock.isPending || addSlot.isPending;
   const error = post.error ?? postBlock.error ?? addSlot.error;
 
+  const canPost =
+    title.trim().length > 0 && !tooSoon(hour, minute) && !(asBlock && !blockId && !goalReady(goal));
+  const venue = venues.find((v) => v.id === venueId);
+
   return (
-    <Screen edges={["bottom"]}>
-      <T variant="title">
-        {blockId
-          ? "Add a weekly slot."
-          : asBlock
-            ? "Every week, until a date."
-            : `You’re going anyway. Open ${open === 1 ? "a seat" : `${open} seats`}.`}
-      </T>
-      {blockId && parent && (
-        <T color="textSecondary">
-          {parent.goalLabel} · ends {formatDate(parent.goalDate)}. Everyone in the block is in this
-          slot too, and can skip any week with 12 hours’ notice.
-        </T>
-      )}
-
-      {!blockId && (
-        <Row style={styles.wrap}>
-          <Chip label="One session" selected={!asBlock} onPress={() => setAsBlock(false)} />
-          <Chip label="Training block" selected={asBlock} onPress={() => setAsBlock(true)} />
-        </Row>
-      )}
-
-      {!blockId && (
-        <Picker label="Activity">
-          {(Object.keys(ACTIVITIES) as Activity[]).map((a) => (
-            <Chip
-              key={a}
-              label={ACTIVITIES[a].label}
-              selected={activity === a}
-              onPress={() => {
-                setActivity(a);
-                setPicked(null);
-                // A marathon isn't a ride: the goal starts over with the activity.
-                setGoal(DEFAULT_GOAL);
-              }}
-            />
-          ))}
-        </Picker>
-      )}
-
-      <Card>
-        <T variant="eyebrow" color="stand">
-          Level
-        </T>
-        <T variant="caption" color="textSecondary">
-          A buddy at the wrong level is worse than no buddy. Say what this one is.
-        </T>
-        <AbilityPicker value={ability} onChange={setPicked} />
-        {ability.kind !== "open" && (
-          <Chip
-            label={flexible ? "✓ I’ll adjust to whoever joins" : "I’ll adjust to whoever joins"}
-            selected={flexible}
-            onPress={() => setFlexible(!flexible)}
+    <Screen
+      edges={["bottom"]}
+      footer={
+        <>
+          {error && <Notice tone="danger">{error.message}</Notice>}
+          <Button
+            variant="accent"
+            label={blockId ? "Add weekly session" : asBlock ? "Post the goal" : "Post session"}
+            loading={busy}
+            disabled={!canPost}
+            onPress={publish}
           />
-        )}
-      </Card>
+          <T variant="caption" color="textFaint" style={styles.center}>
+            {tooSoon(hour, minute)
+              ? "Pick a start time at least 30 minutes from now."
+              : asBlock && !blockId
+                ? `First one ${formatWhen(start.toISOString())}, then weekly until ${formatDate(goalDateOf(goal))}`
+                : `Starts ${formatWhen(start.toISOString())} · free to post`}
+          </T>
+        </>
+      }
+    >
+      {blockId && parent ? (
+        <Notice>
+          Adding a weekly session to {parent.goalLabel} (ends {formatDate(parent.goalDate)}).
+          Everyone in the group is in it too, and can skip any week for free with 12 hours’ notice.
+        </Notice>
+      ) : (
+        <View
+          style={styles.segment}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="What to post"
+        >
+          <Chip label="One session" selected={!asBlock} onPress={() => setAsBlock(false)} />
+          <Chip label="Train for a goal" selected={asBlock} onPress={() => setAsBlock(true)} />
+        </View>
+      )}
 
-      <Field label="Title" value={title} onChangeText={setTitle} maxLength={120} />
-      <Field
-        label="About the workout"
-        value={detail}
-        onChangeText={setDetail}
-        multiline
-        maxLength={1000}
-      />
-
-      <View style={styles.group}>
-        <T variant="caption" color="textSecondary">
-          Place
-        </T>
-        {venues.map((v) => {
-          const on = v.id === venueId;
-          return (
-            <Pressable
-              key={v.id}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: on }}
-              accessibilityLabel={`${v.name}, ${v.neighborhood}`}
-              onPress={() => setVenueId(v.id)}
-            >
-              <Card style={on ? { borderColor: theme.accent, borderWidth: 2 } : undefined}>
-                <T variant="label">{v.name}</T>
-                <T variant="caption" color="textSecondary">
-                  {v.neighborhood} · {v.type.replace("_", " ")}
-                </T>
-              </Card>
-            </Pressable>
-          );
-        })}
+      {/* What you're making, as everyone else will see it. */}
+      <View accessible accessibilityLabel={`Preview: ${title}, ${formatWhen(start.toISOString())}`}>
+        <SessionCardFace
+          session={{
+            activity,
+            title,
+            abilityLabel: abilityLabel(ability),
+            abilityFlex: flexible ? "flexible" : "strict",
+            startAt: start.toISOString(),
+            durationMin,
+            womenOnly,
+            visibility: isUnlisted ? "unlisted" : "public",
+            seatsLeft: capacity - 1,
+            seriesId: asBlock || blockId ? "preview" : null,
+          }}
+          venue={venue}
+        />
       </View>
 
-      <Picker label={asBlock || blockId ? "First one" : "Day"}>
-        {Array.from({ length: 8 }, (_, i) => i + firstDay).map((i) => (
-          <Chip key={i} label={dayLabel(i)} selected={days === i} onPress={() => setDays(i)} />
-        ))}
-      </Picker>
-      <Picker label="Start (Dallas time)">
-        {HOURS.map((h) => (
-          <Chip key={h} label={hourLabel(h)} selected={hour === h} onPress={() => setHour(h)} />
-        ))}
-      </Picker>
-      <Picker label="Minutes">
-        {MINUTES.map((m) => (
-          <Chip
-            key={m}
-            label={`:${String(m).padStart(2, "0")}`}
-            selected={minute === m}
-            onPress={() => setMinute(m)}
-          />
-        ))}
-      </Picker>
-
-      {asBlock && !blockId && <GoalPicker activity={activity} value={goal} onChange={setGoal} />}
-
       {!blockId && (
-        <>
-          <Picker label="People, including you">
-            {[2, 3, 4].map((n) => (
+        <View style={styles.section}>
+          <SectionTitle>What</SectionTitle>
+          <View style={styles.wrap} accessibilityRole="radiogroup" accessibilityLabel="Activity">
+            {(Object.keys(ACTIVITIES) as Activity[]).map((a) => (
               <Chip
-                key={n}
-                label={String(n)}
-                selected={capacity === n}
-                onPress={() => setCapacity(n)}
+                key={a}
+                label={ACTIVITIES[a].label}
+                selected={activity === a}
+                onPress={() => {
+                  setActivity(a);
+                  setPicked(null);
+                  setDuration(null);
+                  // A marathon isn't a ride: the goal starts over with the activity.
+                  setGoal(DEFAULT_GOAL);
+                }}
               />
             ))}
-          </Picker>
-
-          <Row style={styles.wrap}>
-            <Chip label="Public" selected={!isUnlisted} onPress={() => setUnlisted(false)} />
-            <Chip label="Invite only" selected={isUnlisted} onPress={() => setUnlisted(true)} />
-            <Chip label="Instant join" selected={instant} onPress={() => setInstant(true)} />
-            <Chip
-              label={asBlock ? "We approve each person" : "I approve each person"}
-              selected={!instant}
-              onPress={() => setInstant(false)}
-            />
-            {me?.gender === "woman" && (
-              <Chip
-                label="Women-only"
-                selected={womenOnly}
-                onPress={() => setWomenOnly(!womenOnly)}
-              />
-            )}
-          </Row>
-        </>
+          </View>
+        </View>
       )}
 
-      <T variant="caption" color="textSecondary">
-        {asBlock && !blockId
-          ? `First one ${formatWhen(start.toISOString())}, then the same time every week until ${formatDate(goalDateOf(goal))}. Whoever joins is in every week. This is the first weekly slot — add up to three more from the block’s page. If nobody joins in two weeks, it’s called off.`
-          : `Starts ${formatWhen(start.toISOString())}. Nobody pays to join and you don’t earn — the same no-show rules apply to you as to whoever joins.`}
-      </T>
-      {error && <Notice tone="danger">{error.message}</Notice>}
-      <Button
-        label={blockId ? "Add the slot" : asBlock ? "Post the training block" : "Post the session"}
-        loading={busy}
-        disabled={asBlock && !blockId && !goalReady(goal)}
-        onPress={publish}
-      />
+      <View style={styles.section}>
+        <SectionTitle>How hard</SectionTitle>
+        <Card>
+          <AbilityPicker value={ability} onChange={setPicked} />
+          {ability.kind !== "open" && (
+            <Row>
+              <View style={styles.flex}>
+                <T>Any level welcome</T>
+                <T variant="caption" color="textSecondary">
+                  I’ll adjust to whoever joins.
+                </T>
+              </View>
+              <Switch
+                accessibilityLabel="Any level welcome"
+                value={flexible}
+                onValueChange={setFlexible}
+                trackColor={{ true: theme.accent, false: theme.backgroundSelected }}
+              />
+            </Row>
+          )}
+        </Card>
+      </View>
+
+      <View style={styles.section}>
+        <SectionTitle>{asBlock || blockId ? "When · the first one" : "When"}</SectionTitle>
+        <Card>
+          <Choice label="Day">
+            {Array.from({ length: 8 }, (_, i) => i + firstDay).map((i) => (
+              <Chip key={i} label={dayLabel(i)} selected={days === i} onPress={() => setDays(i)} />
+            ))}
+          </Choice>
+          <Choice label="Start time · Dallas">
+            {HOURS.filter((h) => !tooSoon(h, 45)).map((h) => (
+              <Chip key={h} label={hourLabel(h)} selected={hour === h} onPress={() => setHour(h)} />
+            ))}
+          </Choice>
+          <Choice label="Minutes past the hour">
+            {MINUTES.map((m) => (
+              <Chip
+                key={m}
+                label={`${hourLabel(hour).replace(/ (AM|PM)/, "")}:${String(m).padStart(2, "0")}`}
+                selected={minute === m}
+                onPress={() => setMinute(m)}
+              />
+            ))}
+          </Choice>
+          <Choice label="How long">
+            {DURATIONS.map((d) => (
+              <Chip
+                key={d}
+                label={formatDuration(d)}
+                selected={durationMin === d}
+                onPress={() => setDuration(d)}
+              />
+            ))}
+          </Choice>
+        </Card>
+      </View>
+
+      <View style={styles.section}>
+        <SectionTitle>Where</SectionTitle>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.venues}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Place"
+        >
+          {venues.map((v) => {
+            const on = v.id === venueId;
+            return (
+              <PressScale
+                key={v.id}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`${v.name}, ${v.neighborhood}`}
+                feedback="select"
+                onPress={() => setVenueId(v.id)}
+                style={[
+                  styles.venue,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: on ? theme.accent : theme.border,
+                  },
+                  on && styles.venueOn,
+                ]}
+              >
+                <PhotoPanel venue={v} style={styles.venueFill} stops={[0.05, 0.35, 0.85]}>
+                  <T variant="label" numberOfLines={2}>
+                    {v.name}
+                  </T>
+                  <T variant="caption" color="textSecondary">
+                    {v.neighborhood}
+                  </T>
+                </PhotoPanel>
+              </PressScale>
+            );
+          })}
+        </ScrollView>
+        <T variant="caption" color="textFaint">
+          We’re starting with these public spots in Dallas. You’ll see the exact meeting point once
+          it’s posted, and so will whoever joins.
+        </T>
+      </View>
+
+      {asBlock && !blockId && (
+        <View style={styles.section}>
+          <SectionTitle>The goal</SectionTitle>
+          <GoalPicker activity={activity} value={goal} onChange={setGoal} />
+          <T variant="caption" color="textFaint">
+            Whoever joins is in every week until the date. This is the first weekly session — you
+            can add up to three more afterwards. If nobody joins within two weeks, it’s cancelled.
+          </T>
+        </View>
+      )}
+
+      {!blockId && (
+        <View style={styles.section}>
+          <SectionTitle>Who can join</SectionTitle>
+          <Card>
+            <Choice label="How many buddies?">
+              {[1, 2, 3].map((n) => (
+                <Chip
+                  key={n}
+                  label={String(n)}
+                  selected={capacity === n + 1}
+                  onPress={() => setCapacity(n + 1)}
+                />
+              ))}
+            </Choice>
+            <Choice label="Who can see it">
+              <Chip
+                label="Anyone at this level"
+                selected={!isUnlisted}
+                onPress={() => setUnlisted(false)}
+              />
+              <Chip
+                label="Only people I send the link to"
+                selected={isUnlisted}
+                onPress={() => setUnlisted(true)}
+              />
+            </Choice>
+            <Choice label="Joining">
+              <Chip label="Join instantly" selected={instant} onPress={() => setInstant(true)} />
+              <Chip
+                label={asBlock ? "We approve each person" : "I approve each person"}
+                selected={!instant}
+                onPress={() => setInstant(false)}
+              />
+            </Choice>
+            {me?.gender === "woman" && (
+              <Row>
+                <View style={styles.flex}>
+                  <T>Women-only</T>
+                  <T variant="caption" color="textSecondary">
+                    Only women can see and join.
+                  </T>
+                </View>
+                <Switch
+                  accessibilityLabel="Women-only"
+                  value={womenOnly}
+                  onValueChange={setWomenOnly}
+                  trackColor={{ true: theme.accent, false: theme.backgroundSelected }}
+                />
+              </Row>
+            )}
+          </Card>
+        </View>
+      )}
+
+      <View style={styles.section}>
+        <SectionTitle>Name and details</SectionTitle>
+        <Field
+          label="Session name"
+          value={title}
+          onChangeText={setTitle}
+          maxLength={120}
+          placeholder="e.g. Easy 5 miles on the Katy Trail"
+        />
+        <Field
+          label="Details (optional)"
+          value={detail}
+          onChangeText={setDetail}
+          multiline
+          maxLength={1000}
+          placeholder="Route, what to bring, anything a buddy should know"
+        />
+        <T variant="caption" color="textFaint">
+          If someone joins and you cancel within 12 hours it’s $5; not showing up is $10 and a
+          strike. The same applies to them.
+        </T>
+      </View>
     </Screen>
   );
 }
 
+/** One labelled single-choice group, wrapped so nothing hides off-screen. */
+function Choice({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <View style={styles.choice} accessibilityRole="radiogroup" accessibilityLabel={label}>
+      <T variant="caption" color="textSecondary">
+        {label}
+      </T>
+      <View style={styles.wrap}>{children}</View>
+    </View>
+  );
+}
+
+const NOUN: Record<Activity, string> = {
+  run: "run",
+  ride: "ride",
+  strength: "gym session",
+  hike: "hike",
+  walk: "walk",
+  mobility: "mobility session",
+};
+const partOfDay = (h: number) =>
+  h < 8 ? "Early" : h < 12 ? "Morning" : h < 14 ? "Lunchtime" : h < 17 ? "Afternoon" : "Evening";
+const DURATIONS = [30, 45, 60, 90, 120, 150, 180];
+
 const styles = StyleSheet.create({
-  group: { gap: Spacing.one },
-  wrap: { flexWrap: "wrap", gap: Spacing.one },
+  section: { gap: Spacing.two },
+  segment: { flexDirection: "row", gap: Spacing.one },
+  wrap: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.one },
+  choice: { gap: Spacing.one },
+  flex: { flex: 1 },
+  center: { textAlign: "center" },
+  venues: { gap: Spacing.two, paddingRight: Spacing.three },
+  venue: {
+    width: 168,
+    height: 120,
+    borderRadius: Radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  venueFill: { flex: 1, padding: Spacing.two, justifyContent: "flex-end" },
+  venueOn: { borderWidth: 2 },
 });

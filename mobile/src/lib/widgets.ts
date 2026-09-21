@@ -7,9 +7,11 @@
  * definitions register with it at import, so they're required lazily — a build
  * made before the module was added just doesn't have these surfaces.
  */
+import { requireOptionalNativeModule } from "expo";
 import { Platform } from "react-native";
 
 import { formatWhen } from "./format";
+import { firstName } from "./names";
 import { setBadge } from "./push";
 import type { Booking, Person, Session, Venue } from "./types";
 import type { LiveSessionProps } from "@/widgets/live-session";
@@ -27,6 +29,9 @@ function load(): Surfaces | null {
   if (cached !== undefined) return cached;
   cached = null;
   if (Platform.OS !== "ios") return cached;
+  // Ask before loading: in development a failed `require` is reported as fatal by
+  // the bundler before any try/catch here could see it.
+  if (!requireOptionalNativeModule("ExpoWidgets")) return cached;
   try {
     /* eslint-disable @typescript-eslint/no-require-imports -- optional native module */
     const { after } = require("expo-widgets") as typeof import("expo-widgets");
@@ -51,7 +56,7 @@ const EMPTY: NextSessionProps = {
   venue: "",
   level: "",
   status: "",
-  url: "samepace://post",
+  url: "samepace://sessions",
 };
 
 export type MineSnapshot = {
@@ -62,37 +67,36 @@ export type MineSnapshot = {
   venues: Map<string, Venue>;
 };
 
-type Seat = { booking: Booking; session: Session };
+type Seat = { booking?: Booking; session: Session; status: string };
 
+/** My upcoming sessions, joined or hosted — a session I posted counts before anyone joins it. */
 function upcomingSeats(snap: MineSnapshot, now: number): Seat[] {
-  const sessions = new Map(snap.sessions.map((s) => [s.id, s]));
-  const seen = new Set<string>();
-  return (
-    snap.bookings
-      .filter((b) => b.status === "confirmed" || b.status === "pending")
-      .map((booking) => ({ booking, session: sessions.get(booking.sessionId) }))
-      .filter((x): x is Seat => Boolean(x.session))
-      .filter((x) => +new Date(x.session.startAt) + x.session.durationMin * 60_000 > now)
-      .sort((a, b) => +new Date(a.session.startAt) - +new Date(b.session.startAt))
-      // A poster with two joiners has two bookings on one session: show it once.
-      .filter((x) => !seen.has(x.session.id) && Boolean(seen.add(x.session.id)))
-  );
+  const active = snap.bookings.filter((b) => b.status === "confirmed" || b.status === "pending");
+  return snap.sessions
+    .filter((s) => s.status === "open" && +new Date(s.startAt) + s.durationMin * 60_000 > now)
+    .flatMap((session): Seat[] => {
+      const seats = active.filter((b) => b.sessionId === session.id);
+      if (session.hostId === snap.meId) {
+        return [
+          { session, booking: seats.find((b) => b.status === "confirmed"), status: "Hosting" },
+        ];
+      }
+      const mine = seats.find((b) => b.participantId === snap.meId);
+      if (!mine) return [];
+      return [{ session, booking: mine, status: mine.status === "pending" ? "Waiting" : "Joined" }];
+    })
+    .sort((a, b) => +new Date(a.session.startAt) - +new Date(b.session.startAt));
 }
 
 function widgetProps(seat: Seat, snap: MineSnapshot): NextSessionProps {
-  const { booking, session } = seat;
+  const { session } = seat;
   return {
     title: session.title,
     when: formatWhen(session.startAt),
     startAt: +new Date(session.startAt),
     venue: snap.venues.get(session.venueId)?.name ?? "",
     level: session.abilityLabel,
-    status:
-      booking.status === "pending"
-        ? "Requested"
-        : booking.hostId === snap.meId
-          ? "You posted"
-          : "You’re in",
+    status: seat.status,
     url: `samepace://session/${session.id}`,
   };
 }
@@ -173,7 +177,7 @@ export function syncLiveActivity(snap: MineSnapshot, now = Date.now()) {
       const props: LiveSessionProps = {
         title: s.title,
         venue: snap.venues.get(s.venueId)?.name ?? "",
-        other: other?.name.split(" ")[0] ?? "Them",
+        other: firstName(other?.name) ?? "your buddy",
         startAt,
         closesAt,
         meIn: Boolean(isHost ? b.hostCheckedInAt : b.participantCheckedInAt),

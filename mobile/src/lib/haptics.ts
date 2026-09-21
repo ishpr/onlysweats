@@ -7,12 +7,17 @@
  * have it, so it's loaded lazily and its absence is silent. iOS and Android both
  * honour the system's own "vibration off" setting.
  */
+import { requireOptionalNativeModule } from "expo";
+
 type Haptics = typeof import("expo-haptics");
 
 let cached: Haptics | null | undefined;
 
 function load(): Haptics | null {
   if (cached !== undefined) return cached;
+  cached = null;
+  // Ask before loading: a failed `require` is fatal in development (see widgets.ts).
+  if (!requireOptionalNativeModule("ExpoHaptics")) return cached;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module
     cached = require("expo-haptics") as Haptics;

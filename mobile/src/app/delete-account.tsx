@@ -10,8 +10,8 @@ const WORD = "DELETE";
 
 const GOES = [
   "Your sign-in, name, neighborhood, level and everything else on your profile.",
-  "Sessions you posted and seats you hold — everyone is released at no charge.",
-  "Your standing slots, your messages and your block list.",
+  "Sessions you posted or joined — cancelled at no cost to anyone.",
+  "Your weekly sessions and goals, your messages and your block list.",
 ];
 
 export default function DeleteAccount() {
@@ -33,11 +33,11 @@ export default function DeleteAccount() {
   return (
     <Screen>
       <T color="textSecondary">
-        Deleting is immediate and permanent. There’s nothing to cancel first and nobody to email.
+        Deleting is immediate and permanent. You don’t need to cancel anything first.
       </T>
 
       <Card>
-        <T variant="label">What goes</T>
+        <T variant="label">What’s deleted</T>
         <View style={styles.list}>
           {GOES.map((line) => (
             <T key={line} variant="caption" color="textSecondary">
@@ -48,7 +48,7 @@ export default function DeleteAccount() {
       </Card>
 
       <Card>
-        <T variant="label">What stays</T>
+        <T variant="label">What’s kept</T>
         <T variant="caption" color="textSecondary">
           The people you trained with keep their own history: that a session happened, who showed
           up, and any fee or safety report tied to it. It’s shown against “Deleted member”, never

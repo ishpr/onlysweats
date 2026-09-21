@@ -31,7 +31,7 @@ export function BlockEnding({ block, people }: { block: TrainingBlock; people: P
       <Notice>
         {block.my.finished
           ? `You finished it: ${block.my.kept} of ${block.my.planned} sessions kept.`
-          : `This block reached its date. You kept ${block.my.kept} of ${block.my.planned} sessions.`}
+          : `This goal reached its date. You kept ${block.my.kept} of ${block.my.planned} sessions.`}
       </Notice>
 
       {ending.creditsOpen && buddies.length > 0 && (
@@ -79,9 +79,9 @@ export function BlockEnding({ block, people }: { block: TrainingBlock; people: P
 
       {ending.slotsUndecided && (
         <Card>
-          <T variant="label">What about the weekly slots?</T>
+          <T variant="label">What about the weekly sessions?</T>
           <T variant="caption" color="textSecondary">
-            They stopped at the goal date. Anyone in the block can pick them back up for the next
+            They stopped at the goal date. Anyone in the group can pick them back up for the next
             two weeks — after that they end.
           </T>
           <Button
@@ -93,7 +93,7 @@ export function BlockEnding({ block, people }: { block: TrainingBlock; people: P
           />
           <Button
             variant="soft"
-            label="Keep the slots running"
+            label="Keep meeting weekly"
             loading={keep.isPending}
             onPress={() => keep.mutate(block.id)}
           />

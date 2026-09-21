@@ -3,23 +3,23 @@ import { MessageCircle } from "lucide-react-native";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { Enter } from "@/components/motion";
-import { Avatar, Button, Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
+import { Avatar, Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
 import { formatWhen } from "@/lib/format";
 import { byId } from "@/lib/lookup";
-import { useMe, useMine, useNotifications, useRefreshOnFocus } from "@/lib/queries";
+import { useMe, useMine, useRefreshOnFocus } from "@/lib/queries";
 import type { BookingStatus } from "@/lib/types";
 import { AppHeader } from "@/components/brand";
 
 const STATUS: Record<BookingStatus, string> = {
-  pending: "Requested",
+  pending: "Waiting for approval",
   confirmed: "Confirmed",
   declined: "Declined",
   cancelled: "Cancelled",
   late_cancel: "Late cancel · $5",
-  covered: "Covered by a substitute",
+  covered: "Cancelled · spot filled",
   completed: "Completed",
   no_show: "No-show · joiner",
-  host_no_show: "No-show · poster",
+  host_no_show: "No-show · host",
   void: "Nobody came",
 };
 
@@ -28,7 +28,6 @@ export default function Inbox() {
   const me = useMe().data;
   const mine = useMine();
   const router = useRouter();
-  const unread = useNotifications().data?.unread ?? 0;
   const sessions = byId(mine.data?.sessions);
   const people = byId(mine.data?.people);
   const threads = [...(mine.data?.bookings ?? [])].sort(
@@ -42,16 +41,11 @@ export default function Inbox() {
       refreshing={mine.isRefetching}
     >
       <View>
-        <T variant="title">Inbox</T>
+        <T variant="title">Chats</T>
         <T variant="caption" color="textSecondary">
-          Threads live on a booking and expire a day after the session.
+          One chat per session you’re in. Each closes a day after the session.
         </T>
       </View>
-      <Button
-        variant="soft"
-        label={unread > 0 ? `Activity · ${unread} new` : "Activity"}
-        onPress={() => router.push("/activity")}
-      />
       {mine.isPending || mine.error ? (
         <StateView
           loading={mine.isPending}
@@ -61,8 +55,8 @@ export default function Inbox() {
       ) : threads.length === 0 ? (
         <EmptyState
           icon={MessageCircle}
-          title="No threads yet"
-          body="A thread opens with each seat — yours or someone’s on a session you posted — and closes a day after."
+          title="No chats yet"
+          body="When you join a session, or someone joins yours, you can message each other here."
           action={{ label: "Find a session", onPress: () => router.push("/sessions") }}
         />
       ) : (

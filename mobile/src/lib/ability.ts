@@ -100,3 +100,23 @@ export function myLevelLabel(activity: Activity, mine: MemberAbilities): string 
       return "Open to all";
   }
 }
+
+const mmssLabel = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+
+/** A session's level in words — the same wording the server puts on a listing. */
+export function abilityLabel(a: Ability): string {
+  switch (a.kind) {
+    case "run":
+      return `${mmssLabel(a.paceMinSec)}–${mmssLabel(a.paceMaxSec)} /mi · ${a.miles} mi`;
+    case "ride":
+      return `${a.mphMin}–${a.mphMax} mph · ${a.miles} mi · ${a.surface}`;
+    case "gym":
+      return a.focus.trim() ? `${cap(a.experience)} · ${a.focus.trim()}` : cap(a.experience);
+    case "hike":
+      return `${a.miles} mi · ${a.gainFt.toLocaleString("en-US")} ft · ${a.difficulty}`;
+    case "walk":
+      return `${cap(a.effort)} · ${a.miles} mi`;
+    case "open":
+      return "Open to all";
+  }
+}

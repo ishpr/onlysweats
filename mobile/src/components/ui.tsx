@@ -3,7 +3,7 @@
  * colour — it all resolves through `useTheme()`. Touch targets are ≥44pt and
  * every pressable has a role and a label.
  */
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -17,6 +17,7 @@ import {
   type StyleProp,
   type TextInputProps,
   type TextProps,
+  type ViewProps,
   type ViewStyle,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -30,6 +31,7 @@ import {
   Spacing,
   type ThemeColor,
 } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 
 import { Appear, PressScale, Skeleton } from "./motion";
@@ -75,6 +77,9 @@ export function T({
 /** The web body's soft colour wash: stand-blue from the top, a hint of move. */
 function Backdrop() {
   const theme = useTheme();
+  const scheme = useColorScheme();
+  // Light mode is a clean white page; the glow belongs to the dark theme.
+  if (scheme === "light") return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <LinearGradient
@@ -104,11 +109,14 @@ export function Screen({
   edges = ["top"],
   contentStyle,
   header,
+  footer,
   ...rest
 }: ScrollViewProps & {
   children: ReactNode;
   /** Pinned above the scroll area (app header, live banner). */
   header?: ReactNode;
+  /** Pinned below it: the one action this screen exists for, always in reach. */
+  footer?: ReactNode;
   scroll?: boolean;
   onRefresh?: () => void;
   refreshing?: boolean;
@@ -117,6 +125,27 @@ export function Screen({
 }) {
   const theme = useTheme();
   const inner = [styles.content, contentStyle];
+  // The spinner belongs to a pull, and only a pull. Queries also refetch when a tab
+  // regains focus; tying the control to that made it stick open and shove the page
+  // down. A pull shows for at least a beat, then for as long as the refetch runs.
+  const [pulled, setPulled] = useState(false);
+  const stillRefreshing = useRef(refreshing);
+  useEffect(() => {
+    stillRefreshing.current = refreshing;
+  }, [refreshing]);
+  useEffect(() => {
+    if (!pulled) return;
+    let poll: ReturnType<typeof setInterval> | undefined;
+    const beat = setTimeout(() => {
+      poll = setInterval(() => {
+        if (!stillRefreshing.current) setPulled(false);
+      }, 200);
+    }, 700);
+    return () => {
+      clearTimeout(beat);
+      if (poll) clearInterval(poll);
+    };
+  }, [pulled]);
   return (
     <SafeAreaView edges={edges} style={[styles.fill, { backgroundColor: theme.background }]}>
       <Backdrop />
@@ -129,8 +158,11 @@ export function Screen({
           refreshControl={
             onRefresh ? (
               <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
+                refreshing={pulled}
+                onRefresh={() => {
+                  setPulled(true);
+                  onRefresh();
+                }}
                 tintColor={theme.textSecondary}
               />
             ) : undefined
@@ -142,6 +174,16 @@ export function Screen({
       ) : (
         <View style={[styles.fill, inner]}>{children}</View>
       )}
+      {footer ? (
+        <View
+          style={[
+            styles.footer,
+            { backgroundColor: theme.background, borderTopColor: theme.border },
+          ]}
+        >
+          {footer}
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -161,8 +203,19 @@ export function Card({ children, style }: { children: ReactNode; style?: StylePr
   );
 }
 
-export function Row({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
-  return <View style={[styles.row, style]}>{children}</View>;
+export function Row({
+  children,
+  style,
+  ...rest
+}: Omit<ViewProps, "style" | "children"> & {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <View style={[styles.row, style]} {...rest}>
+      {children}
+    </View>
+  );
 }
 
 // ── Controls ─────────────────────────────────────────────────────────────────
@@ -444,6 +497,16 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.three,
     paddingBottom: Spacing.six * 2,
     gap: Spacing.three,
+  },
+  footer: {
+    width: "100%",
+    maxWidth: MaxContentWidth,
+    alignSelf: "center",
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.two,
+    paddingBottom: Spacing.one,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   card: {
     borderRadius: Radius.xl,

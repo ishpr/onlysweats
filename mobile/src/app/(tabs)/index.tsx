@@ -1,22 +1,46 @@
-import { Link, useRouter } from "expo-router";
-import { CalendarDays } from "lucide-react-native";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { CalendarDays, MapPin, Repeat, Target } from "lucide-react-native";
+import { useState } from "react";
+import { StyleSheet, View } from "react-native";
 
 import { AppHeader, LiveBanner } from "@/components/brand";
-import { PushPrompt } from "@/components/push-cards";
 import { LeaveStandingSlot } from "@/components/leave-standing-slot";
-import { SessionCard } from "@/components/session-card";
-import { Enter } from "@/components/motion";
-import { Button, Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
+import { ListCard, ListRow, SectionTitle } from "@/components/list";
+import { Enter, PressScale } from "@/components/motion";
+import { PushPrompt } from "@/components/push-cards";
+import { SessionCard, Tag, venueImage, type MineTag } from "@/components/session-card";
+import { Button, Card, EmptyState, Row, Screen, StateView, T, withAlpha } from "@/components/ui";
+import { Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
-import { Spacing } from "@/constants/theme";
-import { daysUntil, formatWhen, greeting, inCheckinWindow } from "@/lib/format";
+import { OnPhoto, useTheme } from "@/hooks/use-theme";
+import { myLevelLabel } from "@/lib/ability";
+import { daysUntil, formatUsd, formatWhen, greeting, inCheckinWindow } from "@/lib/format";
 import { byId } from "@/lib/lookup";
-import { useMe, useMine, useRefreshOnFocus, useSessions, useVenues } from "@/lib/queries";
+import { firstName } from "@/lib/names";
+import {
+  useBookingAction,
+  useMe,
+  useMine,
+  useRefreshOnFocus,
+  useSessions,
+  useVenues,
+} from "@/lib/queries";
+import { reputationLine } from "@/lib/reputation";
+import type { Booking, Session } from "@/lib/types";
 
 const SOON_MS = 48 * 3600_000;
 
-export default function Today() {
+/** One of my sessions, whichever side of it I'm on. */
+type Plan = { session: Session; tag: MineTag; booking?: Booking; joined: number };
+
+/**
+ * Home is mine: what I'm doing next, what's waiting on me, what repeats. Browsing
+ * lives on Find — here it's only a few picks at my level, and only after my own
+ * plans.
+ */
+export default function Home() {
   useRefreshOnFocus();
   const router = useRouter();
   const now = useNow(15_000);
@@ -24,267 +48,412 @@ export default function Today() {
   const mine = useMine();
   const open = useSessions();
   const venues = byId(useVenues().data);
+  const people = byId(mine.data?.people);
+  const act = useBookingAction();
+  const [openRow, setOpenRow] = useState<string | null>(null);
 
-  const mySessions = byId(mine.data?.sessions);
-  const upcoming = (mine.data?.bookings ?? [])
-    .filter((b) => b.status === "confirmed" || b.status === "pending")
-    .map((b) => ({ booking: b, session: mySessions.get(b.sessionId) }))
-    .filter((x) => x.session)
-    .sort((a, b) => +new Date(a.session!.startAt) - +new Date(b.session!.startAt));
-  const trainingBlocks = mine.data?.trainingBlocks ?? [];
-  // A finished block with something still to answer goes to the top: there is no
-  // other reminder that the week for it is running.
-  const toAnswer = trainingBlocks.filter(
-    (b) => (b.ending?.creditsOpen && b.ending.creditable.length > 0) || b.ending?.slotsUndecided,
-  );
-  // A block lists its own slots; don't show them twice.
-  const standingSlots = (mine.data?.series ?? []).filter((slot) => !slot.trainingBlockId);
-  const live = upcoming.find(
-    (x) => x.booking.status === "confirmed" && inCheckinWindow(x.session!.startAt, now),
-  );
-  const mySeats = upcoming.filter((x) => x.booking.participantId === me.data?.id);
-  // Listings exist before their first booking, including private invite links.
-  const hosted = (mine.data?.sessions ?? [])
-    .filter((s) => s.hostId === me.data?.id && s.status === "open")
-    .sort((a, b) => +new Date(a.startAt) - +new Date(b.startAt));
-  const soon = (open.data?.sessions ?? []).filter(
-    (s) => +new Date(s.startAt) - now < SOON_MS && s.hostId !== me.data?.id,
-  );
+  const meId = me.data?.id;
+  const bookings = mine.data?.bookings ?? [];
+  const active = bookings.filter((b) => b.status === "confirmed" || b.status === "pending");
 
+  const plans: Plan[] = (mine.data?.sessions ?? [])
+    .filter((s) => s.status === "open" && +new Date(s.startAt) + s.durationMin * 60_000 > now)
+    .flatMap((session): Plan[] => {
+      const seats = active.filter((b) => b.sessionId === session.id);
+      if (session.hostId === meId) {
+        const joined = seats.filter((b) => b.status === "confirmed");
+        return [{ session, tag: "Hosting", booking: joined[0], joined: joined.length }];
+      }
+      const seat = seats.find((b) => b.participantId === meId);
+      if (!seat) return [];
+      const tag: MineTag = seat.status === "pending" ? "Waiting for approval" : "Joined";
+      return [{ session, tag, booking: seat, joined: 0 }];
+    })
+    .sort((a, b) => +new Date(a.session.startAt) - +new Date(b.session.startAt));
+
+  const [next, ...later] = plans;
+  const live = plans.find(
+    (p) => p.booking?.status === "confirmed" && inCheckinWindow(p.session.startAt, now),
+  );
+  const requests = active.filter((b) => b.hostId === meId && b.status === "pending");
+
+  const goals = mine.data?.trainingBlocks ?? [];
+  const toWrapUp = goals.filter(
+    (g) => (g.ending?.creditsOpen && g.ending.creditable.length > 0) || g.ending?.slotsUndecided,
+  );
+  // A goal lists its own weekly sessions; don't show them twice.
+  const weekly = (mine.data?.series ?? []).filter((s) => !s.trainingBlockId);
+
+  const mineIds = new Set(plans.map((p) => p.session.id));
+  const picks = (open.data?.sessions ?? [])
+    .filter((s) => !mineIds.has(s.id) && s.seatsLeft > 0 && +new Date(s.startAt) > now)
+    .filter((s) => +new Date(s.startAt) - now < SOON_MS)
+    // At my level first; anything I can't judge after; never what doesn't fit.
+    .filter((s) => s.fitsMe !== false)
+    .sort((a, b) => Number(b.fitsMe === true) - Number(a.fitsMe === true))
+    .slice(0, 3);
+
+  const levelSet = Object.keys(me.data?.abilities ?? {}).length > 0;
+  const name = firstName(me.data?.name);
   const refresh = () => void Promise.all([mine.refetch(), open.refetch(), me.refetch()]);
 
   return (
     <Screen
       onRefresh={refresh}
-      refreshing={mine.isRefetching || open.isRefetching}
       header={
         <>
           <AppHeader />
-          {live && <LiveBanner bookingId={live.booking.id} />}
+          {live?.booking && <LiveBanner bookingId={live.booking.id} />}
         </>
       }
     >
-      <View>
-        <T color="textSecondary">{greeting()}</T>
-        <T variant="title">{me.data?.name.split(" ")[0] ?? " "}</T>
-      </View>
-
-      {/* Ask once there's something worth hearing about. */}
-      {(upcoming.length > 0 || hosted.length > 0) && <PushPrompt />}
-
-      {toAnswer.map((block) => (
-        <Card key={block.id}>
-          <T variant="label">
-            {block.my.finished ? `You finished ${block.goalLabel}` : `${block.goalLabel} is done`}
+      <T variant="heading" color="textSecondary">
+        {greeting()}
+        {name ? (
+          <T variant="heading">
+            {", "}
+            {name}
           </T>
-          <T variant="caption" color="textSecondary">
-            {block.ending?.creditsOpen && block.ending.creditable.length > 0
-              ? "Say who helped you stick to it, and what happens to the weekly slots."
-              : "The weekly slots have stopped. Start the next block, keep them running, or let them end."}
-          </T>
-          <Button
-            variant="accent"
-            label="Wrap it up"
-            onPress={() =>
-              router.push({ pathname: "/training-block/[id]", params: { id: block.id } })
-            }
-          />
-        </Card>
-      ))}
+        ) : null}
+      </T>
 
-      {me.data && me.data.creditCents > 0 && (
-        <Card>
-          <T variant="label">${me.data.creditCents / 100} membership credit</T>
-          <T variant="caption" color="textSecondary">
-            You showed up and they didn’t. It comes off your membership.
-          </T>
-        </Card>
-      )}
+      {mine.isPending ? (
+        <StateView loading rows={2} />
+      ) : mine.error ? (
+        <StateView error={mine.error} onRetry={refresh} />
+      ) : (
+        <>
+          {next ? (
+            <NextUp plan={next} now={now} withName={otherName(next, people, meId)} />
+          ) : (
+            <EmptyState
+              icon={CalendarDays}
+              title="Nothing planned yet"
+              body="Find someone doing the same workout at your level — or post yours and let them find you."
+              action={{ label: "Find a session", onPress: () => router.push("/sessions") }}
+              secondary={{ label: "Post a session", onPress: () => router.push("/post") }}
+            />
+          )}
 
-      {hosted.length > 0 && (
-        <View style={styles.section}>
-          <T variant="heading">Your listings</T>
-          {hosted.map((session) => (
-            <SessionCard key={session.id} session={session} venue={venues.get(session.venueId)} />
-          ))}
-        </View>
-      )}
+          {!levelSet && (
+            <Card>
+              <T variant="label">Set your level</T>
+              <T variant="caption" color="textSecondary">
+                It takes ten seconds, and it’s how we show you sessions that fit.
+              </T>
+              <Button
+                variant="accent"
+                label="Set my level"
+                onPress={() => router.push("/welcome")}
+              />
+            </Card>
+          )}
 
-      {mySeats.length > 0 && (
-        <View style={styles.section}>
-          <T variant="heading">Your seats</T>
-          {mySeats.map(({ booking, session }) => (
-            <Link
-              key={booking.id}
-              href={{ pathname: "/thread/[id]", params: { id: booking.id } }}
-              asChild
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${session!.title}, ${formatWhen(session!.startAt)}`}
-              >
-                <Card>
-                  <Row style={styles.between}>
-                    <View style={styles.flex}>
-                      <T variant="label">{session!.title}</T>
-                      <T variant="caption" color="textSecondary">
-                        {formatWhen(session!.startAt)} · {venues.get(session!.venueId)?.name}
-                      </T>
-                    </View>
-                    <T
-                      variant="caption"
-                      color={booking.status === "pending" ? "textSecondary" : "accent"}
-                    >
-                      {booking.status === "pending"
-                        ? "Requested"
-                        : booking.hostId === me.data?.id
-                          ? "You posted"
-                          : "You’re in"}
+          {(plans.length > 0 || requests.length > 0) && <PushPrompt />}
+
+          {requests.length > 0 && (
+            <View style={styles.section}>
+              <SectionTitle>Waiting on you</SectionTitle>
+              {requests.map((b) => {
+                const who = people.get(b.participantId);
+                const session = plans.find((p) => p.session.id === b.sessionId)?.session;
+                const level = who && session ? myLevelLabel(session.activity, who.abilities) : null;
+                return (
+                  <Card key={b.id}>
+                    <T variant="label">
+                      {firstName(who?.name) ?? "Someone"} asked to join{" "}
+                      {session?.title ?? "your session"}
                     </T>
-                  </Row>
-                </Card>
-              </Pressable>
-            </Link>
-          ))}
-        </View>
-      )}
-
-      {trainingBlocks.length > 0 && (
-        <View style={styles.section}>
-          <T variant="heading">Training blocks</T>
-          {trainingBlocks.map((block) => (
-            <Link
-              key={block.id}
-              href={{ pathname: "/training-block/[id]", params: { id: block.id } }}
-              asChild
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${block.goalLabel}, week ${block.weekNumber} of ${block.weeks}, ${block.my.kept} of ${block.my.planned} sessions kept`}
-              >
-                <Card>
-                  <Row style={styles.between}>
-                    <View style={styles.flex}>
-                      <T variant="label">{block.goalLabel}</T>
-                      <T variant="caption" color="textSecondary">
-                        {block.ending
-                          ? block.my.finished
-                            ? "Finished"
-                            : "Reached its date"
-                          : `Week ${block.weekNumber} of ${block.weeks} · ${weeksToGo(block.goalDate)}`}
-                      </T>
-                    </View>
-                    <View style={styles.streak}>
-                      <T variant="heading" color="accent">
-                        {block.my.kept}
-                        <T variant="caption" color="textSecondary">
-                          {" "}
-                          of {block.my.planned}
-                        </T>
-                      </T>
-                      <T variant="caption" color="textSecondary">
-                        kept
-                      </T>
-                    </View>
-                  </Row>
-                </Card>
-              </Pressable>
-            </Link>
-          ))}
-        </View>
-      )}
-
-      {standingSlots.length > 0 && (
-        <View style={styles.section}>
-          <T variant="heading">Standing slots</T>
-          {standingSlots.map((slot) => (
-            <View key={slot.id} style={styles.slot}>
-              <Link
-                href={
-                  slot.nextSessionId
-                    ? { pathname: "/session/[id]", params: { id: slot.nextSessionId } }
-                    : "/sessions"
-                }
-                asChild
-              >
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${slot.title}, every week, ${slot.streak} in a row`}
-                >
-                  <Card>
-                    <Row style={styles.between}>
-                      <View style={styles.flex}>
-                        <T variant="label">{slot.title}</T>
-                        <T variant="caption" color="textSecondary">
-                          {slot.abilityLabel} · {venues.get(slot.venueId)?.name}
-                        </T>
-                        <T variant="caption" color="textSecondary">
-                          {slot.nextStartAt
-                            ? `Next: ${formatWhen(slot.nextStartAt)}`
-                            : "Every week"}
-                        </T>
-                      </View>
-                      <View style={styles.streak}>
-                        <T variant="heading" color="accent">
-                          {slot.streak}
-                        </T>
-                        <T variant="caption" color="textSecondary">
-                          in a row
-                        </T>
-                      </View>
+                    <T variant="caption" color="textSecondary">
+                      {who ? reputationLine(who) : ""}
+                      {level ? ` · ${level}` : ""}
+                    </T>
+                    <Row>
+                      <Button
+                        style={styles.flex}
+                        variant="soft"
+                        label="Decline"
+                        loading={act.isPending && act.variables?.bookingId === b.id}
+                        onPress={() => act.mutate({ bookingId: b.id, action: "decline" })}
+                      />
+                      <Button
+                        style={styles.flex}
+                        variant="accent"
+                        label="Approve"
+                        loading={act.isPending && act.variables?.bookingId === b.id}
+                        onPress={() => act.mutate({ bookingId: b.id, action: "approve" })}
+                      />
                     </Row>
                   </Card>
-                </Pressable>
-              </Link>
+                );
+              })}
+              {act.error && (
+                <T variant="caption" color="danger">
+                  {act.error.message}
+                </T>
+              )}
+            </View>
+          )}
+
+          {toWrapUp.map((g) => (
+            <Card key={g.id}>
+              <T variant="label">
+                {g.my.finished
+                  ? `You finished ${g.goalLabel}`
+                  : `${g.goalLabel} has reached its date`}
+              </T>
+              <T variant="caption" color="textSecondary">
+                {g.ending?.creditsOpen && g.ending.creditable.length > 0
+                  ? "Say who helped you stick to it, and whether the weekly sessions carry on."
+                  : "The weekly sessions have stopped. Set a new goal, keep them going, or let them end."}
+              </T>
               <Button
-                variant="soft"
-                label="Give it a finish line"
-                accessibilityHint="Turns this standing slot into a training block with a goal and a date"
+                variant="accent"
+                label="Wrap it up"
                 onPress={() =>
-                  router.push({ pathname: "/training-block/new", params: { seriesId: slot.id } })
+                  router.push({ pathname: "/training-block/[id]", params: { id: g.id } })
                 }
               />
-              <LeaveStandingSlot seriesId={slot.id} />
-            </View>
+            </Card>
           ))}
-        </View>
-      )}
 
-      <View style={styles.section}>
+          {me.data && me.data.creditCents > 0 && (
+            <Card>
+              <T variant="label">{formatUsd(me.data.creditCents)} credit</T>
+              <T variant="caption" color="textSecondary">
+                Your buddy didn’t make it last time, so this is on us. It comes off your membership
+                when that starts.
+              </T>
+            </Card>
+          )}
+
+          {later.length > 0 && (
+            <View style={styles.section}>
+              <SectionTitle>Coming up</SectionTitle>
+              <ListCard>
+                {later.map((p) => (
+                  <ListRow
+                    key={p.session.id}
+                    label={p.session.title}
+                    detail={`${formatWhen(p.session.startAt)} · ${planStatus(p)}`}
+                    onPress={() =>
+                      router.push({ pathname: "/session/[id]", params: { id: p.session.id } })
+                    }
+                  />
+                ))}
+              </ListCard>
+            </View>
+          )}
+
+          {(goals.length > 0 || weekly.length > 0) && (
+            <View style={styles.section}>
+              <SectionTitle>Every week</SectionTitle>
+              <ListCard>
+                {goals.map((g) => (
+                  <ListRow
+                    key={g.id}
+                    icon={Target}
+                    label={g.goalLabel}
+                    detail={
+                      g.ending
+                        ? g.my.finished
+                          ? "Finished"
+                          : "Reached its date"
+                        : `${g.my.kept} of ${g.my.planned} kept · ${weeksToGo(g.goalDate)}`
+                    }
+                    onPress={() =>
+                      router.push({ pathname: "/training-block/[id]", params: { id: g.id } })
+                    }
+                  />
+                ))}
+                {weekly.map((w) => (
+                  <ListRow
+                    key={w.id}
+                    icon={Repeat}
+                    label={w.title}
+                    detail={
+                      w.nextStartAt
+                        ? `Next ${formatWhen(w.nextStartAt)}${w.streak > 0 ? ` · ${w.streak} in a row` : ""}`
+                        : "Every week"
+                    }
+                    expanded={openRow === w.id}
+                    onPress={() => setOpenRow(openRow === w.id ? null : w.id)}
+                  >
+                    <View style={styles.manage}>
+                      {w.nextSessionId && (
+                        <Button
+                          variant="soft"
+                          label="See next week’s session"
+                          onPress={() =>
+                            router.push({
+                              pathname: "/session/[id]",
+                              params: { id: w.nextSessionId! },
+                            })
+                          }
+                        />
+                      )}
+                      <Button
+                        variant="soft"
+                        label="Train for a goal together"
+                        accessibilityHint="Gives this weekly session a goal and an end date"
+                        onPress={() =>
+                          router.push({
+                            pathname: "/training-block/new",
+                            params: { seriesId: w.id },
+                          })
+                        }
+                      />
+                      <LeaveStandingSlot seriesId={w.id} />
+                    </View>
+                  </ListRow>
+                ))}
+              </ListCard>
+            </View>
+          )}
+
+          <View style={styles.section}>
+            <Row style={styles.between}>
+              <SectionTitle>
+                {levelSet ? "At your level · next 2 days" : "Next 2 days"}
+              </SectionTitle>
+              <PressScale
+                accessibilityRole="link"
+                accessibilityLabel="Find more sessions"
+                onPress={() => router.push("/sessions")}
+                style={styles.more}
+              >
+                <T variant="caption" color="accent">
+                  Find more
+                </T>
+              </PressScale>
+            </Row>
+            {open.isPending ? (
+              <StateView loading rows={1} />
+            ) : picks.length === 0 ? (
+              <T variant="caption" color="textSecondary">
+                Nothing new {levelSet ? "at your level " : ""}in the next two days. Find has the
+                full two weeks.
+              </T>
+            ) : (
+              picks.map((s, i) => (
+                <Enter key={s.id} index={i}>
+                  <SessionCard session={s} venue={venues.get(s.venueId)} />
+                </Enter>
+              ))
+            )}
+          </View>
+        </>
+      )}
+    </Screen>
+  );
+}
+
+function otherName(
+  plan: Plan,
+  people: Map<string, { name: string }>,
+  meId?: string,
+): string | null {
+  if (!plan.booking) return null;
+  const otherId = plan.booking.hostId === meId ? plan.booking.participantId : plan.booking.hostId;
+  return firstName(people.get(otherId)?.name);
+}
+
+const planStatus = (p: Plan) =>
+  p.tag === "Hosting"
+    ? p.joined > 0
+      ? `Hosting · ${p.joined} joined`
+      : "Hosting · no one yet"
+    : p.tag;
+
+/** "in 25 min", "in 9 h", or the day and time once it's further out. */
+function until(startAt: string, now: number) {
+  const min = Math.round((+new Date(startAt) - now) / 60_000);
+  if (min <= 0) return "Now";
+  if (min < 60) return `in ${min} min`;
+  if (min < 12 * 60)
+    return `in ${Math.floor(min / 60)} h ${min % 60 ? `${min % 60} min` : ""}`.trim();
+  return formatWhen(startAt);
+}
+
+/** The next thing I've committed to — the one card on Home that should win the eye. */
+function NextUp(props: { plan: Plan; now: number; withName: string | null }) {
+  return (
+    <OnPhoto>
+      <NextUpBody {...props} />
+    </OnPhoto>
+  );
+}
+
+function NextUpBody({ plan, now, withName }: { plan: Plan; now: number; withName: string | null }) {
+  const theme = useTheme();
+  const router = useRouter();
+  const venues = byId(useVenues().data);
+  const { session, booking } = plan;
+  const venue = venues.get(session.venueId);
+  const checkIn = booking?.status === "confirmed" && inCheckinWindow(session.startAt, now);
+  const toSession = () => router.push({ pathname: "/session/[id]", params: { id: session.id } });
+
+  return (
+    <View style={[styles.hero, { backgroundColor: theme.backgroundElement }]}>
+      <Image source={venueImage(venue)} style={StyleSheet.absoluteFill} contentFit="cover" />
+      <LinearGradient
+        colors={[
+          withAlpha(theme.background, 0.25),
+          withAlpha(theme.background, 0.7),
+          theme.background,
+        ]}
+        locations={[0, 0.45, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <PressScale
+        accessibilityRole="button"
+        accessibilityLabel={`Next up: ${session.title}, ${formatWhen(session.startAt)}, ${planStatus(plan)}`}
+        onPress={toSession}
+        scaleTo={0.99}
+        style={styles.heroBody}
+      >
         <Row style={styles.between}>
-          <T variant="heading">Next 48 hours</T>
-          <Link href="/sessions">
-            <T variant="caption" color="textSecondary">
-              All listings
-            </T>
-          </Link>
+          <Tag label={planStatus(plan)} tone="accent" />
+          <T variant="eyebrow" style={{ color: withAlpha(theme.text, 0.8) }}>
+            Next up
+          </T>
         </Row>
-        {open.isPending || open.error ? (
-          <StateView
-            loading={open.isPending}
-            error={open.error}
-            onRetry={() => void open.refetch()}
-          />
-        ) : soon.length === 0 ? (
-          <EmptyState
-            icon={CalendarDays}
-            title="Nothing in the next two days"
-            body="Post the workout you’re doing anyway — or invite someone you already know with a link."
-            action={{ label: "Post a session", onPress: () => router.push("/post") }}
-            secondary={{
-              label: "Invite someone you know",
-              onPress: () => router.push({ pathname: "/post", params: { unlisted: "1" } }),
-            }}
+        <View>
+          <T variant="title">{until(session.startAt, now)}</T>
+          <T variant="heading">{session.title}</T>
+          <T variant="label" style={{ color: withAlpha(theme.text, 0.85) }}>
+            {formatWhen(session.startAt)} · {session.abilityLabel}
+          </T>
+          <Row style={styles.where}>
+            <MapPin size={14} color={withAlpha(theme.text, 0.82)} />
+            <T variant="caption" style={{ color: withAlpha(theme.text, 0.82) }}>
+              {venue?.name ?? "—"}
+              {withName ? ` · ${plan.tag === "Hosting" ? "with" : "hosted by"} ${withName}` : ""}
+            </T>
+          </Row>
+        </View>
+      </PressScale>
+      <Row style={styles.heroActions}>
+        {checkIn && booking ? (
+          <Button
+            style={styles.flex}
+            variant="accent"
+            label="Check in"
+            onPress={() => router.push({ pathname: "/live/[id]", params: { id: booking.id } })}
           />
         ) : (
-          soon.map((s, i) => (
-            <Enter key={s.id} index={i}>
-              <SessionCard session={s} venue={venues.get(s.venueId)} />
-            </Enter>
-          ))
+          <Button style={styles.flex} variant="primary" label="Details" onPress={toSession} />
         )}
-      </View>
-    </Screen>
+        {booking && (
+          <Button
+            style={styles.flex}
+            variant="soft"
+            label="Chat"
+            onPress={() => router.push({ pathname: "/thread/[id]", params: { id: booking.id } })}
+          />
+        )}
+      </Row>
+    </View>
   );
 }
 
@@ -298,8 +467,17 @@ function weeksToGo(goalDate: string) {
 
 const styles = StyleSheet.create({
   section: { gap: Spacing.two },
-  slot: { gap: Spacing.one },
-  between: { justifyContent: "space-between" },
+  between: { justifyContent: "space-between", alignItems: "center" },
   flex: { flex: 1 },
-  streak: { alignItems: "center" },
+  manage: { gap: Spacing.one, paddingTop: Spacing.one },
+  more: { minHeight: 44, justifyContent: "center", paddingHorizontal: Spacing.one },
+  hero: {
+    borderRadius: Radius.xl,
+    overflow: "hidden",
+    minHeight: 260,
+    justifyContent: "space-between",
+  },
+  heroBody: { flex: 1, padding: Spacing.three, gap: Spacing.five, justifyContent: "space-between" },
+  heroActions: { padding: Spacing.three, paddingTop: 0 },
+  where: { gap: 6, marginTop: Spacing.half },
 });

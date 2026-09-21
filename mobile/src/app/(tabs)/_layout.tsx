@@ -1,6 +1,7 @@
 import { BlurView } from "expo-blur";
+import * as SecureStore from "expo-secure-store";
 import { Tabs, useRouter } from "expo-router";
-import { CalendarDays, MapPinned, MessageCircle, Plus, UserRound } from "lucide-react-native";
+import { House, MessageCircle, Plus, Search, UserRound } from "lucide-react-native";
 import { useEffect } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
@@ -15,22 +16,43 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { T, withAlpha } from "@/components/ui";
 import { Fonts, Radius, Spacing } from "@/constants/theme";
+import { welcomeKey } from "@/app/welcome";
 import { useSurfaces } from "@/hooks/use-surfaces";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptic } from "@/lib/haptics";
 import { Suspended } from "@/components/suspended";
 import { useMe, useMine } from "@/lib/queries";
 
 const TABS = {
-  index: { label: "Today", icon: CalendarDays },
-  sessions: { label: "Sessions", icon: MapPinned },
-  inbox: { label: "Inbox", icon: MessageCircle },
+  index: { label: "Home", icon: House },
+  sessions: { label: "Find", icon: Search },
+  inbox: { label: "Chats", icon: MessageCircle },
   you: { label: "You", icon: UserRound },
 } as const;
 
 export default function TabsLayout() {
   const me = useMe().data;
+  const router = useRouter();
   useSurfaces();
+
+  // First run: the promise is "at your level", so ask for it before the feed. Shown
+  // once per member on this phone; "Set my level" on Home brings it back any time.
+  const meId = me?.id;
+  const needsLevel = me ? Object.keys(me.abilities).length === 0 && !me.suspended : false;
+  useEffect(() => {
+    if (!meId || !needsLevel) return;
+    let alive = true;
+    void SecureStore.getItemAsync(welcomeKey(meId))
+      .catch(() => null)
+      .then((seen) => {
+        if (alive && !seen) router.push("/welcome");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [meId, needsLevel, router]);
+
   // A paused account can read why and delete itself. Nothing else loads.
   if (me?.suspended) return <Suspended reason={me.suspended.reason} />;
   return (
@@ -67,19 +89,26 @@ type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>["tab
 /** The web's frosted bottom bar: four tabs, then the white Post button. */
 function TabBar({ state, navigation }: TabBarProps) {
   const theme = useTheme();
+  const scheme = useColorScheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const waiting = useMine().data?.bookings.filter((b) => b.status === "pending").length ?? 0;
+  // Requests I have to answer — never my own outgoing ones. They're listed on Home.
+  const meId = useMe().data?.id;
+  const waiting =
+    useMine().data?.bookings.filter((b) => b.status === "pending" && b.hostId === meId).length ?? 0;
 
   return (
     <Bar
       intensity={50}
-      tint="dark"
+      tint={scheme}
       style={[
         styles.bar,
         {
-          paddingBottom: Math.max(10, insets.bottom),
-          backgroundColor: withAlpha(theme.background, Platform.OS === "ios" ? 0.62 : 0.96),
+          // The full safe-area inset (34 pt on a Face ID iPhone) leaves a dead band under
+          // the labels. The home indicator only occupies the lowest ~13 pt, so tuck the
+          // bar down to just clear it; the 48 pt targets stay fully above the indicator.
+          paddingBottom: Math.max(Spacing.one, insets.bottom - 18),
+          backgroundColor: Platform.OS === "ios" ? theme.glass : theme.background,
           borderTopColor: withAlpha(theme.text, 0.12),
         },
       ]}
@@ -93,7 +122,11 @@ function TabBar({ state, navigation }: TabBarProps) {
           <Pressable
             key={route.key}
             accessibilityRole="tab"
-            accessibilityLabel={tab.label}
+            accessibilityLabel={
+              route.name === "index" && waiting > 0
+                ? `${tab.label}, ${waiting} waiting on you`
+                : tab.label
+            }
             accessibilityState={{ selected: active }}
             style={styles.item}
             onPress={() => {
@@ -112,9 +145,9 @@ function TabBar({ state, navigation }: TabBarProps) {
               <TabIcon active={active}>
                 <tab.icon size={20} color={color} />
               </TabIcon>
-              {route.name === "inbox" && waiting > 0 && (
+              {route.name === "index" && waiting > 0 && (
                 <View style={[styles.dot, { backgroundColor: theme.move }]}>
-                  <T style={styles.dotText}>{waiting}</T>
+                  <T style={[styles.dotText, { color: theme.onDanger }]}>{waiting}</T>
                 </View>
               )}
             </View>
@@ -178,5 +211,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dotText: { fontFamily: Fonts.medium, fontSize: 10, lineHeight: 14, color: "#FFF7F9" },
+  dotText: { fontFamily: Fonts.medium, fontSize: 10, lineHeight: 14 },
 });

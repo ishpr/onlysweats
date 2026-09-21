@@ -9,10 +9,10 @@ import { useBlock, useReport } from "@/lib/queries";
 import type { ReportReason } from "@/lib/types";
 
 const REASONS: { value: ReportReason; label: string }[] = [
-  { value: "date_framing", label: "Made it feel like a date" },
+  { value: "date_framing", label: "Treated it as more than a workout" },
   { value: "harassment", label: "Harassment or unwanted contact" },
   { value: "unsafe", label: "Felt unsafe" },
-  { value: "misrepresented", label: "Not what was posted" },
+  { value: "misrepresented", label: "Session wasn’t as described" },
   { value: "fake_or_spam", label: "Fake profile or spam" },
   { value: "other", label: "Something else" },
 ];
@@ -37,7 +37,7 @@ export default function Report() {
   const blockOnly = () =>
     Alert.alert(
       `Block ${name}?`,
-      "You won’t see each other’s sessions or be able to message. Any seat you share is released at no charge. They aren’t told.",
+      "You won’t see each other’s sessions or be able to message. Any sessions you have together are cancelled at no cost to you. They aren’t told.",
       [
         { text: "Not now", style: "cancel" },
         {
@@ -51,7 +51,7 @@ export default function Report() {
   if (sent) {
     return (
       <Screen contentStyle={styles.done}>
-        <T variant="title">Got it.</T>
+        <T variant="title">Report sent.</T>
         <T color="textSecondary">
           A person at SamePace reads every report, usually within a day.
           {alsoBlock ? ` ${name} is blocked — you won’t see each other again.` : ""} If you’re in
@@ -95,7 +95,8 @@ export default function Report() {
           <View style={styles.flex}>
             <T variant="label">Also block {name}</T>
             <T variant="caption" color="textSecondary">
-              You won’t see each other’s sessions. Any seat you share is released at no charge.
+              You won’t see each other’s sessions. Any sessions you have together are cancelled at
+              no cost to you.
             </T>
           </View>
           <Switch
@@ -133,7 +134,7 @@ export default function Report() {
       />
       <Button
         variant="ghost"
-        label={`Just block ${name}`}
+        label={`Block ${name} without reporting`}
         loading={block.isPending}
         onPress={blockOnly}
       />

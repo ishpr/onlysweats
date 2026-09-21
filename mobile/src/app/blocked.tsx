@@ -40,7 +40,7 @@ export default function Blocked() {
         <EmptyState
           icon={ShieldCheck}
           title="Nobody blocked"
-          body="If someone makes a session feel like anything other than a workout, block them from the session or your thread."
+          body="To block someone, open their session or your chat with them and choose Report or block."
         />
       )}
       {blocks.data.map((p) => (

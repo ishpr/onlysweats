@@ -1,12 +1,27 @@
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import {
+  Bike,
+  Dumbbell,
+  FileText,
+  Footprints,
+  LifeBuoy,
+  Lock,
+  LogOut,
+  Mountain,
+  ShieldBan,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react-native";
+import { useEffect, useState } from "react";
 import { Linking, StyleSheet, View } from "react-native";
 
 import { LevelPicker } from "@/components/ability-picker";
 import { AppHeader } from "@/components/brand";
+import { ListCard, ListRow, SectionTitle } from "@/components/list";
+import { Appear } from "@/components/motion";
 import { NotificationSettings } from "@/components/push-cards";
+import { TrackRings } from "@/components/rings";
 import {
-  Avatar,
   Badge,
   Button,
   Card,
@@ -19,6 +34,9 @@ import {
   T,
 } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
+import { myLevelLabel } from "@/lib/ability";
+import { type AppearancePref, loadAppearance, saveAppearance } from "@/lib/appearance";
 import { useAuth } from "@/lib/auth";
 import { SITE_URL } from "@/lib/config";
 import { formatUsd, formatWhen } from "@/lib/format";
@@ -32,7 +50,21 @@ const GENDERS: { value: Gender; label: string }[] = [
   { value: null, label: "Rather not say" },
 ];
 
-const LEVELS = ["run", "ride", "strength", "hike", "walk"] as const;
+const APPEARANCES: { value: AppearancePref; label: string }[] = [
+  { value: "system", label: "Match my phone" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
+
+const LEVELS = [
+  { activity: "run", label: "Run", icon: Footprints },
+  { activity: "ride", label: "Ride", icon: Bike },
+  { activity: "strength", label: "Gym", icon: Dumbbell },
+  { activity: "hike", label: "Hike", icon: Mountain },
+  { activity: "walk", label: "Walk", icon: Footprints },
+] as const;
+
+const MILESTONES = [5, 10, 25, 50, 100, 250];
 
 /**
  * A profile is a first name, a level and a track record. There is no "about me",
@@ -41,31 +73,67 @@ const LEVELS = ["run", "ride", "strength", "hike", "walk"] as const;
 export default function You() {
   const { signOut } = useAuth();
   const router = useRouter();
+  const theme = useTheme();
   const me = useMe();
   const update = useUpdateMe();
   const [name, setName] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [appearance, setAppearance] = useState<AppearancePref>("system");
+  useEffect(() => {
+    void loadAppearance().then(setAppearance);
+  }, []);
 
   if (!me.data) {
     return (
-      <Screen>
+      <Screen header={<AppHeader />}>
         <StateView loading={me.isPending} error={me.error} onRetry={() => void me.refetch()} />
       </Screen>
     );
   }
   const p = me.data;
   const rated = p.completedCount > 0;
+  const milestone = MILESTONES.find((m) => m > p.completedCount) ?? p.completedCount;
+  const web = (path: string) => () => void Linking.openURL(`${SITE_URL}${path}`);
 
   return (
     <Screen header={<AppHeader />} onRefresh={() => void me.refetch()} refreshing={me.isRefetching}>
-      <Row>
-        <Avatar initials={p.initials} accent={p.accent} size={64} />
+      <Appear style={styles.hero}>
+        <TrackRings
+          completed={p.completedCount / milestone}
+          onTime={rated ? p.onTimePct / 100 : 0}
+          joinAgain={rated ? p.wouldJoinPct / 100 : 0}
+        >
+          <T variant="heading">{p.initials}</T>
+        </TrackRings>
         <View style={styles.flex}>
-          <T variant="heading">{p.name}</T>
-          <T variant="caption" color="textSecondary">
-            {p.neighborhood} · member since {p.memberSince}
+          <T variant="title" numberOfLines={2} style={styles.name}>
+            {p.name}
           </T>
+          <T variant="caption" color="textSecondary">
+            {p.neighborhood} · since {p.memberSince}
+          </T>
+          <View style={styles.legend}>
+            <Legend
+              color={theme.move}
+              value={String(p.completedCount)}
+              label={`of ${milestone} sessions`}
+            />
+            <Legend color={theme.accent} value={rated ? `${p.onTimePct}%` : "—"} label="on time" />
+            <Legend
+              color={theme.stand}
+              value={rated ? `${p.wouldJoinPct}%` : "—"}
+              label="would join again"
+            />
+          </View>
         </View>
-      </Row>
+      </Appear>
+
+      {!rated && (
+        <T variant="caption" color="textSecondary">
+          Your rings fill as you show up. They’re the only thing other members see about you — no
+          photos, no bio.
+        </T>
+      )}
 
       {/* Apple only shares a name the first time, and "Hide My Email" gives us nothing to go on. */}
       {(p.name === "Member" || name !== null) && (
@@ -78,28 +146,41 @@ export default function You() {
             autoComplete="given-name"
             maxLength={80}
           />
-          <Button
-            variant="soft"
-            label="Save"
-            disabled={!name?.trim()}
-            loading={update.isPending}
-            onPress={() =>
-              update.mutate({ name: name!.trim() }, { onSuccess: () => setName(null) })
-            }
-          />
+          <Row>
+            <Button
+              style={styles.flex}
+              variant="ghost"
+              label="Cancel"
+              onPress={() => setName(null)}
+            />
+            <Button
+              style={styles.flex}
+              variant="soft"
+              label="Save"
+              disabled={!name?.trim()}
+              loading={update.isPending}
+              onPress={() =>
+                update.mutate({ name: name!.trim() }, { onSuccess: () => setName(null) })
+              }
+            />
+          </Row>
         </Card>
       )}
 
-      <Row style={styles.stats}>
-        <Stat value={String(p.completedCount)} label="Completed" />
-        <Stat value={rated ? `${p.onTimePct}%` : "—"} label="On time" />
-        <Stat value={rated ? `${p.wouldJoinPct}%` : "—"} label="Join again" />
-      </Row>
-
       {(p.blocksFinished > 0 || p.helpedCount > 0) && (
-        <Row style={styles.stats}>
-          <Stat value={String(p.blocksFinished)} label="Blocks finished" />
-          <Stat value={String(p.helpedCount)} label="People you helped finish" />
+        <Row style={styles.wrap}>
+          {p.blocksFinished > 0 && (
+            <Badge
+              tone="accent"
+              label={`${p.blocksFinished} goal${p.blocksFinished === 1 ? "" : "s"} finished`}
+            />
+          )}
+          {p.helpedCount > 0 && (
+            <Badge
+              tone="accent"
+              label={`Helped ${p.helpedCount} ${p.helpedCount === 1 ? "person" : "people"} reach a goal`}
+            />
+          )}
         </Row>
       )}
 
@@ -111,39 +192,77 @@ export default function You() {
       )}
 
       <Card>
-        <T variant="label">Membership</T>
+        <Row style={styles.between}>
+          <T variant="label">Membership</T>
+          {p.freeSessionsLeft > 0 && (
+            <View
+              accessible
+              style={styles.dots}
+              accessibilityLabel={`${p.freeSessionsLeft} free sessions left`}
+            >
+              {[0, 1].map((i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.dot,
+                    {
+                      backgroundColor:
+                        i < 2 - p.freeSessionsLeft ? theme.accent : theme.backgroundSelected,
+                    },
+                  ]}
+                />
+              ))}
+            </View>
+          )}
+        </Row>
         <T variant="caption" color="textSecondary">
           {p.freeSessionsLeft > 0
             ? `Your first two sessions are free — ${p.freeSessionsLeft} to go. After that it’s $12 a month, and only once your area is busy enough to be worth it.`
             : "You’re past your two free sessions. Membership isn’t charging in your area yet."}
         </T>
-        <Row style={styles.wrap}>
-          {p.creditCents > 0 && <Badge label={`${formatUsd(p.creditCents)} credit`} />}
-          {p.feesCents > 0 && <Badge label={`${formatUsd(p.feesCents)} in fees`} />}
-          {p.strikes > 0 && (
-            <Badge label={`${p.strikes} strike${p.strikes === 1 ? "" : "s"} · 60 days`} />
-          )}
-        </Row>
+        {(p.creditCents > 0 || p.feesCents > 0 || p.strikes > 0) && (
+          <Row style={styles.wrap}>
+            {p.creditCents > 0 && (
+              <Badge tone="accent" label={`${formatUsd(p.creditCents)} credit`} />
+            )}
+            {p.feesCents > 0 && <Badge label={`${formatUsd(p.feesCents)} in fees`} />}
+            {p.strikes > 0 && (
+              <Badge label={`${p.strikes} strike${p.strikes === 1 ? "" : "s"} · 60 days`} />
+            )}
+          </Row>
+        )}
       </Card>
 
-      <Card>
-        <T variant="label">Your level</T>
-        <T variant="caption" color="textSecondary">
-          Sessions are matched to this, and new posts start from it. It’s about the workout — never
-          shown as a ranking, never rated by anyone.
-        </T>
-        {LEVELS.map((a) => (
-          <LevelPicker
-            key={a}
-            activity={a}
-            mine={p.abilities}
-            onChange={(abilities) => update.mutate({ abilities })}
-          />
-        ))}
-      </Card>
+      <SectionTitle>Your level</SectionTitle>
+      <ListCard>
+        {LEVELS.map(({ activity, label, icon }) => {
+          const mine = myLevelLabel(activity, p.abilities);
+          return (
+            <ListRow
+              key={activity}
+              icon={icon}
+              label={label}
+              value={mine ?? "Set"}
+              valueTone={mine ? "muted" : "accent"}
+              expanded={open === activity}
+              onPress={() => setOpen(open === activity ? null : activity)}
+            >
+              <LevelPicker
+                activity={activity}
+                mine={p.abilities}
+                onChange={(abilities) => update.mutate({ abilities })}
+              />
+            </ListRow>
+          );
+        })}
+      </ListCard>
+      <T variant="caption" color="textFaint">
+        We show you sessions at your level first, and new posts start from it. It’s about the
+        workout — never a ranking, never rated by anyone.
+      </T>
 
+      <SectionTitle>Women-only sessions</SectionTitle>
       <Card>
-        <T variant="label">Women-only sessions</T>
         <T variant="caption" color="textSecondary">
           Only used to open women-only sessions to women. Never shown, never ranked on.
         </T>
@@ -161,70 +280,92 @@ export default function You() {
 
       {update.error && <Notice tone="danger">{update.error.message}</Notice>}
 
+      <SectionTitle>Notifications</SectionTitle>
       <NotificationSettings me={p} />
 
+      <SectionTitle>Appearance</SectionTitle>
       <Card>
-        <T variant="label">Safety and account</T>
-        <T variant="caption" color="textSecondary">
-          Report or block someone from their session or your thread with them.
-        </T>
-        <Button variant="soft" label="Blocked members" onPress={() => router.push("/blocked")} />
-        <Button
-          variant="soft"
-          label="Help and support"
-          accessibilityRole="link"
-          onPress={() => void Linking.openURL(`${SITE_URL}/support`)}
-        />
-        <Row>
-          <Button
-            style={styles.flex}
-            variant="ghost"
-            label="Privacy"
-            accessibilityRole="link"
-            onPress={() => void Linking.openURL(`${SITE_URL}/privacy`)}
-          />
-          <Button
-            style={styles.flex}
-            variant="ghost"
-            label="Terms"
-            accessibilityRole="link"
-            onPress={() => void Linking.openURL(`${SITE_URL}/terms`)}
-          />
+        <Row style={styles.wrap} accessibilityRole="radiogroup" accessibilityLabel="Appearance">
+          {APPEARANCES.map((a) => (
+            <Chip
+              key={a.value}
+              label={a.label}
+              selected={appearance === a.value}
+              onPress={() => {
+                setAppearance(a.value);
+                void saveAppearance(a.value);
+              }}
+            />
+          ))}
         </Row>
-        {p.isAdmin && (
-          <Button
-            variant="soft"
-            label="Admin queue"
-            accessibilityRole="link"
-            onPress={() => void Linking.openURL(`${SITE_URL}/admin`)}
-          />
-        )}
       </Card>
 
-      <Button variant="ghost" label="Sign out" onPress={() => void signOut()} />
-      <Button
-        variant="ghost"
-        label="Delete account"
-        onPress={() => router.push("/delete-account")}
-      />
+      <SectionTitle>Safety and account</SectionTitle>
+      <ListCard>
+        <ListRow icon={ShieldBan} label="Blocked members" onPress={() => router.push("/blocked")} />
+        {name === null && p.name !== "Member" ? (
+          <ListRow icon={FileText} label="Change my name" onPress={() => setName(p.name)} />
+        ) : null}
+        <ListRow
+          icon={LifeBuoy}
+          label="Help and support"
+          accessibilityRole="link"
+          onPress={web("/support")}
+        />
+        <ListRow icon={Lock} label="Privacy" accessibilityRole="link" onPress={web("/privacy")} />
+        <ListRow icon={FileText} label="Terms" accessibilityRole="link" onPress={web("/terms")} />
+        {p.isAdmin ? (
+          <ListRow
+            icon={ShieldCheck}
+            label="Admin queue"
+            accessibilityRole="link"
+            onPress={web("/admin")}
+          />
+        ) : null}
+      </ListCard>
+      <T variant="caption" color="textFaint">
+        To report or block someone, open their session or your chat with them.
+      </T>
+
+      <ListCard>
+        <ListRow icon={LogOut} label="Sign out" onPress={() => void signOut()} />
+        <ListRow
+          icon={Trash2}
+          label="Delete account"
+          danger
+          onPress={() => router.push("/delete-account")}
+        />
+      </ListCard>
     </Screen>
   );
 }
 
-function Stat({ value, label }: { value: string; label: string }) {
+function Legend({ color, value, label }: { color: string; value: string; label: string }) {
   return (
-    <Card style={styles.stat}>
-      <T variant="heading">{value}</T>
+    <Row style={styles.legendRow}>
+      <View style={[styles.legendDot, { backgroundColor: color }]} />
+      <T variant="label">{value}</T>
       <T variant="caption" color="textSecondary">
         {label}
       </T>
-    </Card>
+    </Row>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  hero: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.three,
+    paddingVertical: Spacing.one,
+  },
+  name: { fontSize: 26, lineHeight: 30 },
+  legend: { marginTop: Spacing.two, gap: 2 },
+  legendRow: { gap: 6 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
   wrap: { flexWrap: "wrap", gap: Spacing.one },
-  stats: { alignItems: "stretch" },
-  stat: { flex: 1, gap: 0 },
+  between: { justifyContent: "space-between" },
+  dots: { flexDirection: "row", gap: 6 },
+  dot: { width: 10, height: 10, borderRadius: 5 },
 });

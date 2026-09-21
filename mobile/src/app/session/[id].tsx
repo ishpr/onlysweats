@@ -1,27 +1,20 @@
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
-import { Link, useLocalSearchParams, useRouter } from "expo-router";
-import { Clock, MapPin, Shield, Users } from "lucide-react-native";
-import { useState } from "react";
-import { Alert, Share, StyleSheet, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { Clock, Ellipsis, MapPin, Repeat, UserCheck, Users } from "lucide-react-native";
+import { type ReactNode, useState } from "react";
+import { Alert, Linking, Platform, Share, StyleSheet, View } from "react-native";
 
-import { venueImage } from "@/components/session-card";
 import { LeaveStandingSlot } from "@/components/leave-standing-slot";
-import { Avatar, Badge, Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
+import { PressScale } from "@/components/motion";
+import { PhotoPanel, Tag } from "@/components/session-card";
+import { Avatar, Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
 import { Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
-import { ReportLink } from "@/components/report-link";
+import { myLevelLabel } from "@/lib/ability";
 import { SITE_URL } from "@/lib/config";
-import {
-  formatDayLong,
-  formatDuration,
-  formatTime,
-  POLICY_LINE,
-  inCheckinWindow,
-  isLateCancel,
-} from "@/lib/format";
+import { formatDuration, formatWhen, inCheckinWindow, isLateCancel } from "@/lib/format";
 import { byId } from "@/lib/lookup";
+import { firstName } from "@/lib/names";
 import { reputationLine } from "@/lib/reputation";
 import {
   useBookingAction,
@@ -34,6 +27,15 @@ import {
   useVenues,
 } from "@/lib/queries";
 import { ACTIVITIES } from "@/lib/types";
+
+const PLACE: Record<string, string> = {
+  trail: "Trail",
+  park: "Park",
+  gym: "Gym",
+  track: "Track",
+  road_start: "Road",
+};
+const ENDED: Record<string, string> = { cancelled: "Cancelled", completed: "Finished" };
 
 export default function SessionDetail() {
   const { id, invite } = useLocalSearchParams<{ id: string; invite?: string }>();
@@ -49,6 +51,7 @@ export default function SessionDetail() {
   const act = useBookingAction();
   const cancelListing = useCancelSession();
   const [error, setError] = useState("");
+  const [justJoined, setJustJoined] = useState(false);
 
   if (!q.data) {
     return (
@@ -86,33 +89,64 @@ export default function SessionDetail() {
   const regularSeat =
     Boolean(session.block?.joinable) && !session.substituteSeat && !isHost && !mySeat;
 
-  function hold() {
+  const hostName = firstName(host?.name) ?? "the host";
+  const freeUntil = formatWhen(new Date(+new Date(session.startAt) - 12 * 3600_000).toISOString());
+
+  /** Joining is a commitment with a cost attached, so it's said before it's made. */
+  function join() {
     setError("");
-    const go = () =>
-      book.mutate(
-        { sessionId: session.id, inviteCode: invite },
+    const late = isLateCancel(session.startAt);
+    const asking = session.joinMode !== "instant" && !session.substituteSeat;
+    Alert.alert(
+      asking ? `Ask to join ${session.title}?` : `Join ${session.title}?`,
+      [
+        `${formatWhen(session.startAt)} at ${venue?.name ?? "the meeting point"}.`,
+        asking ? `${hostName} approves each person — you’ll hear back before it starts.` : null,
+        late
+          ? "It’s less than 12 hours away, so leaving after you join costs $5 (waived if someone takes your spot)."
+          : `Free to leave until ${freeUntil}. After that it’s $5, waived if someone takes your spot.`,
+        "Not showing up is $10 and a strike.",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      [
+        { text: "Not now", style: "cancel" },
         {
-          onError: fail,
-          onSuccess: (b) => router.push({ pathname: "/thread/[id]", params: { id: b.id } }),
+          text: asking ? "Ask to join" : "Join",
+          onPress: () =>
+            book.mutate(
+              { sessionId: session.id, inviteCode: invite },
+              { onError: fail, onSuccess: () => setJustJoined(true) },
+            ),
         },
-      );
-    go();
+      ],
+    );
   }
 
   function release() {
     if (!mySeat) return;
     const late = mySeat.status === "confirmed" && isLateCancel(session.startAt);
     Alert.alert(
-      session.seriesId ? "Skip this week?" : "Give up your seat?",
-      late
-        ? "It’s inside 12 hours: that’s a $5 fee, waived if someone takes your seat."
-        : session.seriesId
-          ? "No cost. Your seat opens to a substitute for this week, and you keep your place in the slot."
-          : "No cost this far ahead. The seat reopens.",
+      session.seriesId
+        ? "Skip this week?"
+        : mySeat.status === "pending"
+          ? "Withdraw your request?"
+          : "Leave this session?",
+      mySeat.status === "pending"
+        ? "No cost."
+        : late
+          ? "It’s less than 12 hours away, so leaving costs $5. It’s waived if someone takes your spot."
+          : session.seriesId
+            ? "Free. Your spot opens to a fill-in for this week, and you stay in the group."
+            : "Free to leave this far ahead.",
       [
-        { text: "Keep it", style: "cancel" },
+        { text: "Stay", style: "cancel" },
         {
-          text: session.seriesId ? "Skip this week" : "Give up seat",
+          text: session.seriesId
+            ? "Skip this week"
+            : mySeat.status === "pending"
+              ? "Withdraw"
+              : "Leave",
           style: "destructive",
           onPress: () => act.mutate({ bookingId: mySeat.id, action: "cancel" }, { onError: fail }),
         },
@@ -122,14 +156,14 @@ export default function SessionDetail() {
 
   function closeListing() {
     Alert.alert(
-      "Call this session off?",
-      isLateCancel(session.startAt)
-        ? "It’s inside 12 hours: if someone is confirmed, that’s the same $5 a joiner would pay."
-        : "No cost this far ahead. Everyone is released.",
+      "Cancel this session?",
+      isLateCancel(session.startAt) && seats.some((b) => b.status === "confirmed")
+        ? "It’s less than 12 hours away and someone has joined, so cancelling now costs $5 — the same fee a buddy would pay."
+        : "Free to cancel. Anyone who joined will be told.",
       [
         { text: "Keep it", style: "cancel" },
         {
-          text: "Call it off",
+          text: "Cancel session",
           style: "destructive",
           onPress: () =>
             cancelListing.mutate(session.id, { onError: fail, onSuccess: () => router.back() }),
@@ -138,257 +172,340 @@ export default function SessionDetail() {
     );
   }
 
+  const joined = seats.filter((b) => b.status === "confirmed");
+  const closed = session.status !== "open" || started;
+  const status: string | null = ENDED[session.status]
+    ? ENDED[session.status]
+    : isHost
+      ? joined.length > 0
+        ? `Hosting · ${joined.length} joined`
+        : "Hosting · no one yet"
+      : mySeat?.status === "confirmed"
+        ? "Joined"
+        : mySeat?.status === "pending"
+          ? "Waiting for approval"
+          : mySeat?.status === "completed"
+            ? "Finished"
+            : null;
+
+  const openMaps = () => {
+    if (!venue) return;
+    const q = encodeURIComponent(venue.name);
+    void Linking.openURL(
+      Platform.OS === "ios"
+        ? `https://maps.apple.com/?ll=${venue.lat},${venue.lng}&q=${q}`
+        : `https://www.google.com/maps/search/?api=1&query=${venue.lat},${venue.lng}`,
+    );
+  };
+  const share = () =>
+    void Share.share({
+      message: `Want to join my ${ACTIVITIES[session.activity].label.toLowerCase()} — ${formatWhen(session.startAt)} at ${venue?.name ?? "the meeting point"}? ${
+        session.inviteCode ? `${SITE_URL}/invite/${session.inviteCode}` : SITE_URL
+      }`,
+    });
+  const more = () =>
+    host &&
+    Alert.alert(hostName, undefined, [
+      {
+        text: `Report or block ${hostName}`,
+        style: "destructive",
+        onPress: () =>
+          router.push({
+            pathname: "/report",
+            params: {
+              memberId: host.id,
+              name: hostName,
+              sessionId: session.id,
+              bookingId: mySeat?.id ?? "",
+            },
+          }),
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+
+  const joinLabel = session.substituteSeat
+    ? "Fill in this week"
+    : session.joinMode === "instant"
+      ? "Join session"
+      : "Ask to join";
+
+  // One action, always in reach — whatever this session is to me right now.
+  const footer: ReactNode =
+    live && liveSeat ? (
+      <Button
+        variant="accent"
+        label="Check in"
+        onPress={() => router.push({ pathname: "/live/[id]", params: { id: liveSeat.id } })}
+      />
+    ) : isHost ? (
+      closed ? null : (
+        <Row>
+          <Button style={styles.flex} variant="accent" label="Share" onPress={share} />
+          {joined[0] && (
+            <Button
+              style={styles.flex}
+              variant="soft"
+              label="Chat"
+              onPress={() =>
+                router.push({ pathname: "/thread/[id]", params: { id: joined[0].id } })
+              }
+            />
+          )}
+        </Row>
+      )
+    ) : mySeat ? (
+      <Button
+        variant={mySeat.status === "pending" ? "soft" : "accent"}
+        label={`Chat with ${hostName}`}
+        onPress={() => router.push({ pathname: "/thread/[id]", params: { id: mySeat.id } })}
+      />
+    ) : regularSeat && session.block ? (
+      <Button
+        variant="accent"
+        label="See the goal and join"
+        onPress={() =>
+          router.push({
+            pathname: "/training-block/[id]",
+            params: { id: session.block!.id, invite: invite ?? "" },
+          })
+        }
+      />
+    ) : closed ? null : (
+      <>
+        <Button
+          variant="accent"
+          label={session.seatsLeft === 0 ? "Full" : joinLabel}
+          disabled={session.seatsLeft === 0}
+          loading={book.isPending}
+          onPress={join}
+        />
+        <T variant="caption" color="textFaint" style={styles.center}>
+          Free to join · free to leave until {freeUntil}
+        </T>
+      </>
+    );
+
   return (
     <Screen
       edges={["bottom"]}
       onRefresh={() => void Promise.all([q.refetch(), mine.refetch()])}
-      refreshing={q.isRefetching}
+      footer={footer}
     >
-      <View style={styles.hero}>
-        <Image
-          source={venueImage(venue)}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          transition={200}
-          accessibilityLabel={venue?.name}
-        />
-        <LinearGradient
-          colors={["transparent", "transparent", theme.background]}
-          locations={[0, 0.45, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
+      <PhotoPanel venue={venue} style={styles.hero}>
+        <Row style={styles.tags}>
+          <Tag label={ACTIVITIES[session.activity].label} />
+          {status && <Tag label={status} tone={ENDED[session.status] ? "glass" : "accent"} />}
+          {session.visibility === "unlisted" && <Tag label="Invite-only" />}
+          {session.womenOnly && <Tag label="Women-only" />}
+        </Row>
+        <View>
+          <T variant="title">{formatWhen(session.startAt)}</T>
+          <T variant="label" color="textSecondary">
+            {formatDuration(session.durationMin)} · {venue?.name ?? ""}
+          </T>
+        </View>
+      </PhotoPanel>
 
       <View style={styles.header}>
-        <T variant="eyebrow" color="textSecondary">
-          {ACTIVITIES[session.activity].label} · {formatDayLong(session.startAt)}
-        </T>
-        <T variant="title">{session.title}</T>
+        <T variant="heading">{session.title}</T>
         {session.detail ? <T color="textSecondary">{session.detail}</T> : null}
-        {(session.visibility === "unlisted" || session.status !== "open") && (
-          <Row>
-            {session.visibility === "unlisted" && <Badge label="Unlisted" />}
-            {session.status !== "open" && <Badge label={session.status} />}
-          </Row>
-        )}
       </View>
 
-      <Card>
-        <T variant="eyebrow" color="stand">
-          Level{session.abilityFlex === "flexible" ? " · flexible" : ""}
-        </T>
-        <T variant="heading">{session.abilityLabel}</T>
-        <T variant="caption" color="textSecondary">
-          {session.abilityFlex === "flexible"
-            ? "The poster will adjust to whoever joins."
-            : session.fitsMe === false
-              ? "This is outside the level on your profile."
-              : session.fitsMe === null
-                ? "Set your level under You to see what fits."
-                : "Inside your level."}
-        </T>
-      </Card>
-
-      {session.block ? (
+      {justJoined && mySeat && (
         <Notice>
-          {`Week ${session.block.weekNumber} of ${session.block.weeks} of a training block: ${session.block.goalLabel}. `}
-          {session.substituteSeat
-            ? "A regular is out this week — you’d fill in for this one only."
-            : regularSeat
-              ? "A seat here is a seat every week until the goal date."
-              : "Same time every week until the goal date."}
+          {mySeat.status === "pending"
+            ? `Request sent. ${hostName} will approve or decline — we’ll tell you either way.`
+            : `You’ve joined. The meeting point is below — say hi to ${hostName} in the chat.`}
         </Notice>
-      ) : (
-        session.seriesId && (
-          <Notice>
-            {session.substituteSeat
-              ? "A standing slot with a regular out this week. You’d fill in for this occurrence only."
-              : "A standing slot: same time every week until someone leaves it."}
-          </Notice>
-        )
       )}
+      {error ? <Notice tone="danger">{error}</Notice> : null}
 
-      <Row>
-        <Meta
-          icon={Clock}
-          label={formatTime(session.startAt)}
-          value={formatDuration(session.durationMin)}
+      <Card>
+        <Fact icon={Clock} label="Level" value={session.abilityLabel}>
+          {session.abilityFlex === "flexible"
+            ? `Any level welcome — ${hostName} will adjust to your pace.`
+            : session.fitsMe === true
+              ? "Fits your level."
+              : session.fitsMe === false
+                ? "Outside the level you set. You can still join."
+                : null}
+        </Fact>
+        {session.fitsMe === null && session.abilityFlex !== "flexible" && (
+          <Button
+            variant="soft"
+            label="Set my level to see if this fits"
+            onPress={() => router.push("/welcome")}
+          />
+        )}
+        <Fact
+          icon={Users}
+          label="Spots"
+          value={
+            session.seatsLeft === 0
+              ? "Full"
+              : `${session.seatsLeft} of ${session.capacity - 1} left`
+          }
         />
-        <Meta icon={Users} label={`${session.seatsLeft} open`} value={`${session.capacity} cap`} />
-      </Row>
-      <Row>
-        <Meta
-          icon={MapPin}
-          label={venue?.neighborhood ?? ""}
-          value={venue?.type.replace("_", " ") ?? ""}
+        <Fact
+          icon={UserCheck}
+          label="Joining"
+          value={
+            session.joinMode === "instant" ? "Join instantly" : `${hostName} approves each person`
+          }
         />
-        <Meta
-          icon={Shield}
-          label={session.joinMode === "instant" ? "Instant join" : "Poster approves"}
-          value={session.womenOnly ? "Women-only" : "Open to members"}
-        />
-      </Row>
+        {(session.block || session.seriesId) && (
+          <Fact icon={Repeat} label="Repeats" value="Every week">
+            {session.block
+              ? `Week ${session.block.weekNumber} of ${session.block.weeks} toward ${session.block.goalLabel}. ${
+                  session.substituteSeat
+                    ? "Someone’s away, so there’s a spot for this week only."
+                    : regularSeat
+                      ? "Joining means every week until the goal date."
+                      : ""
+                }`
+              : session.substituteSeat
+                ? "This group meets every week. Someone’s away, so there’s a spot for this week only."
+                : "Same time every week."}
+          </Fact>
+        )}
+      </Card>
 
       {host && (
         <Card>
           <Row>
             <Avatar initials={host.initials} accent={host.accent} />
             <View style={styles.flex}>
-              <Row>
-                <T variant="label">{host.name}</T>
-              </Row>
+              <T variant="label">{isHost ? "You’re hosting" : `Hosted by ${hostName}`}</T>
               <T variant="caption" color="textSecondary">
                 {reputationLine(host)}
               </T>
             </View>
+            {!isHost && (
+              <PressScale
+                accessibilityRole="button"
+                accessibilityLabel={`More about ${hostName}: report or block`}
+                onPress={more}
+                style={styles.more}
+                hitSlop={6}
+              >
+                <Ellipsis size={20} color={theme.textSecondary} />
+              </PressScale>
+            )}
           </Row>
-          {!isHost && (
-            <ReportLink
-              memberId={host.id}
-              name={host.name}
-              sessionId={session.id}
-              bookingId={mySeat?.id}
-            />
-          )}
         </Card>
       )}
 
-      <Card>
-        <T variant="label">{venue?.name ?? "The pin"}</T>
-        <T variant="caption" color="textSecondary">
-          {session.pinHint ??
-            `${venue?.neighborhood ?? "Nearby"}. The exact meeting spot unlocks once you’re in.`}
+      <Card style={session.pinHint ? { borderColor: theme.accent, borderWidth: 1 } : undefined}>
+        <Row>
+          <MapPin size={18} color={session.pinHint ? theme.accent : theme.textSecondary} />
+          <T variant="label" style={styles.flex}>
+            {session.pinHint ? "Meeting point" : (venue?.name ?? "Meeting point")}
+          </T>
+          {venue && (
+            <T variant="caption" color="textSecondary">
+              {PLACE[venue.type] ?? ""} · {venue.neighborhood}
+            </T>
+          )}
+        </Row>
+        <T color={session.pinHint ? "text" : "textSecondary"}>
+          {session.pinHint ?? "You’ll see the exact meeting point after you join."}
         </T>
+        {session.pinHint && <Button variant="soft" label="Open in Maps" onPress={openMaps} />}
       </Card>
 
-      <T variant="caption" color="textSecondary">
-        {POLICY_LINE}
-      </T>
-
-      {requests.map((b) => (
-        <Card key={b.id}>
-          <T variant="label">{people.get(b.participantId)?.name ?? "Someone"} asked to join</T>
-          <Row>
-            <Button
-              style={styles.flex}
-              variant="soft"
-              label="Decline"
-              onPress={() => act.mutate({ bookingId: b.id, action: "decline" }, { onError: fail })}
-            />
-            <Button
-              style={styles.flex}
-              variant="accent"
-              label="Approve"
-              onPress={() => act.mutate({ bookingId: b.id, action: "approve" }, { onError: fail })}
-            />
-          </Row>
+      {!closed && !isHost && (
+        <Card>
+          <T variant="label">If plans change</T>
+          <T variant="caption" color="textSecondary">
+            Free to leave until {freeUntil}. After that it’s $5, waived if someone takes your spot.
+            Not showing up is $10 and a strike — two strikes in 60 days pauses public sessions for
+            14 days. The same rules apply to {hostName}. Nothing is charged to a card today.
+          </T>
         </Card>
-      ))}
+      )}
 
-      {error ? <Notice tone="danger">{error}</Notice> : null}
+      {requests.map((b) => {
+        const who = people.get(b.participantId);
+        const level = who ? myLevelLabel(session.activity, who.abilities) : null;
+        return (
+          <Card key={b.id}>
+            <T variant="label">{firstName(who?.name) ?? "Someone"} asked to join</T>
+            <T variant="caption" color="textSecondary">
+              {who ? reputationLine(who) : ""}
+              {level ? ` · ${level}` : ""}
+            </T>
+            <Row>
+              <Button
+                style={styles.flex}
+                variant="soft"
+                label="Decline"
+                onPress={() =>
+                  act.mutate({ bookingId: b.id, action: "decline" }, { onError: fail })
+                }
+              />
+              <Button
+                style={styles.flex}
+                variant="accent"
+                label="Approve"
+                onPress={() =>
+                  act.mutate({ bookingId: b.id, action: "approve" }, { onError: fail })
+                }
+              />
+            </Row>
+          </Card>
+        );
+      })}
 
       {completed.map((b) => (
         <Card key={b.id}>
           <T variant="label">
-            Completed with{" "}
-            {isHost
-              ? (people.get(b.participantId)?.name ?? "a member")
-              : (host?.name ?? "the poster")}
+            Finished with{" "}
+            {firstName(isHost ? people.get(b.participantId)?.name : host?.name) ?? "your buddy"}
           </T>
-          <Link href={{ pathname: "/live/[id]", params: { id: b.id } }} asChild>
-            <Button
-              variant="soft"
-              label={
-                b.ratedByMe ? "Review session · repeat weekly" : "Rate session · repeat weekly"
-              }
-            />
-          </Link>
+          <Button
+            variant="soft"
+            label={
+              b.ratedByMe ? "See how it went · make it weekly" : "How was it? · make it weekly"
+            }
+            onPress={() => router.push({ pathname: "/live/[id]", params: { id: b.id } })}
+          />
         </Card>
       ))}
 
-      {live && liveSeat ? (
-        <Link href={{ pathname: "/live/[id]", params: { id: liveSeat.id } }} asChild>
-          <Button variant="accent" label="Open live session" />
-        </Link>
-      ) : isHost ? (
-        <>
-          {session.inviteCode && (
-            <Button
-              variant="accent"
-              label="Share invite link"
-              onPress={() =>
-                void Share.share({
-                  message: `${session.title} — join me on SamePace: ${SITE_URL}/invite/${session.inviteCode}`,
-                })
-              }
-            />
-          )}
-          {session.status === "open" && !started && (
-            <Button
-              variant="ghost"
-              label="Cancel listing"
-              loading={cancelListing.isPending}
-              onPress={closeListing}
-            />
-          )}
-        </>
-      ) : mySeat ? (
-        <>
-          <Link href={{ pathname: "/thread/[id]", params: { id: mySeat.id } }} asChild>
-            <Button
-              variant="soft"
-              label={mySeat.status === "pending" ? "Request pending · open thread" : "Open thread"}
-            />
-          </Link>
-          {mySeat.status !== "completed" && !started && (
-            <Button
-              variant="ghost"
-              label={session.seriesId ? "Skip this week" : "Give up my seat"}
-              loading={act.isPending}
-              onPress={release}
-            />
-          )}
-        </>
-      ) : regularSeat && session.block ? (
+      {!closed && isHost && (
         <Button
-          variant="accent"
-          label="See the training block"
-          onPress={() =>
-            router.push({
-              pathname: "/training-block/[id]",
-              params: { id: session.block!.id, invite: invite ?? "" },
-            })
-          }
+          variant="ghost"
+          label="Cancel session"
+          loading={cancelListing.isPending}
+          onPress={closeListing}
         />
-      ) : (
+      )}
+      {!closed && !isHost && mySeat && mySeat.status !== "completed" && (
         <Button
+          variant="ghost"
           label={
-            session.status !== "open" || started
-              ? "Closed"
-              : session.seatsLeft === 0
-                ? "Full"
-                : session.substituteSeat
-                  ? "Fill in this week"
-                  : session.joinMode === "instant"
-                    ? "I’m in"
-                    : "Ask to join"
+            session.seriesId
+              ? "Skip this week"
+              : mySeat.status === "pending"
+                ? "Withdraw request"
+                : "Leave session"
           }
-          disabled={session.status !== "open" || started || session.seatsLeft === 0}
-          loading={book.isPending}
-          onPress={hold}
+          loading={act.isPending}
+          onPress={release}
         />
       )}
       {standingSlot &&
         (standingSlot.trainingBlockId ? (
-          <Link
-            href={{
-              pathname: "/training-block/[id]",
-              params: { id: standingSlot.trainingBlockId },
-            }}
-            asChild
-          >
-            <Button variant="soft" label="Manage training block" />
-          </Link>
+          <Button
+            variant="soft"
+            label="Manage this goal"
+            onPress={() =>
+              router.push({
+                pathname: "/training-block/[id]",
+                params: { id: standingSlot.trainingBlockId! },
+              })
+            }
+          />
         ) : (
           <LeaveStandingSlot seriesId={standingSlot.id} />
         ))}
@@ -396,27 +513,53 @@ export default function SessionDetail() {
   );
 }
 
-/** No sessions yet means no record — not a perfect one. */
-function Meta({ icon: Icon, label, value }: { icon: typeof Clock; label: string; value: string }) {
+/** One line of the decision: a label, its value, and a sentence only when it helps. */
+function Fact({
+  icon: Icon,
+  label,
+  value,
+  children,
+}: {
+  icon: typeof Clock;
+  label: string;
+  value: string;
+  children?: ReactNode;
+}) {
   const theme = useTheme();
   return (
-    <Card style={styles.meta}>
-      <Icon size={16} color={theme.textSecondary} />
-      <T variant="label" style={styles.metaLabel}>
-        {label}
-      </T>
-      <T variant="caption" color="textSecondary" style={styles.capitalize}>
-        {value}
-      </T>
-    </Card>
+    <View style={styles.fact} accessible accessibilityLabel={`${label}: ${value}`}>
+      <Row>
+        <Icon size={16} color={theme.textSecondary} />
+        <T variant="caption" color="textSecondary" style={styles.factLabel}>
+          {label}
+        </T>
+        <T variant="label" style={styles.factValue}>
+          {value}
+        </T>
+      </Row>
+      {children ? (
+        <T variant="caption" color="textSecondary">
+          {children}
+        </T>
+      ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: { aspectRatio: 16 / 10, borderRadius: Radius.xxl, overflow: "hidden" },
+  hero: {
+    aspectRatio: 16 / 11,
+    borderRadius: Radius.xxl,
+    overflow: "hidden",
+    padding: Spacing.three,
+    justifyContent: "space-between",
+  },
+  tags: { flexWrap: "wrap", gap: 6 },
   header: { gap: Spacing.one },
   flex: { flex: 1 },
-  meta: { flex: 1, gap: 0, borderRadius: Radius.md + 2 },
-  metaLabel: { marginTop: Spacing.one },
-  capitalize: { textTransform: "capitalize" },
+  center: { textAlign: "center" },
+  more: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  fact: { gap: 2 },
+  factLabel: { width: 64 },
+  factValue: { flex: 1, textAlign: "right" },
 });
