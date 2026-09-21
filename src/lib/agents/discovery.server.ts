@@ -1,5 +1,8 @@
 /** First-time introductions require explicit discovery consent on both sides.
- * No directory, free-text messages, health queries, model calls or automatic bookings. */
+ * No directory, free-text messages, health queries, model calls or automatic bookings.
+ * Meeting someone new is a public meeting: the two-strike freeze and identity
+ * verification apply (`introductions.server.ts`), and "women only" works the way
+ * it does on a session — shown only to women, and only shown women. */
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Sql } from "../db.ts";
@@ -7,23 +10,40 @@ import { PaceError } from "../pace/service.server.ts";
 import { enqueue } from "../pace/notify.server.ts";
 import { candidatePlans, getPreferences } from "./assistant.server.ts";
 import { eligible, event, type Negotiation } from "./service.server.ts";
+import { introductionBar, requireIntroduction } from "./introductions.server.ts";
 import type { MemberDiscovery } from "../../../shared/discovery.ts";
 
 const DAY = 86400_000;
 const iso = (n: number) => new Date(n).toISOString();
 const consentInput = z.discriminatedUnion("enabled", [
   z.strictObject({ enabled: z.literal(false) }),
-  z.strictObject({ enabled: z.literal(true), preferenceRevision: z.number().int().positive() }),
+  z.strictObject({
+    enabled: z.literal(true),
+    preferenceRevision: z.number().int().positive(),
+    womenOnly: z.boolean().optional(),
+  }),
 ]);
 const inviteInput = z.strictObject({
   memberId: z.string().min(1).max(100),
   preferenceRevision: z.number().int().positive(),
 });
-type Consent = { enabled: boolean; preference_revision: number; expires_at: Date };
+type Consent = {
+  enabled: boolean;
+  preference_revision: number;
+  expires_at: Date;
+  women_only: boolean;
+};
+
+/** Each side's "women only" has to be satisfied by the other. */
+const pairOk = (
+  a: { womenOnly: boolean; woman: boolean },
+  b: { womenOnly: boolean; woman: boolean },
+) => (!a.womenOnly || b.woman) && (!b.womenOnly || a.woman);
 
 async function available(sql: Sql, userId: string, now: number) {
-  const [member] = await sql<{ name: string; eligible: boolean }>`select name,
-    (deleted_at is null and suspended_at is null) as eligible from profiles where id = ${userId}`;
+  const [member] = await sql<{ name: string; eligible: boolean; woman: boolean }>`select name,
+    (deleted_at is null and suspended_at is null) as eligible,
+    (gender is not distinct from 'woman') as woman from profiles where id = ${userId}`;
   if (!member) throw new PaceError(404, "Discovery unavailable.");
   const [consent] =
     await sql<Consent>`select * from agent_discovery_consents where profile_id = ${userId}`;
@@ -37,7 +57,14 @@ async function available(sql: Sql, userId: string, now: number) {
     preferences.updatedAt &&
     +new Date(preferences.updatedAt) > now - 7 * DAY,
   );
-  return { member, consent, preferences, enabled };
+  return {
+    member,
+    consent,
+    preferences,
+    enabled,
+    woman: member.woman,
+    womenOnly: Boolean(consent?.women_only) && member.woman,
+  };
 }
 
 export async function getDiscovery(
@@ -50,6 +77,9 @@ export async function getDiscovery(
     enabled: own.enabled,
     expiresAt: own.consent ? new Date(own.consent.expires_at).toISOString() : null,
     eligible: own.member.eligible,
+    womenOnly: own.womenOnly,
+    canChooseWomenOnly: own.woman,
+    needs: null,
     candidates: [],
     reason: null,
   };
@@ -58,6 +88,9 @@ export async function getDiscovery(
       ...result,
       reason: "Save current planning preferences, then choose to meet new workout partners.",
     };
+  // A freeze or a missing verification stops introductions the way it stops public sessions.
+  const bar = await introductionBar(sql, userId, now, { womenOnly: own.womenOnly });
+  if (bar) return { ...result, reason: bar.message, needs: bar.code ?? null };
   // Bounded candidate pool, no searchable member directory. Rank deterministic
   // compatibility only; exact available times and notes never leave this service.
   const rows = await sql<{ id: string }>`select p.id from agent_discovery_consents d
@@ -66,6 +99,7 @@ export async function getDiscovery(
       and p.deleted_at is null and p.suspended_at is null
       and d.preference_revision = ap.revision and ap.updated_at > ${iso(now - 7 * DAY)}
       and ap.preferences->>'enabled' = 'true' and ap.preferences->>'activity' = ${own.preferences.activity}
+      and (not d.women_only or ${own.woman}) and (not ${own.womenOnly} or p.gender = 'woman')
       and not exists(select 1 from blocks b where (b.blocker_id = ${userId} and b.blocked_id = p.id)
         or (b.blocked_id = ${userId} and b.blocker_id = p.id))
       and not exists(select 1 from agent_negotiations n where n.booking_id is null
@@ -74,7 +108,13 @@ export async function getDiscovery(
     order by md5(p.id || ${iso(now).slice(0, 13)}), p.id limit 30`;
   for (const { id } of rows) {
     const other = await available(sql, id, now);
-    if (!other.enabled) continue;
+    if (!other.enabled || !pairOk(own, other)) continue;
+    // Frozen or unverified members aren't offered, and aren't told anyone looked.
+    const womenOnly = own.womenOnly || other.womenOnly;
+    if (await introductionBar(sql, id, now, { womenOnly })) continue;
+    if (womenOnly && !own.womenOnly && (await introductionBar(sql, userId, now, { womenOnly }))) {
+      continue;
+    }
     const plans = await candidatePlans(sql, own.preferences, other.preferences, [userId, id], now);
     if (!plans.candidates.length) continue;
     result.candidates.push({
@@ -103,6 +143,13 @@ export async function setDiscovery(sql: Sql, userId: string, input: unknown, now
       if (!owner.length) throw new PaceError(404, "Discovery unavailable.");
     }
     const preferences = await getPreferences(tx, userId);
+    const womenOnly = body.enabled && Boolean(body.womenOnly);
+    if (body.enabled) {
+      const [me] = await tx<{ woman: boolean }>`
+        select (gender is not distinct from 'woman') as woman from profiles where id = ${userId}`;
+      if (womenOnly && !me?.woman) throw new PaceError(409, "Women-only is chosen by women.");
+      await requireIntroduction(tx, userId, [], now, { womenOnly });
+    }
     if (
       body.enabled &&
       (!preferences.enabled ||
@@ -111,10 +158,10 @@ export async function setDiscovery(sql: Sql, userId: string, input: unknown, now
         +new Date(preferences.updatedAt) <= now - 7 * DAY)
     )
       throw new PaceError(409, "Save and review your current planning preferences first.");
-    await tx`insert into agent_discovery_consents (profile_id, enabled, preference_revision, expires_at, updated_at)
-      values (${userId}, ${body.enabled}, ${preferences.revision}, ${iso(now + 7 * DAY)}, ${iso(now)})
+    await tx`insert into agent_discovery_consents (profile_id, enabled, preference_revision, expires_at, updated_at, women_only)
+      values (${userId}, ${body.enabled}, ${preferences.revision}, ${iso(now + 7 * DAY)}, ${iso(now)}, ${womenOnly})
       on conflict (profile_id) do update set enabled = excluded.enabled, preference_revision = excluded.preference_revision,
-        expires_at = excluded.expires_at, updated_at = excluded.updated_at`;
+        expires_at = excluded.expires_at, updated_at = excluded.updated_at, women_only = excluded.women_only`;
     if (!body.enabled) {
       // Joined conversations retain their separate consent. Unanswered invitations end.
       await tx`update agent_negotiations set state = 'cancelled', confirmations = '[]'::jsonb, updated_at = ${iso(now)}
@@ -137,8 +184,11 @@ export async function inviteDiscovery(
     await eligible(tx, [userId, body.memberId], "update");
     const own = await available(tx, userId, now),
       other = await available(tx, body.memberId, now);
-    if (!own.enabled || !other.enabled)
+    if (!own.enabled || !other.enabled || !pairOk(own, other))
       throw new PaceError(404, "This introduction is no longer available.");
+    await requireIntroduction(tx, userId, [body.memberId], now, {
+      womenOnly: own.womenOnly || other.womenOnly,
+    });
     if (own.preferences.revision !== body.preferenceRevision)
       throw new PaceError(409, "Review your current preferences first.");
     const plans = await candidatePlans(

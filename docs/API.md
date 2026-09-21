@@ -251,7 +251,10 @@ haven't set one for that activity (nothing is hidden from me then).
 - `session.inviteCode` — poster only.
 - Unlisted sessions — absent from `/sessions`; `404` without the link or a seat.
 - Women-only sessions — absent from `/sessions` for members they aren't open to.
-- There is no people search, member directory or "members near you" endpoint.
+- There is no people search and no member directory. The one place a member is
+  shown other members is partner discovery (`GET /agents/discovery`): opt-in on
+  both sides for seven days, at most five at a time, a first name and an activity,
+  nothing to search or scroll. See _Meeting someone new_.
 
 ## Private Apple Health import
 
@@ -349,7 +352,8 @@ PRD leaves it out of v1.
 
 One to four standing slots tied to a goal and a date (PRD v0.3 §6). A block adds
 no session mechanics: its slots are ordinary standing slots, and its progress is
-read off the check-ins they already record. Nothing is logged by a member, and no
+read off the check-ins they already record. A block takes nothing from the fitness
+log or Apple Health — those stay private and separate — and no
 body metric is collected — there is no weight goal. (`/blocks` is blocked members;
 these routes are `/training-blocks`.)
 
@@ -424,6 +428,29 @@ write here, and the `date_framing` report covers the other meaning.
 "Singletrack" passes; "single-leg" and "single-arm" are let through.
 A hit is a `400` naming the word. The list is `BANNED_WORDS` in `rules.ts`.
 
+### Meeting someone new
+
+A first-time introduction ends in an invite-only session, and the two-strike
+freeze and identity verification both leave invite-only sessions alone — that
+exemption is for an invite from someone you already know. Two members who met
+through discovery are strangers, so an introduction answers to the same rules as
+a public session (`src/lib/agents/introductions.server.ts`):
+
+- A member who is **frozen**, or — once `VERIFICATION_ENFORCED=1` — **unverified**,
+  isn't offered to anyone, can't turn discovery on, can't invite, and can't approve
+  the booking. `discovery.reason` says why, and `discovery.needs` is
+  `verify_member` / `verify_government_id` when there is a check to send them to.
+  The other member is only ever told the introduction isn't available.
+- It is checked when members are listed, at the invitation, and again when the
+  workout is booked: a freeze or a reversed verification can land in between.
+  A conversation that started from an existing booking is between people who have
+  met, and is left alone.
+- **Women only.** `PUT /agents/discovery` takes `womenOnly`, offered to women
+  (`discovery.canChooseWomenOnly`), the way a women-only session is posted by women.
+  A member who chooses it is shown only to women and only shown women; it holds in
+  both directions and at the invitation. Like a women-only session it takes a
+  government ID from her and from whoever meets her, once verification is enforced.
+
 ## Billing, optional measurement, and planning additions
 
 All routes below use the signed-in member's session. Delegated A2A credentials cannot use them. JSON inputs are bounded; browser return URLs never prove payment or identity verification.
@@ -444,7 +471,7 @@ All routes below use the signed-in member's session. Delegated A2A credentials c
 | `GET /fitness/logging-sessions/:id`            | Owner-only `{outcome}`.                                                                                                                                                              |
 | `POST /fitness/logging-sessions/:id/feedback`  | `{helpfulness: "helpful" \| "neutral" \| "not_helpful" \| "unknown", timeSaved: "yes" \| "no" \| "unsure"}` → `{outcome}`.                                                           |
 | `GET /agents/discovery`                        | `{discovery}` with at most five compatible opted-in members. No raw preferences, schedules or health data.                                                                           |
-| `PUT /agents/discovery`                        | `{enabled:false}` or `{enabled:true, preferenceRevision}` → `{discovery}`. Seven-day consent; preference edits pause it.                                                             |
+| `PUT /agents/discovery`                        | `{enabled:false}` or `{enabled:true, preferenceRevision, womenOnly?}` → `{discovery}`. Seven-day consent; preference edits pause it.                                                 |
 | `POST /agents/discovery/invitations`           | `{memberId, preferenceRevision}` → `{negotiation}`. Recipient has not consented; first-time rooms have `bookingId:null`.                                                             |
 | `GET /agents/negotiations/:id/coordination`    | `{coordination}`: permissions, latest durable run and bounded step history.                                                                                                          |
 | `PUT /agents/negotiations/:id/coordination`    | `{enabled:false}` or `{enabled:true, preferenceRevision, expectedRevision}` → `{coordination}`. Permission expires after 24 hours.                                                   |

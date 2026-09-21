@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Sql } from "../db.ts";
 import type { Ability, MemberAbilities } from "../pace/types.ts";
 import { bookSeat, PaceError, postSession } from "../pace/service.server.ts";
+import { requireIntroduction } from "./introductions.server.ts";
 import { enqueue } from "../pace/notify.server.ts";
 import {
   abilityFits,
@@ -460,6 +461,16 @@ export async function approveBookingTerms(
     const terms = await termsFor(tx, r, now);
     if (input.termsHash !== terms.termsHash)
       throw new PaceError(409, "Booking terms changed. Review and approve them again.");
+    // No booking behind the conversation means these two met through discovery:
+    // strangers, so the freeze and verification apply although the session is invite-only.
+    if (r.booking_id === null) {
+      const [pair] = await tx<{ women_only: boolean }>`
+        select coalesce(bool_or(women_only), false) as women_only from agent_discovery_consents
+        where profile_id in (${r.host_id}, ${r.participant_id})`;
+      await requireIntroduction(tx, userId, [r.host_id, r.participant_id], now, {
+        womenOnly: Boolean(pair?.women_only),
+      });
+    }
     const old = r.booking_terms_hash === terms.termsHash ? (r.booking_approvals ?? []) : [];
     const approved = [...new Set([...old, userId])];
     await tx`update agent_negotiations set booking_terms = ${JSON.stringify(terms)}::jsonb,
