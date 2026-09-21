@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
+import { ClipboardList, Dumbbell } from "lucide-react-native";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
 import { SectionTitle } from "@/components/list";
-import { Button, Card, Notice, Screen, StateView, T } from "@/components/ui";
+import { PlanRow } from "@/components/workout-plans/plan-row";
+import { Button, EmptyState, Notice, Screen, StateView, T } from "@/components/ui";
 import { formatWhen } from "@/lib/format";
 import { useRefreshOnFocus } from "@/lib/queries";
 import type { WorkoutPlanPage, WorkoutRunPage } from "../../../shared/workout-plans";
@@ -47,10 +49,8 @@ function WorkoutPlans({ member, session }: PrivateMemberProps) {
       refreshing={plans.isRefetching || runs.isRefetching}
     >
       <Stack.Screen options={{ title: "Workout plans" }} />
-      <T variant="title">A plan to follow together.</T>
       <T color="textSecondary">
-        Build your exercises, sets and instructions once. Keep a private template, then share a
-        fixed copy with your session.
+        Exercises, sets and instructions you build once — then share a fixed copy with a session.
       </T>
       {sessionId && (
         <Notice>
@@ -73,30 +73,30 @@ function WorkoutPlans({ member, session }: PrivateMemberProps) {
         />
       )}
       {!plans.error && plans.data?.plans.length === 0 && (
-        <Notice>No templates yet. Create a plan by hand or ask AI for a draft you can edit.</Notice>
+        <EmptyState
+          icon={ClipboardList}
+          title="No plans yet"
+          body="Build one by hand, or describe the workout and edit the draft."
+        />
       )}
       {!plans.error &&
         plans.data?.plans.map((plan) => (
-          <Card key={plan.id}>
-            <T variant="heading">{plan.title}</T>
-            <T color="textSecondary">
-              {plan.exercises.length} exercises ·{" "}
-              {plan.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)} sets
-            </T>
-            <T variant="caption" color="textFaint">
-              Private · Updated {formatWhen(plan.updatedAt)}
-            </T>
-            <Button
-              label={sessionId ? "Review for this session" : "Open workout plan"}
-              variant="soft"
-              onPress={() =>
-                router.push({
-                  pathname: "/workout-plan/[id]",
-                  params: { id: plan.id, ...(sessionId ? { sessionId } : {}) },
-                })
-              }
-            />
-          </Card>
+          <PlanRow
+            key={plan.id}
+            title={plan.title}
+            facts={[
+              `${plan.exercises.length} ${plan.exercises.length === 1 ? "exercise" : "exercises"}`,
+              `${plan.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)} sets`,
+            ]}
+            caption={`Private · updated ${formatWhen(plan.updatedAt)}`}
+            actionLabel={sessionId ? "Review for this session" : "Open workout plan"}
+            onPress={() =>
+              router.push({
+                pathname: "/workout-plan/[id]",
+                params: { id: plan.id, ...(sessionId ? { sessionId } : {}) },
+              })
+            }
+          />
         ))}
       {plans.data?.nextCursor && (
         <Button
@@ -121,26 +121,34 @@ function WorkoutPlans({ member, session }: PrivateMemberProps) {
         />
       )}
       {!runs.error && runs.data?.runs.length === 0 && (
-        <Notice>Start a saved plan to record your first workout.</Notice>
+        <EmptyState
+          icon={Dumbbell}
+          title="No workouts recorded yet"
+          body="Start one of your plans and your sets show up here."
+        />
       )}
       {!runs.error &&
         runs.data?.runs.map((run) => (
-          <Card key={run.id}>
-            <T variant="heading">{run.snapshot.title}</T>
-            <T color="textSecondary">
-              {run.status === "completed" ? "Finished" : "In progress"} ·{" "}
-              {run.results.filter((result) => result.status === "completed").length} sets recorded
-            </T>
-            <T variant="caption" color="textFaint">
-              {formatWhen(run.startedAt)}
-              {run.sessionId ? " · Buddy session" : ""}
-            </T>
-            <Button
-              label={run.status === "completed" ? "Review my workout" : "Continue my workout"}
-              variant="soft"
-              onPress={() => router.push({ pathname: "/workout-run/[id]", params: { id: run.id } })}
-            />
-          </Card>
+          <PlanRow
+            key={run.id}
+            icon={Dumbbell}
+            title={run.snapshot.title}
+            facts={[
+              run.status === "completed" ? "Finished" : "In progress",
+              `${run.results.filter((result) => result.status === "completed").length} of ${run.snapshot.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)} sets`,
+              ...(run.sessionId ? ["With a buddy"] : []),
+            ]}
+            caption={formatWhen(run.startedAt)}
+            progress={
+              run.results.filter((result) => result.status === "completed").length /
+              Math.max(
+                1,
+                run.snapshot.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0),
+              )
+            }
+            actionLabel={run.status === "completed" ? "Review my workout" : "Continue my workout"}
+            onPress={() => router.push({ pathname: "/workout-run/[id]", params: { id: run.id } })}
+          />
         ))}
       {runs.data?.nextCursor && (
         <Button
