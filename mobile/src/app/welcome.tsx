@@ -3,6 +3,7 @@
  * at your level, so level is asked before the feed, not buried in settings. Three
  * short steps: what you do, how hard, and the deal everyone here agrees to.
  */
+import { StepDots } from "@/components/step-dots";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { CalendarCheck, Clock, MapPin } from "lucide-react-native";
@@ -11,6 +12,7 @@ import { StyleSheet, View } from "react-native";
 
 import { LevelPicker } from "@/components/ability-picker";
 import { Lockup } from "@/components/brand";
+import { HealthStep } from "@/components/health-onboarding";
 import { Appear } from "@/components/motion";
 import { Button, Card, Chip, Field, Notice, Row, Screen, StateView, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
@@ -47,6 +49,8 @@ export default function Welcome() {
     );
   }
   const p = me.data;
+  const meId = p.id;
+  const toDeal = () => setStep(3);
   const askName = nameNeedsFixing(p.name);
   // Coming back later: start from what's already on the profile.
   const chosen = picked ?? (Object.keys(p.abilities) as Does[]);
@@ -69,11 +73,8 @@ export default function Welcome() {
 
   return (
     <Screen edges={["top", "bottom"]} contentStyle={styles.content}>
-      <View accessible style={styles.progress} accessibilityLabel={`Step ${step + 1} of 3`}>
-        {[0, 1, 2].map((i) => (
-          <Dot key={i} on={i <= step} />
-        ))}
-      </View>
+      {/* Agreeing to the terms was step one. */}
+      <StepDots step={step + 1} total={5} />
 
       {step === 0 && (
         <Appear style={styles.step}>
@@ -141,7 +142,14 @@ export default function Welcome() {
         </Appear>
       )}
 
-      {step === 2 && (
+      {step === 2 &&
+        (meId ? (
+          <HealthStep ownerId={meId} onDone={toDeal} onBack={() => setStep(1)} />
+        ) : (
+          <StateView loading />
+        ))}
+
+      {step === 3 && (
         <Appear style={styles.step}>
           <T variant="title">How SamePace keeps people showing up</T>
           <Deal icon={MapPin} title="You both check in when you arrive">
@@ -161,17 +169,10 @@ export default function Welcome() {
           </T>
           <View style={styles.spacer} />
           <Button variant="accent" label="Got it — find a buddy" onPress={finish} />
-          <Button variant="ghost" label="Back" onPress={() => setStep(1)} />
+          <Button variant="ghost" label="Back" onPress={() => setStep(2)} />
         </Appear>
       )}
     </Screen>
-  );
-}
-
-function Dot({ on }: { on: boolean }) {
-  const theme = useTheme();
-  return (
-    <View style={[styles.dot, { backgroundColor: on ? theme.accent : theme.backgroundSelected }]} />
   );
 }
 
@@ -206,8 +207,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   spacer: { flex: 1, minHeight: Spacing.three },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.one },
-  progress: { flexDirection: "row", gap: 6, justifyContent: "center" },
-  dot: { width: 28, height: 4, borderRadius: 2 },
   deal: { alignItems: "flex-start", gap: Spacing.two },
   dealIcon: {
     width: 36,

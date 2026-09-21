@@ -6,12 +6,30 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Linking, View } from "react-native";
+import { Linking, StyleSheet, View } from "react-native";
+import {
+  Bot,
+  FileText,
+  HeartPulse,
+  Lock,
+  ScrollText,
+  ShieldCheck,
+  Trash2,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGlobalSearchParams, usePathname, useRouter, type Href } from "expo-router";
+import * as SecureStore from "expo-secure-store";
+import { welcomeKey } from "@/app/welcome";
+import { PaceMark } from "@/components/brand";
+import { StepDots } from "@/components/step-dots";
+import { ListCard, ListRow } from "@/components/list";
+import { Appear } from "@/components/motion";
 import { Button, Card, Notice, Screen, StateView, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { usePrivateAction } from "@/hooks/use-private-action";
+import { useTheme } from "@/hooks/use-theme";
 import { ApiError, captureApiSession } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { SITE_URL } from "@/lib/config";
@@ -26,6 +44,50 @@ import {
   APP_TERMS_VERSION,
   type AppTermsStatus,
 } from "../../../shared/app-terms";
+
+/**
+ * The gist of the coaching notice, for reading in ten seconds. The notice itself — the
+ * text that is actually agreed to — stays one tap away, word for word.
+ */
+const POINTS: { icon: LucideIcon; title: string; body: string }[] = [
+  {
+    icon: Bot,
+    title: "Your assistant uses cloud AI",
+    body: "Your chats with it, your plans and the workout results you enter may be sent to our cloud AI provider when that helps answer you. Kept for up to 30 days, or until you clear them.",
+  },
+  {
+    icon: HeartPulse,
+    title: "Apple Health stays your call",
+    body: "Workout summaries are only used if you separately allow Apple Health — and you can switch that off at any time.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Nothing happens without you",
+    body: "Saving workouts, booking, sharing and payments always ask first. Your private records never go to buddies or their assistants.",
+  },
+  {
+    icon: TriangleAlert,
+    title: "AI can be wrong",
+    body: "Suggestions are a starting point, not medical advice. Plans are targets; what you enter is your record.",
+  },
+];
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  center: { textAlign: "center" },
+  hero: { gap: Spacing.one, paddingTop: Spacing.four },
+  points: { gap: Spacing.three },
+  point: { flexDirection: "row", gap: Spacing.two },
+  pointIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footer: { gap: Spacing.one },
+  deciding: { flex: 1, alignItems: "center", justifyContent: "center" },
+});
 
 const TermsContext = createContext<{ allowed: boolean; review: ReactNode } | null>(null);
 export function useAppTermsAccepted() {
@@ -164,51 +226,120 @@ function TermsState({
       },
     );
   };
-  const review = (
-    <Screen edges={["top", "bottom"]}>
-      <View style={{ gap: Spacing.three }}>
-        <T variant="title">Welcome to SamePace</T>
-        <T>Review how SamePace works before continuing.</T>
-        {(terms.isPending || terms.error) && (
-          <StateView
-            loading={terms.isPending}
-            error={terms.error}
-            onRetry={() => void terms.refetch()}
-          />
-        )}
-        {terms.data && !terms.error && !terms.data.accepted && (
-          <>
-            <Card>
-              <T variant="label">Coaching is part of SamePace</T>
-              <T>{APP_TERMS_COACHING_NOTICE}</T>
-            </Card>
-            <T variant="caption" color="textSecondary">
-              By choosing Agree and continue, you accept the Terms of Service and acknowledge the
-              Privacy Policy, including the AI processing described above.
+  const theme = useTheme();
+  const [showNotice, setShowNotice] = useState(false);
+  // A new account meets this as the first step of getting started, not as a wall.
+  const ownerId = terms.data?.ownerId;
+  const [isNew, setIsNew] = useState(false);
+  useEffect(() => {
+    if (!ownerId) return;
+    let alive = true;
+    void SecureStore.getItemAsync(welcomeKey(ownerId))
+      .then((seen) => {
+        if (alive) setIsNew(!seen);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [ownerId]);
+  const needsAnswer = Boolean(terms.data && !terms.error && !terms.data.accepted);
+  // Until the server (or a saved receipt) says an answer is needed, this is only a pause —
+  // a member who already agreed must never see the terms again on the way in.
+  const deciding = !needsAnswer && !terms.error;
+  const review = deciding ? (
+    <Screen edges={["top", "bottom"]} scroll={false} contentStyle={styles.deciding}>
+      <PaceMark size={56} />
+    </Screen>
+  ) : (
+    <Screen
+      edges={["top", "bottom"]}
+      footer={
+        needsAnswer ? (
+          <View style={styles.footer}>
+            <T variant="caption" color="textSecondary" style={styles.center}>
+              By continuing you accept the Terms of Service and acknowledge the Privacy Policy,
+              including the AI processing described in the full notice.
             </T>
-          </>
-        )}
-        <Button
-          label="Read Terms of Service"
-          variant="ghost"
+            <Button
+              label="Agree and continue"
+              variant="accent"
+              loading={action.busy}
+              onPress={accept}
+            />
+            <Button label="Not now — sign me out" variant="ghost" onPress={() => void signOut()} />
+          </View>
+        ) : undefined
+      }
+    >
+      {isNew && needsAnswer ? <StepDots step={0} total={4} /> : null}
+      <Appear style={styles.hero}>
+        <PaceMark size={44} />
+        <T variant="title">Before you start</T>
+        <T color="textSecondary">
+          SamePace comes with an AI assistant. Here’s what that means for you, in four lines.
+        </T>
+      </Appear>
+      {(terms.isPending || terms.error) && (
+        <StateView
+          loading={terms.isPending}
+          error={terms.error}
+          onRetry={() => void terms.refetch()}
+        />
+      )}
+      {needsAnswer && (
+        <Card style={styles.points}>
+          {POINTS.map(({ icon: Icon, title, body }) => (
+            <View key={title} style={styles.point}>
+              <View style={[styles.pointIcon, { backgroundColor: theme.accentSoft }]}>
+                <Icon size={18} color={theme.accent} />
+              </View>
+              <View style={styles.flex}>
+                <T variant="label">{title}</T>
+                <T variant="caption" color="textSecondary">
+                  {body}
+                </T>
+              </View>
+            </View>
+          ))}
+        </Card>
+      )}
+      <ListCard>
+        {needsAnswer ? (
+          <ListRow
+            icon={ScrollText}
+            label="Read the full notice"
+            expanded={showNotice}
+            onPress={() => setShowNotice((value) => !value)}
+          >
+            <T variant="caption" color="textSecondary" selectable>
+              {APP_TERMS_COACHING_NOTICE}
+            </T>
+          </ListRow>
+        ) : null}
+        <ListRow
+          icon={FileText}
+          label="Terms of Service"
+          accessibilityRole="link"
           onPress={() => void Linking.openURL(`${SITE_URL}/terms`)}
         />
-        <Button
-          label="Read Privacy Policy"
-          variant="ghost"
+        <ListRow
+          icon={Lock}
+          label="Privacy Policy"
+          accessibilityRole="link"
           onPress={() => void Linking.openURL(`${SITE_URL}/privacy`)}
         />
-        {action.error && <Notice tone="danger">{action.error}</Notice>}
-        {terms.data && !terms.error && !terms.data.accepted && (
-          <Button label="Agree and continue" loading={action.busy} onPress={accept} />
-        )}
-        <Button label="Decline and sign out" variant="soft" onPress={() => void signOut()} />
-        <Button
+      </ListCard>
+      {action.error && <Notice tone="danger">{action.error}</Notice>}
+      {!needsAnswer && <Button label="Sign out" variant="soft" onPress={() => void signOut()} />}
+      <ListCard>
+        <ListRow
+          icon={Trash2}
           label="Delete my account"
-          variant="ghost"
+          danger
           onPress={() => router.push("/delete-account")}
         />
-      </View>
+      </ListCard>
     </Screen>
   );
   return <TermsContext value={{ allowed, review }}>{children}</TermsContext>;

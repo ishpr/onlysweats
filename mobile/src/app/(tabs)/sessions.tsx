@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { LocateFixed, Search } from "lucide-react-native";
+import { LocateFixed, Plus, Search } from "lucide-react-native";
 import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
@@ -102,7 +102,22 @@ export default function Find() {
       onRefresh={() => void Promise.all([open.refetch(), goals.refetch()])}
     >
       <View>
-        <T variant="title">Find a session</T>
+        <View style={styles.titleRow}>
+          <T variant="title" style={styles.titleText}>
+            Find a session
+          </T>
+          <PressScale
+            accessibilityRole="button"
+            accessibilityLabel="Post a session"
+            onPress={() => router.push("/post")}
+            style={[styles.postPill, { backgroundColor: theme.primary }]}
+          >
+            <Plus size={16} color={theme.onPrimary} strokeWidth={2.5} />
+            <T variant="label" style={{ color: theme.onPrimary }}>
+              Post
+            </T>
+          </PressScale>
+        </View>
         <T variant="caption" color="textSecondary">
           {area?.name ? `Near ${area.name}` : "Near Dallas"} · the next two weeks
         </T>
@@ -234,6 +249,16 @@ export default function Find() {
 }
 
 const styles = StyleSheet.create({
+  titleRow: { flexDirection: "row", alignItems: "center", gap: Spacing.two },
+  titleText: { flex: 1 },
+  postPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: HitTarget,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 999,
+  },
   locate: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: HitTarget },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.one },
   row: { gap: Spacing.one, paddingRight: Spacing.three },

@@ -304,7 +304,7 @@ export default function You() {
       <ListCard>
         <ListRow icon={HeartPulse} label="Apple Health" onPress={() => router.push("/health")} />
         <ListRow icon={Dumbbell} label="Fitness log" onPress={() => router.push("/fitness")} />
-        <ListRow icon={Bot} label="Workout assistant" onPress={() => router.push("/assistant")} />
+        <ListRow icon={Bot} label="Assistant" onPress={() => router.navigate("/agent")} />
       </ListCard>
 
       <SectionTitle>Notifications</SectionTitle>

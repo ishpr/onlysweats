@@ -220,25 +220,25 @@ function Compact({
             <T variant="caption" color="textSecondary">
               {read.ourRead ? read.ourRead.because : read.lines[0]}
             </T>
+            {stats.length > 0 ? (
+              <View style={styles.pills}>
+                {stats.map(({ icon: Icon, color, value, label }) => (
+                  <View
+                    key={label}
+                    accessible
+                    accessibilityLabel={`${label}: ${value}`}
+                    style={[styles.pill, { backgroundColor: theme.field }]}
+                  >
+                    <Icon size={13} color={color} />
+                    <T variant="caption" style={styles.statText} numberOfLines={1}>
+                      {value}
+                    </T>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         </Row>
-        {stats.length > 0 ? (
-          <View style={styles.stats}>
-            {stats.map(({ icon: Icon, color, value, label }) => (
-              <View key={label} style={styles.stat}>
-                <Row style={styles.statLabel}>
-                  <Icon size={14} color={color} />
-                  <T variant="caption" color="textSecondary">
-                    {label}
-                  </T>
-                </Row>
-                <T variant="heading" style={styles.statText}>
-                  {value}
-                </T>
-              </View>
-            ))}
-          </View>
-        ) : null}
       </PressScale>
       {picked && pick && <Suggested why={pick.why} session={picked} />}
     </Card>
@@ -680,12 +680,14 @@ export function TrainingShortcuts() {
             <View style={[styles.badge, { backgroundColor: theme.accentSoft }]}>
               <Icon size={18} color={theme.accent} />
             </View>
-            <T variant="label" numberOfLines={1}>
-              {label}
-            </T>
-            <T variant="caption" color="textSecondary" numberOfLines={1} style={styles.axis}>
-              {hint}
-            </T>
+            <View style={styles.flex}>
+              <T variant="label" numberOfLines={1}>
+                {label}
+              </T>
+              <T variant="caption" color="textSecondary" numberOfLines={1} style={styles.axis}>
+                {hint}
+              </T>
+            </View>
           </Card>
         </PressScale>
       ))}
@@ -708,6 +710,15 @@ const styles = StyleSheet.create({
   statLabel: { alignItems: "center", gap: Spacing.half },
   statText: { fontFamily: Fonts.medium, fontVariant: ["tabular-nums"] },
   recorded: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: Spacing.two, gap: 2 },
+  pills: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: Spacing.one },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: Spacing.half,
+  },
   dialSub: { fontSize: 11, lineHeight: 14 },
   panel: { padding: Spacing.three, gap: Spacing.half },
   axis: { fontSize: 12, lineHeight: 16 },
@@ -733,5 +744,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   shortcuts: { flexDirection: "row", gap: Spacing.one },
-  shortcut: { gap: Spacing.half, padding: Spacing.two },
+  // One line high: icon beside the words, so the row fits on Home's first screen.
+  shortcut: { flexDirection: "row", alignItems: "center", gap: Spacing.one, padding: Spacing.two },
 });
