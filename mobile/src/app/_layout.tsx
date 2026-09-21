@@ -173,7 +173,11 @@ function Routes() {
             options={{ title: "Report or block", presentation: "modal" }}
           />
           <Stack.Screen name="blocked" options={{ title: "Blocked members" }} />
-          <Stack.Screen name="activity" options={{ title: "Activity" }} />
+          <Stack.Screen name="activity" options={{ title: "Notifications" }} />
+          <Stack.Screen
+            name="welcome"
+            options={{ headerShown: false, presentation: "fullScreenModal", gestureEnabled: false }}
+          />
           <Stack.Screen name="delete-account" options={{ title: "Delete account" }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>

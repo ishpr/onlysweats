@@ -29,9 +29,23 @@ export type SessionFace = Pick<
   | "visibility"
 > & { seatsLeft: number; substituteSeat?: boolean; seriesId?: string | null };
 
-const seatsLabel = (n: number) => (n === 0 ? "Full" : `${n} ${n === 1 ? "seat" : "seats"}`);
+const seatsLabel = (n: number) => (n === 0 ? "Full" : `${n} ${n === 1 ? "spot" : "spots"} left`);
 
-export function SessionCardFace({ session, venue }: { session: SessionFace; venue?: Venue }) {
+/** What this session is to me, when it is anything: shown instead of "is it my level". */
+export type MineTag = "Joined" | "Waiting for approval" | "Hosting";
+
+export function SessionCardFace({
+  session,
+  venue,
+  fits,
+  mine,
+}: {
+  session: SessionFace;
+  venue?: Venue;
+  /** `true` = inside my level. Only ever shown as a positive — never "not for you". */
+  fits?: boolean | null;
+  mine?: MineTag;
+}) {
   const theme = useTheme();
   const live = inCheckinWindow(session.startAt);
   return (
@@ -56,12 +70,17 @@ export function SessionCardFace({ session, venue }: { session: SessionFace; venu
       <View style={styles.top}>
         <View style={styles.chips}>
           <Tag label={ACTIVITIES[session.activity].label} />
-          {live && <Tag label="Live" tone="move" />}
+          {mine ? (
+            <Tag label={mine} tone="accent" />
+          ) : fits ? (
+            <Tag label="Your level" tone="accent" />
+          ) : null}
+          {live && <Tag label="Check-in open" tone="move" />}
           {session.womenOnly && <Tag label="Women-only" />}
-          {session.substituteSeat && <Tag label="Substitute seat" />}
-          {session.seriesId && !session.substituteSeat && <Tag label="Standing slot" />}
-          {session.abilityFlex === "flexible" && <Tag label="Flexible level" />}
-          {session.visibility === "unlisted" && <Tag label="Unlisted" />}
+          {session.substituteSeat && <Tag label="Fill-in · this week" />}
+          {session.seriesId && !session.substituteSeat && <Tag label="Weekly" />}
+          {session.abilityFlex === "flexible" && <Tag label="Any level welcome" />}
+          {session.visibility === "unlisted" && <Tag label="Invite-only" />}
         </View>
       </View>
       <View>
@@ -88,13 +107,21 @@ export function SessionCardFace({ session, venue }: { session: SessionFace; venu
  * Discovery shows the workout, the level, the time and the place — never a face
  * (PRD v0.3 §8). Who posted it is on the session itself.
  */
-export function SessionCard({ session, venue }: { session: Session; venue?: Venue }) {
-  const summary = `${session.title}. ${session.abilityLabel}. ${formatWhen(session.startAt)} at ${venue?.name ?? "the pin"}. ${seatsLabel(session.seatsLeft)}.`;
+export function SessionCard({
+  session,
+  venue,
+  mine,
+}: {
+  session: Session;
+  venue?: Venue;
+  mine?: MineTag;
+}) {
+  const summary = `${mine ? `${mine}. ` : ""}${ACTIVITIES[session.activity].label}. ${session.title}. ${session.abilityLabel}${session.fitsMe ? ", your level" : ""}. ${formatWhen(session.startAt)} at ${venue?.name ?? "the meeting point"}. ${seatsLabel(session.seatsLeft)}.`;
   return (
     <Link href={{ pathname: "/session/[id]", params: { id: session.id } }} asChild>
       {/* The press animation lives in PressScale's animated style, which survives `Link asChild`. */}
       <PressScale accessibilityRole="button" accessibilityLabel={summary} scaleTo={0.98}>
-        <SessionCardFace session={session} venue={venue} />
+        <SessionCardFace session={session} venue={venue} fits={session.fitsMe} mine={mine} />
       </PressScale>
     </Link>
   );
@@ -113,7 +140,13 @@ function Meta({ icon: Icon, text }: { icon: typeof Clock; text: string }) {
   );
 }
 
-export function Tag({ label, tone = "glass" }: { label: string; tone?: "glass" | "move" }) {
+export function Tag({
+  label,
+  tone = "glass",
+}: {
+  label: string;
+  tone?: "glass" | "move" | "accent";
+}) {
   const theme = useTheme();
   return (
     <View
@@ -121,14 +154,24 @@ export function Tag({ label, tone = "glass" }: { label: string; tone?: "glass" |
         styles.tag,
         tone === "move"
           ? { backgroundColor: theme.move }
-          : {
-              backgroundColor: withAlpha("#161618", 0.72),
-              borderColor: theme.border,
-              borderWidth: StyleSheet.hairlineWidth,
-            },
+          : tone === "accent"
+            ? { backgroundColor: theme.accent }
+            : {
+                backgroundColor: withAlpha("#161618", 0.72),
+                borderColor: theme.border,
+                borderWidth: StyleSheet.hairlineWidth,
+              },
       ]}
     >
-      <T style={styles.tagText}>{label}</T>
+      <T
+        style={[
+          styles.tagText,
+          tone === "accent" && { color: theme.onAccent },
+          tone === "move" && { color: theme.onDanger },
+        ]}
+      >
+        {label}
+      </T>
     </View>
   );
 }

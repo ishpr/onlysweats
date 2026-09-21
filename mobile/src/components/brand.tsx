@@ -1,10 +1,13 @@
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
+import { Bell } from "lucide-react-native";
 import { Pressable, StyleSheet, View } from "react-native";
 import Svg, { Circle, G, Rect } from "react-native-svg";
 
+import { PressScale } from "@/components/motion";
 import { T } from "@/components/ui";
 import { Radius, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { useNotifications } from "@/lib/queries";
 
 /** The SamePace mark: two people leaning in step. Geometry from brand/build.py. */
 export function PaceMark({ size = 28 }: { size?: number }) {
@@ -39,15 +42,28 @@ export function Lockup() {
 }
 
 export function AppHeader() {
+  const router = useRouter();
+  const theme = useTheme();
+  const unread = useNotifications().data?.unread ?? 0;
   return (
     <View style={styles.header} accessibilityRole="header">
-      <PaceMark />
-      <T style={styles.wordmark} accessibilityLabel="SamePace">
+      <PaceMark size={32} />
+      <T style={[styles.wordmark, styles.headerWord]} accessibilityLabel="SamePace">
         same
         <T style={styles.wordmark} color="accent">
           pace
         </T>
       </T>
+      <PressScale
+        accessibilityRole="button"
+        accessibilityLabel={unread > 0 ? `Notifications, ${unread} new` : "Notifications"}
+        onPress={() => router.push("/activity")}
+        style={styles.bell}
+        hitSlop={6}
+      >
+        <Bell size={20} color={theme.text} strokeWidth={1.75} />
+        {unread > 0 && <View style={[styles.bellDot, { backgroundColor: theme.move }]} />}
+      </PressScale>
     </View>
   );
 }
@@ -94,7 +110,10 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6,
     fontFamily: "Outfit_600SemiBold",
   },
-  wordmark: { fontSize: 17, lineHeight: 22, letterSpacing: -0.3, fontFamily: "Outfit_600SemiBold" },
+  headerWord: { flex: 1 },
+  bell: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  bellDot: { position: "absolute", top: 11, right: 11, width: 8, height: 8, borderRadius: 4 },
+  wordmark: { fontSize: 21, lineHeight: 26, letterSpacing: -0.4, fontFamily: "Outfit_600SemiBold" },
   banner: {
     marginHorizontal: Spacing.three,
     marginTop: Spacing.one,

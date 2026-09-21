@@ -3,7 +3,7 @@
  * colour — it all resolves through `useTheme()`. Touch targets are ≥44pt and
  * every pressable has a role and a label.
  */
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -117,6 +117,27 @@ export function Screen({
 }) {
   const theme = useTheme();
   const inner = [styles.content, contentStyle];
+  // The spinner belongs to a pull, and only a pull. Queries also refetch when a tab
+  // regains focus; tying the control to that made it stick open and shove the page
+  // down. A pull shows for at least a beat, then for as long as the refetch runs.
+  const [pulled, setPulled] = useState(false);
+  const stillRefreshing = useRef(refreshing);
+  useEffect(() => {
+    stillRefreshing.current = refreshing;
+  }, [refreshing]);
+  useEffect(() => {
+    if (!pulled) return;
+    let poll: ReturnType<typeof setInterval> | undefined;
+    const beat = setTimeout(() => {
+      poll = setInterval(() => {
+        if (!stillRefreshing.current) setPulled(false);
+      }, 200);
+    }, 700);
+    return () => {
+      clearTimeout(beat);
+      if (poll) clearInterval(poll);
+    };
+  }, [pulled]);
   return (
     <SafeAreaView edges={edges} style={[styles.fill, { backgroundColor: theme.background }]}>
       <Backdrop />
@@ -129,8 +150,11 @@ export function Screen({
           refreshControl={
             onRefresh ? (
               <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
+                refreshing={pulled}
+                onRefresh={() => {
+                  setPulled(true);
+                  onRefresh();
+                }}
                 tintColor={theme.textSecondary}
               />
             ) : undefined

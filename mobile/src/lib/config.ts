@@ -1,6 +1,8 @@
 import Constants from "expo-constants";
 
-const API_PORT = 8080;
+// 8080 is the repo default (`npm run dev`). A machine where that port is taken sets
+// `EXPO_PUBLIC_API_PORT` in the gitignored `mobile/.env.local` instead of editing this.
+const API_PORT = Number(process.env.EXPO_PUBLIC_API_PORT) || 8080;
 
 /**
  * Where the Pace API lives. Set `EXPO_PUBLIC_API_URL` for staging/production.

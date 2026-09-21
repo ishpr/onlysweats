@@ -33,6 +33,7 @@ export function ListCard({ children }: { children: ReactNode }) {
 export function ListRow({
   icon: Icon,
   label,
+  detail,
   value,
   valueTone = "muted",
   expanded,
@@ -43,6 +44,8 @@ export function ListRow({
 }: {
   icon?: IconType;
   label: string;
+  /** A second line under the label — for when the value is a sentence, not a word. */
+  detail?: string;
   value?: string;
   valueTone?: "muted" | "accent";
   /** Set for rows that open in place: shows a down chevron while open. */
@@ -59,7 +62,7 @@ export function ListRow({
     <View>
       <PressScale
         accessibilityRole={accessibilityRole}
-        accessibilityLabel={value ? `${label}, ${value}` : label}
+        accessibilityLabel={[label, detail, value].filter(Boolean).join(", ")}
         accessibilityState={expanded === undefined ? undefined : { expanded }}
         onPress={onPress}
         feedback="select"
@@ -69,9 +72,16 @@ export function ListRow({
         {Icon && (
           <Icon size={18} color={danger ? theme.danger : theme.textSecondary} strokeWidth={1.75} />
         )}
-        <T style={styles.label} color={danger ? "danger" : "text"}>
-          {label}
-        </T>
+        <View style={styles.label}>
+          <T color={danger ? "danger" : "text"} numberOfLines={1}>
+            {label}
+          </T>
+          {detail ? (
+            <T variant="caption" color="textSecondary" numberOfLines={1}>
+              {detail}
+            </T>
+          ) : null}
+        </View>
         {value ? (
           <T variant="caption" color={valueTone === "accent" ? "accent" : "textSecondary"}>
             {value}
@@ -102,7 +112,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     paddingHorizontal: Spacing.three,
   },
-  label: { flex: 1 },
+  label: { flex: 1, paddingVertical: Spacing.two },
   body: { paddingHorizontal: Spacing.three, paddingBottom: Spacing.three },
   section: { marginTop: Spacing.two, marginBottom: -Spacing.one, marginLeft: Spacing.one },
 });
