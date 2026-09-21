@@ -7,9 +7,14 @@ export const CHAT_CONSENT_NOTICE =
   "Allow SamePace to send this private conversation and relevant planning information to its cloud AI provider through Vercel. Replies may be wrong. Actions stay in your control; nothing is booked, sent to another member, or saved as a workout without your review. History is kept for up to 30 days. Turn this off or clear the conversation to remove it sooner.";
 export const CHAT_FITNESS_NOTICE =
   "Also allow the assistant to read summaries of your five most recent imported workouts, including recorded duration, distance, energy and heart-rate summary when available. Raw samples, sleep and HRV history are excluded. These summaries are sent to the cloud AI provider only when requested during this conversation. Turning this off clears the conversation. Removing imported health data also clears conversations that used workout summaries.";
+export const CHAT_MANUAL_WORKOUT_NOTICE_VERSION = "manual-workout-context-v1" as const;
+export const CHAT_MANUAL_WORKOUT_NOTICE =
+  "Also allow the private cloud assistant to read up to three recently updated saved workout plans, three recent workout records and five recent individual exercise logs when requested during this conversation. This includes plan titles and instructions, your entered notes, targets and actual sets, repetitions, time, distance and external load. Long records are shortened and identified as incomplete. Plans are not proof of exercise; missing results remain unknown. Apple Health data and other members' results are excluded. This permission does not share records with buddies or A2A agents. Turning this off clears the conversation. Adding, changing or deleting these manual records clears conversations that used this context and stops outdated replies.";
 export type ChatSettings = {
   cloudEnabled: boolean;
   fitnessContextEnabled: boolean;
+  manualWorkoutContextEnabled: boolean;
+  manualWorkoutContextNoticeVersion: typeof CHAT_MANUAL_WORKOUT_NOTICE_VERSION;
   consentGeneration: string;
   historyGeneration: string;
   noticeVersion: typeof CHAT_NOTICE_VERSION;

@@ -2,6 +2,7 @@ import { API_URL } from "./config";
 import { fetch as streamingFetch } from "expo/fetch";
 import { Platform } from "react-native";
 import { authRequestPolicy } from "./auth-request-policy";
+import { createLogoutCleanup } from "./logout-cleanup";
 import { createSessionTransport, type ApiSession, type SessionRequest } from "./session-transport";
 
 export type { ApiSession } from "./session-transport";
@@ -33,6 +34,17 @@ export function setUnauthorizedHandler(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
 
+/** Fixed-purpose, bounded old-session cleanup; cannot read or mutate arbitrary private data. */
+export function captureLogoutCleanup() {
+  return createLogoutCleanup(token, (savedToken, path, method, signal) =>
+    send(
+      path,
+      { method, signal, credentials: "omit", ...(method === "POST" ? { json: {} } : {}) },
+      savedToken,
+    ),
+  );
+}
+
 async function send(
   path: string,
   init: RequestInit & { json?: unknown } = {},
@@ -52,7 +64,9 @@ async function send(
     res = await fetch(`${API_URL}${path}`, {
       method: init.method ?? "GET",
       headers,
-      ...(authPolicy?.credentials ? { credentials: authPolicy.credentials } : {}),
+      ...(init.credentials || authPolicy?.credentials
+        ? { credentials: init.credentials ?? authPolicy?.credentials }
+        : {}),
       body: init.json !== undefined ? JSON.stringify(init.json) : undefined,
       signal: init.signal,
     });

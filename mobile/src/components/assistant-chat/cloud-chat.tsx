@@ -20,11 +20,16 @@ import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
 import { createAssistantRun } from "@/lib/assistant/run";
 import { createChatStreamParser, isChatMessage } from "@/lib/assistant/stream";
+import {
+  chatPermissionUpdate,
+  readChatSettings,
+  type ChatPermission,
+} from "@/lib/assistant/settings";
 import { storeGeneratedWorkoutPlanDraft } from "@/lib/workout-plans/draft-handoff";
 import {
   CHAT_CONSENT_NOTICE,
   CHAT_FITNESS_NOTICE,
-  CHAT_NOTICE_VERSION,
+  CHAT_MANUAL_WORKOUT_NOTICE,
   type ChatAction,
   type ChatEvent,
   type ChatHistory,
@@ -66,7 +71,7 @@ export function CloudChat({
         !result.messages.every(isChatMessage)
       )
         throw new Error("Your conversation could not be loaded. Please try again.");
-      return result;
+      return { ...result, settings: readChatSettings(result.settings) };
     },
   });
   return (
@@ -112,8 +117,9 @@ function CloudConversation({
   const [error, setError] = useState<string | null>(null);
   const [clearReview, setClearReview] = useState(false);
   const [showPermissions, setShowPermissions] = useState(false);
+  const [permissionsUnconfirmed, setPermissionsUnconfirmed] = useState(false);
   useEffect(() => () => runner.cancel(), [runner]);
-  const settings = history.error ? null : history.data?.settings;
+  const settings = history.error || permissionsUnconfirmed ? null : history.data?.settings;
   const stop = () => {
     runner.cancel();
     setBusy(false);
@@ -128,19 +134,29 @@ function CloudConversation({
     setError(null);
     setText("");
   };
-  const changePermissions = (cloudEnabled: boolean, fitnessContextEnabled: boolean) => {
+  const changePermissions = (permission: ChatPermission, enabled: boolean) => {
+    if (!settings || control.busy || !session.isCurrent()) return;
+    const update = chatPermissionUpdate(settings, permission, enabled);
     clearLocal();
+    // A failed response cannot tell us whether the server applied a revocation.
+    // Keep cached grants/history hidden until a confirmed write or fresh read.
+    setPermissionsUnconfirmed(true);
     void control.run(
-      (signal) =>
-        session.request<{ settings: ChatSettings }>("/assistant/settings", {
+      async (signal) => {
+        await client.cancelQueries({ queryKey, exact: true });
+        const result = await session.request<{ settings: ChatSettings }>("/assistant/settings", {
           method: "PUT",
           signal,
-          json: { cloudEnabled, fitnessContextEnabled, noticeVersion: CHAT_NOTICE_VERSION },
-        }),
+          json: update,
+        });
+        return { settings: readChatSettings(result.settings) };
+      },
       async (result) => {
         await client.cancelQueries({ queryKey, exact: true });
-        if (session.isCurrent())
+        if (session.isCurrent()) {
           client.setQueryData<ChatHistory>(queryKey, { settings: result.settings, messages: [] });
+          setPermissionsUnconfirmed(false);
+        }
       },
     );
   };
@@ -260,7 +276,8 @@ function CloudConversation({
       }
     }
   };
-  const visible = history.error ? [] : (history.data?.messages ?? []);
+  const visible =
+    history.error || control.busy || permissionsUnconfirmed ? [] : (history.data?.messages ?? []);
   const icons = {
     preferences: Settings2,
     discovery: Users,
@@ -278,6 +295,27 @@ function CloudConversation({
           error={history.error}
           onRetry={() => void history.refetch()}
         />
+      )}
+      {permissionsUnconfirmed && !control.busy && (
+        <>
+          <Notice>
+            Your privacy change could not be confirmed. Refresh permissions before continuing.
+          </Notice>
+          <Button
+            label="Refresh permissions"
+            variant="soft"
+            onPress={() => {
+              void control.run(
+                async () => {
+                  const result = await history.refetch();
+                  if (result.error) throw result.error;
+                  if (!result.data) throw new Error("Your permissions could not be refreshed.");
+                },
+                () => setPermissionsUnconfirmed(false),
+              );
+            }}
+          />
+        </>
       )}
       {settings && !settings.cloudEnabled && (
         <Notice>
@@ -374,7 +412,15 @@ function CloudConversation({
         <ListRow
           icon={ShieldCheck}
           label="Privacy choices"
-          value={settings?.cloudEnabled ? "Cloud on" : "Cloud off"}
+          value={
+            permissionsUnconfirmed
+              ? control.busy
+                ? "Updating"
+                : "Needs refresh"
+              : settings?.cloudEnabled
+                ? "Cloud on"
+                : "Cloud off"
+          }
           expanded={showPermissions}
           onPress={() => setShowPermissions((value) => !value)}
         >
@@ -391,9 +437,7 @@ function CloudConversation({
                   accessibilityLabel="Allow cloud assistant"
                   value={settings.cloudEnabled}
                   disabled={control.busy}
-                  onValueChange={(enabled) =>
-                    changePermissions(enabled, enabled && settings.fitnessContextEnabled)
-                  }
+                  onValueChange={(enabled) => changePermissions("cloudEnabled", enabled)}
                 />
               </Row>
               <T variant="caption" color="textSecondary">
@@ -401,13 +445,29 @@ function CloudConversation({
               </T>
               <Row style={{ justifyContent: "space-between" }}>
                 <T variant="label" style={{ flex: 1 }}>
-                  Include recent workout summaries
+                  Include Apple Health workout summaries
                 </T>
                 <Switch
-                  accessibilityLabel="Share recent fitness summaries with cloud assistant"
+                  accessibilityLabel="Share recent Apple Health summaries with cloud assistant"
                   value={settings.fitnessContextEnabled}
                   disabled={control.busy || !settings.cloudEnabled}
-                  onValueChange={(enabled) => changePermissions(true, enabled)}
+                  onValueChange={(enabled) => changePermissions("fitnessContextEnabled", enabled)}
+                />
+              </Row>
+              <T variant="caption" color="textSecondary">
+                {CHAT_MANUAL_WORKOUT_NOTICE}
+              </T>
+              <Row style={{ justifyContent: "space-between" }}>
+                <T variant="label" style={{ flex: 1 }}>
+                  Include saved plans and manual logs
+                </T>
+                <Switch
+                  accessibilityLabel="Share saved workout plans and manual logs with cloud assistant"
+                  value={settings.manualWorkoutContextEnabled}
+                  disabled={control.busy || !settings.cloudEnabled}
+                  onValueChange={(enabled) =>
+                    changePermissions("manualWorkoutContextEnabled", enabled)
+                  }
                 />
               </Row>
             </View>
@@ -436,7 +496,11 @@ function CloudConversation({
                     session.request<ChatHistory>("/assistant/chat", { method: "DELETE", signal }),
                   async (result) => {
                     await client.cancelQueries({ queryKey, exact: true });
-                    if (session.isCurrent()) client.setQueryData<ChatHistory>(queryKey, result);
+                    if (session.isCurrent())
+                      client.setQueryData<ChatHistory>(queryKey, {
+                        ...result,
+                        settings: readChatSettings(result.settings),
+                      });
                   },
                 );
               },

@@ -73,6 +73,8 @@ export type StartWorkoutRunInput = {
 };
 export type UpdateWorkoutRunInput = {
   expectedRevision: number;
+  /** Keep the same ID and payload until the server acknowledges a retry. */
+  mutationId?: string;
   results: WorkoutSetResult[];
   note: string;
   shareAccountability: boolean;
