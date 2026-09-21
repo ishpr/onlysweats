@@ -60,7 +60,7 @@ function SessionWorkout({ member, session }: PrivateMemberProps) {
         <>
           <Notice>
             {canAttach
-              ? "Attach a template before anyone joins so everyone agrees to the same exercises and instructions."
+              ? "Add the first plan before this session starts. Buddies can review the exercises and instructions here before starting their workout."
               : "The host has not attached a workout plan to this session."}
           </Notice>
           {canAttach && (
@@ -77,6 +77,12 @@ function SessionWorkout({ member, session }: PrivateMemberProps) {
             session’s plan.
           </Notice>
           <PlanPreview plan={plan.snapshot} />
+          {!myRun && (
+            <T variant="caption" color="textSecondary">
+              Review the targets and instructions above. Starting your workout uses this exact
+              version.
+            </T>
+          )}
           {myRun ? (
             <Button
               label={myRun.status === "completed" ? "Review my workout" : "Continue my workout"}
@@ -93,7 +99,12 @@ function SessionWorkout({ member, session }: PrivateMemberProps) {
                   (signal) =>
                     session.request<{ run: WorkoutRun }>("/fitness/runs", {
                       method: "POST",
-                      json: { id: runId, sessionId: id },
+                      json: {
+                        id: runId,
+                        sessionId: id,
+                        expectedPlanId: plan.planId,
+                        expectedPlanRevision: plan.planRevision,
+                      },
                       signal,
                     }),
                   async ({ run }) => {

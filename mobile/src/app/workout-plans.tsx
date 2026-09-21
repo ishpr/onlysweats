@@ -54,8 +54,8 @@ function WorkoutPlans({ member, session }: PrivateMemberProps) {
       </T>
       {sessionId && (
         <Notice>
-          Choose a workout to review before sharing it with this session. Only the host can attach a
-          plan, before anyone joins.
+          Choose a workout to review before sharing it with this session. The host can add the first
+          plan before the session starts. Once attached, a plan stays fixed after anyone joins.
         </Notice>
       )}
       <Button

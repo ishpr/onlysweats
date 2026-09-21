@@ -83,8 +83,9 @@ function WorkoutPlanDetail({ member, session }: PrivateMemberProps) {
             <Card>
               <T variant="heading">Share this plan with your session</T>
               <T color="textSecondary">
-                Everyone who joins will follow this exact version, including the instructions and
-                planned sets above. Keep personal information out of the plan.
+                Session buddies can review this exact version, including the instructions and
+                planned sets above, before starting their workout. Keep personal information out of
+                the plan.
               </T>
               <T variant="caption" color="textSecondary">
                 Only confirmed session buddies can view this plan. They can save their own copy.
