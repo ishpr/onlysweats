@@ -8,9 +8,12 @@ import { listWorkouts } from "../health/service.server.ts";
 import { workoutPlanDraftInput } from "./plan-draft.ts";
 import { conversationContext } from "./context.ts";
 import { readManualWorkoutContext } from "./manual-workout-context.server.ts";
+import { APP_TERMS_VERSION, type AppTermsStatus } from "../../../shared/app-terms.ts";
+import { FITNESS_AI_NOTICE_VERSION } from "../../../shared/fitness.ts";
 import {
   CHAT_NOTICE_VERSION,
   CHAT_MANUAL_WORKOUT_NOTICE_VERSION,
+  CHAT_HISTORY_USE_NOTICE_VERSION,
   type ChatAction,
   type ChatEvent,
   type ChatHistory,
@@ -45,6 +48,10 @@ export const settingsInput = z
     fitnessContextEnabled: z.boolean(),
     manualWorkoutContextEnabled: z.boolean().default(false),
     manualWorkoutContextNoticeVersion: z.literal(CHAT_MANUAL_WORKOUT_NOTICE_VERSION).optional(),
+    historyUse: z.enum(["when_requested", "when_relevant"]).optional(),
+    historyUseNoticeVersion: z.literal(CHAT_HISTORY_USE_NOTICE_VERSION).optional(),
+    initialSetup: z.literal(true).optional(),
+    expectedConsentGeneration: z.uuid().optional(),
     noticeVersion: z.literal(CHAT_NOTICE_VERSION),
   })
   .strict()
@@ -58,6 +65,12 @@ export const settingsInput = z
       (s.cloudEnabled &&
         s.manualWorkoutContextNoticeVersion === CHAT_MANUAL_WORKOUT_NOTICE_VERSION),
     "Review the separate manual workout notice and enable cloud conversation first.",
+  )
+  .refine(
+    (s) =>
+      s.historyUse !== "when_relevant" ||
+      (s.cloudEnabled && s.historyUseNoticeVersion === CHAT_HISTORY_USE_NOTICE_VERSION),
+    "Review the current history-use notice and enable cloud conversation first.",
   );
 export const turnInput = z
   .object({
@@ -78,10 +91,13 @@ export const preferenceDraftInput = z
   .refine((d) => Object.values(d).some((v) => v !== undefined), "Include a suggested field.");
 type SettingsRow = {
   user_id: string;
+  consent_reviewed: boolean;
   cloud_enabled: boolean;
   fitness_context_enabled: boolean;
   manual_workout_context_enabled: boolean;
   manual_workout_notice_version: string | null;
+  history_use: string;
+  history_use_notice_version: string | null;
   consent_generation: string;
   history_generation: string;
   notice_version: string;
@@ -117,12 +133,20 @@ export const compatibleMessage = (message: ChatMessage, workoutPlanDrafts: boole
         actions: message.actions.filter((action) => action.kind !== "workout_plan"),
       };
 const settingsView = (r: SettingsRow): ChatSettings => ({
+  consentReviewed: r.consent_reviewed,
   cloudEnabled: r.cloud_enabled,
   fitnessContextEnabled: r.fitness_context_enabled,
   manualWorkoutContextEnabled:
     r.manual_workout_context_enabled &&
     r.manual_workout_notice_version === CHAT_MANUAL_WORKOUT_NOTICE_VERSION,
   manualWorkoutContextNoticeVersion: CHAT_MANUAL_WORKOUT_NOTICE_VERSION,
+  historyUse:
+    r.cloud_enabled &&
+    r.history_use === "when_relevant" &&
+    r.history_use_notice_version === CHAT_HISTORY_USE_NOTICE_VERSION
+      ? "when_relevant"
+      : "when_requested",
+  historyUseNoticeVersion: CHAT_HISTORY_USE_NOTICE_VERSION,
   consentGeneration: r.consent_generation,
   historyGeneration: r.history_generation,
   noticeVersion: CHAT_NOTICE_VERSION,
@@ -136,6 +160,7 @@ async function owner(sql: Sql, userId: string, active = false) {
   }>`select suspended_at from profiles where id = ${userId} and deleted_at is null`;
   if (!rows.length) throw new ChatError(401, "Sign in again to continue.");
   if (active && rows[0].suspended_at) throw new ChatError(403, "Your account is paused.");
+  return rows[0];
 }
 async function lockOwner(sql: Sql, userId: string) {
   const rows = await sql`select id from "user" where id = ${userId} for update`;
@@ -185,17 +210,99 @@ export async function setSettings(sql: Sql, userId: string, body: unknown, now =
   await settings(sql, userId);
   return sql.transaction(async (tx) => {
     await lockOwner(tx, userId);
-    await tx`select user_id from assistant_chat_settings where user_id = ${userId} for update`;
+    const [current] =
+      await tx<SettingsRow>`select * from assistant_chat_settings where user_id = ${userId} for update`;
+    if (
+      (input.initialSetup && current.consent_reviewed) ||
+      (input.expectedConsentGeneration &&
+        input.expectedConsentGeneration !== current.consent_generation)
+    )
+      throw new ChatError(
+        409,
+        "Your conversation settings changed. Refresh and review them again.",
+      );
     await owner(tx, userId, input.cloudEnabled);
+    // Omitted new fields cannot broaden history use. Older clients preserve an
+    // already accepted mode only while cloud remains enabled.
+    const historyUse = input.cloudEnabled
+      ? (input.historyUse ?? settingsView(current).historyUse)
+      : "when_requested";
     // Every consent update invalidates in-flight requests and deletes prior context.
     await tx`delete from assistant_chat_messages where user_id = ${userId}`;
-    const [row] =
-      await tx<SettingsRow>`update assistant_chat_settings set cloud_enabled = ${input.cloudEnabled},
+    const [row] = await tx<SettingsRow>`update assistant_chat_settings set consent_reviewed = true,
+      cloud_enabled = ${input.cloudEnabled},
       fitness_context_enabled = ${input.fitnessContextEnabled}, fitness_context_used = false, consent_generation = ${randomUUID()}, history_generation = ${randomUUID()},
       manual_workout_context_enabled = ${input.manualWorkoutContextEnabled}, manual_workout_context_used = false,
       manual_workout_notice_version = ${input.manualWorkoutContextEnabled ? CHAT_MANUAL_WORKOUT_NOTICE_VERSION : null},
+      history_use = ${historyUse},
+      history_use_notice_version = ${historyUse === "when_relevant" ? CHAT_HISTORY_USE_NOTICE_VERSION : null},
       notice_version = ${CHAT_NOTICE_VERSION}, updated_at = ${iso(now)}, active_request_id = null, active_attempt_id = null, lease_until = null where user_id = ${userId} returning *`;
     return { settings: settingsView(row) };
+  });
+}
+
+export const appTermsInput = z.object({ version: z.literal(APP_TERMS_VERSION) }).strict();
+
+export async function getAppTerms(sql: Sql, userId: string): Promise<AppTermsStatus> {
+  await owner(sql, userId);
+  const [accepted] = await sql<{ version: string; accepted_at: Date | string }>`
+    select version, accepted_at from app_terms_acceptances
+    where user_id = ${userId} and version = ${APP_TERMS_VERSION}`;
+  return {
+    ownerId: userId,
+    version: APP_TERMS_VERSION,
+    accepted: Boolean(accepted),
+    acceptedVersion: accepted?.version ?? null,
+    acceptedAt: accepted ? new Date(accepted.accepted_at).toISOString() : null,
+  };
+}
+
+/** Terms acceptance and fresh defaults commit together. Replays never re-grant. */
+export async function acceptAppTerms(
+  sql: Sql,
+  userId: string,
+  body: unknown,
+  now = Date.now(),
+): Promise<AppTermsStatus> {
+  appTermsInput.parse(body);
+  return sql.transaction(async (tx) => {
+    await lockOwner(tx, userId);
+    const profile = await owner(tx, userId);
+    const currentTerms = await getAppTerms(tx, userId);
+    if (currentTerms.accepted) return currentTerms;
+
+    let current = settingsView(await settings(tx, userId));
+    if (!current.consentReviewed) {
+      const enableCoaching = profile.suspended_at === null;
+      const initialized = await setSettings(
+        tx,
+        userId,
+        {
+          cloudEnabled: enableCoaching,
+          fitnessContextEnabled: enableCoaching,
+          manualWorkoutContextEnabled: enableCoaching,
+          manualWorkoutContextNoticeVersion: CHAT_MANUAL_WORKOUT_NOTICE_VERSION,
+          noticeVersion: CHAT_NOTICE_VERSION,
+          historyUse: enableCoaching ? "when_relevant" : "when_requested",
+          historyUseNoticeVersion: CHAT_HISTORY_USE_NOTICE_VERSION,
+          initialSetup: true,
+          expectedConsentGeneration: current.consentGeneration,
+        },
+        now,
+      );
+      current = initialized.settings;
+    }
+    // No row means no previous choice. Existing false, stale-notice and true
+    // rows all remain unchanged, including their rate limits and generations.
+    await tx`insert into fitness_consents (user_id, enabled, generation, notice_version, updated_at)
+      values (${userId}, ${profile.suspended_at === null}, ${randomUUID()}, ${FITNESS_AI_NOTICE_VERSION}, ${iso(now)})
+      on conflict (user_id) do nothing`;
+    const [fitness] = await tx<{ generation: string }>`
+      select generation from fitness_consents where user_id = ${userId}`;
+    await tx`insert into app_terms_acceptances
+      (user_id, version, accepted_at, assistant_consent_generation, fitness_consent_generation)
+      values (${userId}, ${APP_TERMS_VERSION}, ${iso(now)}, ${current.consentGeneration}, ${fitness.generation})`;
+    return getAppTerms(tx, userId);
   });
 }
 export async function clearHistory(sql: Sql, userId: string, now = Date.now()) {
@@ -384,6 +491,7 @@ export async function chatResponse(
         await withAbort(
           provider({
             messages,
+            historyUse: settingsView(reserved.row).historyUse,
             signal: abort.signal,
             onText: async (delta) => {
               await assertCurrent();
@@ -421,7 +529,7 @@ export async function chatResponse(
                   description: "Edit these suggestions, then choose whether to save them.",
                   preferenceDraft,
                 });
-                return { reviewOffered: true, saved: false, sharingEnabled: false };
+                return { reviewOffered: true, saved: false, sharingChanged: false };
               },
               planning: async () => {
                 await toolGuard();

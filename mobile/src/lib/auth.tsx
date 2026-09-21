@@ -26,6 +26,7 @@ import { signOutOfGoogle, type SocialResult } from "./social";
 import { createSerialWrites } from "./serial-writes";
 import { clearWorkoutRecovery } from "./workout-plans/recovery";
 import { bindOfflineWorkoutSession, clearOfflineWorkouts } from "./workout-plans/offline";
+import { bindAppTermsSession, clearAppTermsReceipt } from "./app-terms";
 
 const TOKEN_KEY = "pace.session-token";
 
@@ -69,10 +70,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const offlineClearing = clearOfflineWorkouts();
     const recoveryClearing = clearWorkoutRecovery();
     const tokenClearing = store.clear();
+    const termsClearing = clearAppTermsReceipt();
     setSignedIn(false);
     queryClient.clear();
     await Promise.all(
-      [offlineClearing, recoveryClearing, tokenClearing].map((operation) =>
+      [offlineClearing, recoveryClearing, tokenClearing, termsClearing].map((operation) =>
         operation.catch(() => undefined),
       ),
     );
@@ -89,8 +91,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((saved) => {
         if (!alive || generation !== authOperation.current) return;
         bindOfflineWorkoutSession(saved);
-        if (!saved) void clearOfflineWorkouts().catch(() => undefined);
         setApiToken(saved);
+        bindAppTermsSession(saved);
+        if (!saved) void clearOfflineWorkouts().catch(() => undefined);
+        if (!saved) void clearAppTermsReceipt().catch(() => undefined);
         setSignedIn(Boolean(saved));
       });
     setUnauthorizedHandler(() => void drop());
@@ -110,16 +114,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const offlineClearing = clearOfflineWorkouts();
       const recoveryClearing = clearWorkoutRecovery();
       const tokenClearing = store.clear();
+      const termsClearing = clearAppTermsReceipt();
       await Promise.all([
         offlineClearing.catch(() => undefined),
         recoveryClearing.catch(() => undefined),
         tokenClearing,
+        termsClearing.catch(() => undefined),
       ]);
       if (generation !== authOperation.current) return null;
       await store.set(token);
       if (generation !== authOperation.current) return null;
       bindOfflineWorkoutSession(token);
       setApiToken(token);
+      bindAppTermsSession(token);
       setSignedIn(true);
       return captureApiSession();
     };
@@ -165,7 +172,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
             await revokeAfterDeviceCleanup(
               pushCleanup,
-              () => { deviceCleanupOpen = false; },
+              () => {
+                deviceCleanupOpen = false;
+              },
               cleanup.revokeSession,
             );
             await googleCleanup;

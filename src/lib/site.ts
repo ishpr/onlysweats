@@ -9,5 +9,5 @@ export const SITE = {
   appScheme: "samepace",
   cluster: "Dallas — the Katy Trail and Oak Lawn",
   /** Shown on the policies. Update when their substance changes. */
-  policiesUpdated: "September 20, 2026",
+  policiesUpdated: "September 21, 2026",
 } as const;

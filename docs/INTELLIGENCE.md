@@ -1,6 +1,6 @@
 # SamePace intelligence
 
-The assistant has two explicit conversation modes: **On this iPhone** and **Cloud**. Planning and approvals remain a separate tab. Neither conversation mode can book, send another member a message, enable delegation, charge money, or mark a workout complete. Review cards lead to the existing editor or approval screen.
+The assistant opens directly into built-in coaching. Members do not select a provider or model. The normal account onboarding requires acceptance of SamePace’s Terms and Privacy Policy, with a clear built-in coaching disclosure. For a new member, acceptance authorizes conversation, relevant bounded manual history and imported workout summaries; device and Health sync permissions still control whether Health records exist. Existing privacy choices are preserved. **On-device help** remains an optional private alternative under Controls. Planning and approvals remain a separate tab. Neither conversation path can book, send another member a message, enable delegation, charge money, or mark a workout complete. Review cards lead to the existing editor or approval screen.
 
 ## Responsibilities
 
@@ -17,35 +17,37 @@ The app never transfers a local transcript or photo into the cloud conversation 
 
 ## Cloud configuration
 
-Apply migrations through `0031_workout_run_retry_receipt.sql` using the normal deployment migration process. Server-only configuration:
+Apply migrations through `0033_app_terms.sql` using the normal deployment migration process. Server-only configuration:
 
-| Variable                      | Purpose                                                                                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `ASSISTANT_CHAT_ENABLED=true` | Enables provider calls. Default off. This does not grant a member's consent.                                 |
-| `ASSISTANT_CHAT_MODEL`        | Gateway model ID; initial default `anthropic/claude-sonnet-5`. Selection remains subject to task evaluation. |
-| `AI_GATEWAY_API_KEY`          | Optional server credential for local/non-Vercel execution. Never an Expo public variable.                    |
-| `VERCEL_OIDC_TOKEN`           | Vercel deployment/development identity supported by Gateway. Do not copy into app builds.                    |
-| `HEALTH_SYNC_ENABLED=true`    | Required in addition to separate member fitness-context consent to read imported summaries.                  |
-| `A2A_ENABLED=true`            | Required for planning preference/discovery tools; normal A2A permissions remain authoritative.               |
+| Variable                      | Purpose                                                                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `ASSISTANT_CHAT_ENABLED=true` | Enables provider calls. Default off. This does not grant a member's consent.                                                      |
+| `ASSISTANT_CHAT_MODEL`        | Gateway model ID; default `zai/glm-5.3-flash`, selected by the owner. No virtual model or member-facing model picker is required. |
+| `AI_GATEWAY_API_KEY`          | Optional server credential for local/non-Vercel execution. Never an Expo public variable.                                         |
+| `VERCEL_OIDC_TOKEN`           | Vercel deployment/development identity supported by Gateway. Do not copy into app builds.                                         |
+| `HEALTH_SYNC_ENABLED=true`    | Required in addition to separate member fitness-context consent to read imported summaries.                                       |
+| `A2A_ENABLED=true`            | Required for planning preference/discovery tools; normal A2A permissions remain authoritative.                                    |
 
-Gateway calls require zero data retention and disallow prompt training. The adapter does not weaken these requirements on failure or switch providers behind the member's choice. Team eligibility, credits, model access, and supported routing must all work before enabling cloud chat. Authentication alone is not proof that a model can run.
+The selected GLM model uses `reasoning: "none"` for this bounded coaching workflow and prefers Fireworks while retaining eligible same-model fallback routes. The [GLM evaluation](evaluations/glm-coach-2026-09-21.md) records observed results and provider timeouts. Gateway calls require zero data retention and disallow prompt training. The adapter does not weaken these requirements on failure or switch providers behind the member's choice. Team eligibility, credits, model access, and supported routing must all work before enabling cloud chat. Authentication alone is not proof that a model can run.
 
 On September 21, 2026, deployment OIDC authentication and credit lookup worked, but three synthetic model probes were denied because paid Gateway credits had not been added. A $20 one-time purchase was requested separately and is not authorized by this document. No real member content was used in those probes. This was a historical provider blocker; see the later funded check below.
 
 A later same-day readiness check used one synthetic request with a 16-token maximum, no retries and both privacy flags. It still returned HTTP 403, `paid_credits_required`. The account reported a $5 balance and $0 used before and after; that displayed balance alone does not prove access to this provider configuration. No purchase or feature activation occurred during that check.
 
-After the owner added Gateway credits, a later September 21 probe succeeded with the configured `anthropic/claude-sonnet-5` model, deployment-project OIDC authentication, zero data retention and no prompt training. The synthetic request used 16 input tokens and four output tokens and returned the expected response. A virtual model is not required: the adapter already addresses the model directly through Gateway. The subsequent [live synthetic evaluation](evaluations/cloud-conversation-live-2026-09-21.md) and protected Preview streaming checks passed after correcting the observed instruction issues. Cloud chat is available in this release with explicit member opt-in; representative member and physical-device acceptance remain required.
+After the owner added Gateway credits, a later September 21 probe succeeded with the configured `anthropic/claude-sonnet-5` model, deployment-project OIDC authentication, zero data retention and no prompt training. The synthetic request used 16 input tokens and four output tokens and returned the expected response. A virtual model is not required: the adapter already addresses the model directly through Gateway. The subsequent [live synthetic evaluation](evaluations/cloud-conversation-live-2026-09-21.md) and protected Preview streaming checks passed after correcting the observed instruction issues. That earlier release used a separate cloud opt-in. The current release integrates coaching into product Terms acceptance as described below; representative member and physical-device acceptance remain required.
 
 ## Private API and limits
 
 All endpoints use the normal signed-in member session under `/api/v1`, with no-store responses. A2A delegation tokens do not authenticate them.
 
-| Endpoint                  | Behavior                                                                                                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /assistant/chat`     | One consistent settings/history snapshot, at most 40 messages.                                                                                               |
-| `PUT /assistant/settings` | Explicit cloud consent and independent optional Apple Health/manual-workout permissions with current notices; clears history and invalidates active replies. |
-| `DELETE /assistant/chat`  | Removes conversation, rotates history generation, and invalidates active replies.                                                                            |
-| `POST /assistant/chat`    | NDJSON `start`, `delta`, `action`, `done` or safe `error`; requires UUID request ID and current consent/history generations.                                 |
+| Endpoint                  | Behavior                                                                                                                                                          |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /me/terms`           | Current product Terms version and this owner’s acceptance status.                                                                                                 |
+| `PUT /me/terms`           | Accept the current version; atomically initialize fresh coaching/TypeSafe choices and record the acceptance, preserving existing opt-outs and idempotent retries. |
+| `GET /assistant/chat`     | One consistent settings/history snapshot, at most 40 messages.                                                                                                    |
+| `PUT /assistant/settings` | Explicit cloud consent and independent optional Apple Health/manual-workout permissions with current notices; clears history and invalidates active replies.      |
+| `DELETE /assistant/chat`  | Removes conversation, rotates history generation, and invalidates active replies.                                                                                 |
+| `POST /assistant/chat`    | NDJSON `start`, `delta`, `action`, `done` or safe `error`; requires UUID request ID and current consent/history generations.                                      |
 
 Limits: 2,000 input characters, 16 KiB request body, 20 context messages / 16,000 context characters, 2,400 generated tokens for clients supporting workout-plan drafts (1,200 for older clients), 12,000 result characters, six read/review tool calls, three model steps, twelve deduplicated cards, 45-second server deadline, and fifty attempted turns per UTC day. These bounds constrain spending; they are not a precise dollar budget.
 
@@ -59,7 +61,15 @@ Cloud fitness permission allows only the five latest imported workout summaries:
 
 The independent **Saved plans and workout logs** permission (`manual-workout-context-v1`) enables a read-only tool for up to three recently updated private plans, three recent structured workout records and five individual exercise logs. Each record includes at most six exercises and six sets per exercise; clipped text and omitted records are identified. The tool has a 12,000-byte payload ceiling and excludes other members' records, HealthKit and raw account/session identifiers. Planned targets and entered actuals are explicitly separate. Missing values, skipped sets and unrecorded sets never become completed activity. This is a recent sample, not a complete training history or a readiness assessment. Local AI does not automatically acquire this cloud permission or context.
 
-Manual context is off for every existing member until they explicitly enable its separate notice. Older clients that omit the new setting cannot grant it. Adding, editing or deleting a plan, workout record or individual exercise log clears any conversation that used manual context, rotates its history generation and cancels outdated replies under the same identity lock. Idempotent retries leave history intact because they do not change the records. The final reply also verifies the complete source revisions and bounded context before saving. A2A permissions and messages remain separate.
+Existing manual-context grants and opt-outs are preserved. For a new member who has never reviewed coaching permissions, Terms acceptance enables conversation, bounded manual history, relevant-history use and bounded imported workout summaries together. It never grants device HealthKit permission or starts a Health import. Existing members can change these choices in Controls. Older clients that omit the manual setting cannot grant it. Adding, editing or deleting a plan, workout record or individual exercise log clears any conversation that used manual context, rotates its history generation and cancels outdated replies under the same identity lock. Idempotent retries leave history intact because they do not change the records. The final reply also verifies the complete source revisions and bounded context before saving. A2A permissions and messages remain separate.
+
+### Relevant history and product Terms
+
+The `relevant-workout-history-v1` notice permits the coach to consult already-authorized saved history when useful to the current coaching request, without requiring the member to ask for a history lookup each time. Unrelated questions do not need a history read. This setting never grants another source: imported Apple Health summaries and manual records still require their respective permissions, and all existing read limits apply.
+
+Older clients and existing grants remain `when_requested` until the member accepts the relevant-history notice. Existing rows are conservatively marked as having reviewed permissions. Terms acceptance is recorded by owner and version, is idempotent and only establishes coaching defaults for an unreviewed account. Existing grants and restrictions are preserved; accepting a new Terms version cannot restore a revoked permission. TypeSafe assistance is initialized only when no previous fitness consent choice exists. Pilot analytics, discovery, A2A delegation and payments receive no new grant. Permission changes still clear history, rotate generations and stop stale replies. Disabling cloud coaching revokes context grants; re-enabling it does not restore them.
+
+The disclosure is included in the required product Terms acceptance because [Apple's App Review Guidelines, 5.1.2(i)](https://developer.apple.com/app-store/review/guidelines/#data-use-and-sharing) require disclosure and permission before personal data is shared with third-party AI. There is no separate AI activation step or member-facing model configuration. Backend configuration owns model changes. The mobile gate blocks normal product use until accepted and offers sign-out on decline. A protected receipt bound to the current session preserves previously accepted access to offline workout logging; an unknown or stale version cannot pass the gate. Local transcripts and photos are never silently forwarded.
 
 The service fingerprints the complete authorized summary snapshot and checks it under the same identity lock used by HealthKit mutations before saving an answer. Removing a workout, receiving a relevant source deletion, disconnecting Apple Health, or withdrawing a reading type clears chat that previously used workout summaries and cancels its generation. This removes app history; it cannot retract text already seen by a member or already processed in an authorized provider request. User-typed health details are treated as conversation content and can be removed with **Clear conversation**.
 

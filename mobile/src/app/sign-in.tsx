@@ -140,7 +140,7 @@ export default function SignIn({
         )}
 
         <T variant="caption" color="textFaint" style={styles.center}>
-          We only get your name and email, and never post anywhere. By continuing you agree to the{" "}
+          Sign-in shares your name and email. Before using SamePace, you’ll review and accept the{" "}
           <T
             variant="caption"
             color="textSecondary"

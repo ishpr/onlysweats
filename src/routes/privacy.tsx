@@ -18,7 +18,9 @@ function Privacy() {
           <ul>
             <li>
               We collect what it takes to get two to four people to the same place at the same time.
-              Optional Apple Health sync keeps your workout records private.
+              Optional Apple Health sync keeps your workout records private. Built-in coaching uses
+              relevant records as described below; your private history is not shared with workout
+              buddies.
             </li>
             <li>We don’t show ads, sell data, or run third-party trackers in the app.</li>
             <li>
@@ -97,8 +99,10 @@ function Privacy() {
           <p>
             We use these records to show your private workout history and calculate summaries. They
             do not affect attendance, training-block progress, fees, or your public track record.
-            Connecting Apple Health does not authorize AI processing or sharing with other members.
-            SamePace only reads Apple Health; it does not write or delete anything there.
+            Device permission to connect Apple Health does not itself authorize AI processing or
+            sharing with other members. The app’s Terms acceptance separately discloses and
+            authorizes bounded workout-summary use for coaching; existing privacy opt-outs remain
+            respected. SamePace only reads Apple Health; it does not write or delete anything there.
           </p>
           <p>
             Turning off a reading in SamePace removes that type of imported reading. Removing a
@@ -112,15 +116,50 @@ function Privacy() {
           </p>
         </Section>
 
-        <Section title="Exercise logs and optional AI assistance">
+        <Section title="Built-in coaching">
+          <p>
+            Coaching is included in SamePace. During onboarding you review and accept the current
+            Terms and this policy, including the use of relevant records for coaching. We record the
+            accepted version and time. There is no model picker or separate AI activation step.
+            Existing privacy choices are preserved when you accept updated Terms.
+          </p>
+          <p>
+            The coach sends your conversation and relevant entered planning information to Vercel AI
+            Gateway and its AI providers. When useful to your request, it can read up to three
+            recently updated private workout plans, three recent workout records and five individual
+            exercise logs. These include titles, instructions, notes, planned targets and entered
+            actual results. Each plan or record includes at most six exercises and six sets per
+            exercise; long records are shortened and identified as incomplete. This is a bounded
+            recent sample, not your complete training history.
+          </p>
+          <p>
+            If you have connected Apple Health and allowed its workout summaries for coaching, the
+            coach can also use up to five recent imported workouts, with duration, distance, energy
+            and an available heart-rate summary. Raw samples, sleep, HRV history and other members’
+            records are excluded. Relevance does not override a permission you turned off. General
+            questions do not need a history lookup. Locally processed photos and on-device
+            conversations are not automatically sent to the cloud.
+          </p>
+          <p>
+            Gateway requests require zero data retention and no prompt training. SamePace keeps
+            private coaching history for up to 30 days and at most 80 messages. Clear conversation,
+            account deletion or withdrawing a coaching permission removes the relevant app history
+            and stops outdated replies. Changes to saved records clear conversations that used those
+            records. This cannot retract a reply already seen or data already processed in an
+            authorized request. Models are selected by SamePace and may change; suggestions remain
+            editable and can be wrong.
+          </p>
+        </Section>
+
+        <Section title="Exercise logs and structured AI assistance">
           <p>
             You can save private exercises, sets, repetitions, external loads, units, and notes, and
-            add corrections alongside imported workouts. Corrections do not change Apple Health. If
-            you separately enable AI assistance and request a suggestion, SamePace sends the
-            submitted note or a bounded summary of the selected workout and your stated goal to
-            TypeSafe. It does not send your identity, raw heart-rate samples, sleep history, or your
-            full health history. Suggestions are editable interpretations, not measurements or
-            medical conclusions.
+            add corrections alongside imported workouts. Corrections do not change Apple Health. As
+            disclosed during Terms acceptance, when you request an exercise suggestion, SamePace
+            sends the submitted note or a bounded summary of the selected workout and your stated
+            goal to TypeSafe. It does not send your identity, raw heart-rate samples, sleep history,
+            or your full health history. Suggestions are editable interpretations, not measurements
+            or medical conclusions.
           </p>
           <p>
             Turning AI assistance off stops new requests and removes saved AI interpretations from
@@ -199,7 +238,8 @@ function Privacy() {
             <li>
               <strong>Companies that run our infrastructure</strong> process data on our behalf:
               Vercel (hosting), Neon (database), Apple and Google (sign-in), and Persona (identity
-              verification), Stripe (payments), and TypeSafe (only requested AI assistance).
+              verification), Stripe (payments), Vercel AI Gateway and its model providers (private
+              coaching), and TypeSafe (requested structured AI assistance).
             </li>
             <li>We disclose information if the law requires it, or to protect someone’s safety.</li>
           </ul>
