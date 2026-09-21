@@ -33,6 +33,7 @@ const calls = [
   { name: "readPlanning", method: "planning", input: {} },
   { name: "findSessions", method: "sessions", input: {} },
   { name: "readWorkoutSummaries", method: "workouts", input: {} },
+  { name: "readManualWorkoutHistory", method: "manualWorkouts", input: {} },
   { name: "offerReview", method: "review", input: { kind: "fitness" } },
   {
     name: "draftPreferences",
@@ -55,6 +56,7 @@ const allTools = (operation: () => Promise<unknown>): ChatTools => ({
   planning: operation,
   sessions: operation,
   workouts: operation,
+  manualWorkouts: operation,
   review: operation,
   draftPreferences: operation,
 });
@@ -117,6 +119,43 @@ describe("cloud provider tool privacy boundary with the real SDK and a mock mode
         zeroDataRetention: true,
         disallowPromptTraining: true,
       });
+  });
+
+  it("passes bounded manual targets and actuals through the SDK without inventing completion or accepting caller-selected owners", async () => {
+    const model = modelCalling("readManualWorkoutHistory", {});
+    const context = {
+      available: true,
+      source: "member_entered_actual_results",
+      target: { reps: 8 },
+      actual: { reps: 6, weight: null },
+      unrecordedSets: 1,
+    };
+    await createGatewayChatProvider(() => model)({
+      messages,
+      signal: new AbortController().signal,
+      tools: allTools(async () => context),
+      onText: async () => {},
+    });
+    assert.equal(model.doStreamCalls.length, 2);
+    const prompt = JSON.stringify(model.doStreamCalls[1].prompt);
+    assert.ok(prompt.includes('"value":{') || prompt.includes('"available":true'));
+    assert.ok(prompt.includes('"weight":null'));
+    assert.ok(prompt.includes('"unrecordedSets":1'));
+    const injected = modelCalling("readManualWorkoutHistory", { userId: "another-member" });
+    let calls = 0;
+    await assert.rejects(
+      createGatewayChatProvider(() => injected)({
+        messages,
+        signal: new AbortController().signal,
+        tools: allTools(async () => {
+          calls++;
+          return context;
+        }),
+        onText: async () => {},
+      }),
+      safeRejection,
+    );
+    assert.equal(calls, 0);
   });
 
   it("cancellation during a tool drops its late private result and never starts another step", async () => {

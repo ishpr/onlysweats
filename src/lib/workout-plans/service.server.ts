@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Sql } from "../db.ts";
 import { FitnessError } from "../fitness/contracts.ts";
+import { forgetManualWorkoutConversation } from "../conversation/privacy.server.ts";
 import { blockedBetween, lockSession, PaceError, type SessionRow } from "../pace/service.server.ts";
 import type {
   WorkoutPlanContent,
@@ -63,6 +64,8 @@ type RunRow = {
   started_at: Date;
   finished_at: Date | null;
   updated_at: Date;
+  last_mutation_id: string | null;
+  last_mutation_hash: string | null;
 };
 const planView = (row: PlanRow): WorkoutPlan => ({
   ...row.data,
@@ -190,6 +193,7 @@ async function insertPlan(
     throw new PaceError(409, "Your library has 500 plans. Remove one before adding another.");
   const [row] = await tx<PlanRow>`insert into workout_plans(user_id,id,data,created_at,updated_at)
     values (${userId},${id},${JSON.stringify(data)}::jsonb,${at(now)},${at(now)}) returning *`;
+  await forgetManualWorkoutConversation(tx, userId);
   return planView(row);
 }
 export async function createPlan(
@@ -219,6 +223,7 @@ export async function updatePlan(
     const [row] =
       await tx<PlanRow>`update workout_plans set revision = revision + 1, data = ${JSON.stringify(data)}::jsonb,
       updated_at = ${at(now)} where user_id = ${userId} and id = ${previous.id} returning *`;
+    await forgetManualWorkoutConversation(tx, userId);
     return planView(row);
   });
 }
@@ -227,6 +232,7 @@ export async function deletePlan(sql: Sql, userId: string, id: string): Promise<
     await owner(tx, userId, false, true);
     const row = await ownedPlan(tx, userId, id);
     await tx`delete from workout_plans where user_id = ${userId} and id = ${row.id}`;
+    await forgetManualWorkoutConversation(tx, userId);
   });
 }
 
@@ -443,6 +449,7 @@ export async function startRun(
       await tx<RunRow>`insert into workout_runs(user_id,id,session_id,session_plan_id,source_plan_id,source_plan_revision,
       snapshot,status,started_at,updated_at) values (${userId},${args.id},${args.sessionId ?? null},${sessionPlanId},${planId},${revision},
       ${JSON.stringify(snapshot)}::jsonb,'in_progress',${at(now)},${at(now)}) returning *`;
+    await forgetManualWorkoutConversation(tx, userId);
     return runView(row);
   });
 }
@@ -482,6 +489,11 @@ export async function updateRun(
   now = Date.now(),
 ): Promise<WorkoutRun> {
   const args = updateRunInput.parse(input);
+  // A bounded receipt for the last write resolves a lost response without
+  // replaying it. A later edit still requires explicit conflict reconciliation.
+  const mutationHash = args.mutationId
+    ? createHash("sha256").update(JSON.stringify(args)).digest("hex")
+    : null;
   // Read only our row to find the immutable session reference before taking locks.
   const reference = await ownedRun(sql, userId, id);
   return sql.transaction(async (tx) => {
@@ -491,6 +503,14 @@ export async function updateRun(
       await sessionAccess(tx, userId, reference.session_id);
     } else await owner(tx, userId);
     const previous = await ownedRun(tx, userId, id);
+    if (args.mutationId && previous.last_mutation_id === args.mutationId) {
+      if (
+        previous.last_mutation_hash !== mutationHash ||
+        previous.revision !== args.expectedRevision + 1
+      )
+        throw changed();
+      return runView(previous);
+    }
     if (previous.revision !== args.expectedRevision) throw changed();
     if (previous.status === "completed" && !args.finish)
       throw new PaceError(
@@ -509,8 +529,10 @@ export async function updateRun(
     const [row] =
       await tx<RunRow>`update workout_runs set revision = revision + 1, results = ${JSON.stringify(args.results)}::jsonb,
       status = ${args.finish ? "completed" : "in_progress"}, finished_at = ${args.finish ? (previous.finished_at ?? at(now)) : null},
-      note = ${args.note}, share_accountability = ${args.shareAccountability}, updated_at = ${at(now)}
+      note = ${args.note}, share_accountability = ${args.shareAccountability}, updated_at = ${at(now)},
+      last_mutation_id = ${args.mutationId ?? null}, last_mutation_hash = ${mutationHash}
       where user_id = ${userId} and id = ${previous.id} returning *`;
+    await forgetManualWorkoutConversation(tx, userId);
     return runView(row);
   });
 }
@@ -519,6 +541,7 @@ export async function deleteRun(sql: Sql, userId: string, id: string): Promise<v
     await owner(tx, userId, false, true);
     const row = await ownedRun(tx, userId, id);
     await tx`delete from workout_runs where user_id = ${userId} and id = ${row.id}`;
+    await forgetManualWorkoutConversation(tx, userId);
   });
 }
 

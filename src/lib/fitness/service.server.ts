@@ -4,6 +4,7 @@ import { FITNESS_PILOT_NOTICE_VERSION } from "../../../shared/fitness-outcomes.t
 import type { Sql } from "../db.ts";
 import { getConnection, getWorkout } from "../health/service.server.ts";
 import { HealthError } from "../health/contracts.ts";
+import { forgetManualWorkoutConversation } from "../conversation/privacy.server.ts";
 import { readPlanForExport, readRunForExport } from "../workout-plans/service.server.ts";
 import {
   FITNESS_AI_NOTICE_VERSION,
@@ -217,6 +218,7 @@ export async function createStrengthLog(
     const [row] =
       await tx<LogRow>`insert into fitness_strength_logs (user_id, id, data, created_at, updated_at)
       values (${userId}, ${randomUUID()}, ${JSON.stringify(parsed)}::jsonb, ${new Date(now)}, ${new Date(now)}) returning *`;
+    await forgetManualWorkoutConversation(tx, userId);
     await finishSaveMeasurement(tx, userId, prepared, row.id, row.revision, parsed, now);
     return logView(row, prepared?.row.id);
   });
@@ -241,6 +243,7 @@ export async function updateStrengthLog(
     const [row] =
       await tx<LogRow>`update fitness_strength_logs set data = ${JSON.stringify(parsed)}::jsonb,
       revision = revision + 1, updated_at = ${new Date(now)} where user_id = ${userId} and id = ${logId} returning *`;
+    await forgetManualWorkoutConversation(tx, userId);
     await refreshSavedMeasurement(tx, userId, row.id, row.revision, parsed, now);
     return logView(row, (await loggingSessionLinks(tx, userId, [row.id], now)).get(row.id));
   });
@@ -252,6 +255,7 @@ export async function deleteStrengthLog(sql: Sql, userId: string, id: string): P
     const rows =
       await tx`delete from fitness_strength_logs where user_id = ${userId} and id = ${logId} returning id`;
     if (!rows.length) throw new FitnessError(404, "Exercise log not found.");
+    await forgetManualWorkoutConversation(tx, userId);
   });
 }
 function decodeCursor(input: string | undefined, kind: string): [string, string] | null {

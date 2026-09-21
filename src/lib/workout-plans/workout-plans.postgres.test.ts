@@ -93,6 +93,52 @@ test(
     const db = await postgresTestDatabase(url!),
       sql = db.sql;
     try {
+      await t.test(
+        "a concurrent retry waits and acknowledges the same write exactly once",
+        async () => {
+          const user = await fixtureMember(sql);
+          const plan = await plans.createPlan(sql, user, fixturePlan(), now);
+          const run = await plans.startRun(
+            sql,
+            user,
+            {
+              id: randomUUID(),
+              planId: plan.id,
+              expectedPlanRevision: plan.revision,
+            },
+            runTime,
+          );
+          const input = {
+            mutationId: randomUUID(),
+            expectedRevision: run.revision,
+            results: [completedSet(run)],
+            note: "Lost response retry",
+            shareAccountability: false,
+            finish: true,
+          };
+          const held = holdProfileLock(sql);
+          const first = plans.updateRun(held.sql, user, run.id, input, runTime + 1000);
+          const firstSettled = Promise.allSettled([first]);
+          let both: Promise<PromiseSettledResult<unknown>[]> | undefined;
+          try {
+            const pid = await within(held.locked);
+            const retry = plans.updateRun(sql, user, run.id, input, runTime + 2000);
+            both = Promise.allSettled([first, retry]);
+            await blocked(sql, pid);
+            held.resume();
+            const results = await within(both);
+            assert.equal(results[0].status, "fulfilled");
+            assert.deepEqual(results[1], results[0]);
+            const saved = await plans.getRun(sql, user, run.id);
+            assert.equal(saved.revision, 2);
+            assert.equal(saved.results.length, 1);
+            assert.equal(saved.finishedAt, new Date(runTime + 1000).toISOString());
+          } finally {
+            held.resume();
+            await (both ?? firstSettled);
+          }
+        },
+      );
       await t.test("two edits of one revision wait and only one commits", async () => {
         const user = await fixtureMember(sql),
           input = fixturePlan();

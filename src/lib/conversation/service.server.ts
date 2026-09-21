@@ -7,8 +7,10 @@ import { getDiscovery } from "../agents/discovery.server.ts";
 import { listWorkouts } from "../health/service.server.ts";
 import { workoutPlanDraftInput } from "./plan-draft.ts";
 import { conversationContext } from "./context.ts";
+import { readManualWorkoutContext } from "./manual-workout-context.server.ts";
 import {
   CHAT_NOTICE_VERSION,
+  CHAT_MANUAL_WORKOUT_NOTICE_VERSION,
   type ChatAction,
   type ChatEvent,
   type ChatHistory,
@@ -41,12 +43,21 @@ export const settingsInput = z
   .object({
     cloudEnabled: z.boolean(),
     fitnessContextEnabled: z.boolean(),
+    manualWorkoutContextEnabled: z.boolean().default(false),
+    manualWorkoutContextNoticeVersion: z.literal(CHAT_MANUAL_WORKOUT_NOTICE_VERSION).optional(),
     noticeVersion: z.literal(CHAT_NOTICE_VERSION),
   })
   .strict()
   .refine(
     (s) => !s.fitnessContextEnabled || s.cloudEnabled,
     "Enable cloud conversation before fitness context.",
+  )
+  .refine(
+    (s) =>
+      !s.manualWorkoutContextEnabled ||
+      (s.cloudEnabled &&
+        s.manualWorkoutContextNoticeVersion === CHAT_MANUAL_WORKOUT_NOTICE_VERSION),
+    "Review the separate manual workout notice and enable cloud conversation first.",
   );
 export const turnInput = z
   .object({
@@ -69,6 +80,8 @@ type SettingsRow = {
   user_id: string;
   cloud_enabled: boolean;
   fitness_context_enabled: boolean;
+  manual_workout_context_enabled: boolean;
+  manual_workout_notice_version: string | null;
   consent_generation: string;
   history_generation: string;
   notice_version: string;
@@ -106,6 +119,10 @@ export const compatibleMessage = (message: ChatMessage, workoutPlanDrafts: boole
 const settingsView = (r: SettingsRow): ChatSettings => ({
   cloudEnabled: r.cloud_enabled,
   fitnessContextEnabled: r.fitness_context_enabled,
+  manualWorkoutContextEnabled:
+    r.manual_workout_context_enabled &&
+    r.manual_workout_notice_version === CHAT_MANUAL_WORKOUT_NOTICE_VERSION,
+  manualWorkoutContextNoticeVersion: CHAT_MANUAL_WORKOUT_NOTICE_VERSION,
   consentGeneration: r.consent_generation,
   historyGeneration: r.history_generation,
   noticeVersion: CHAT_NOTICE_VERSION,
@@ -175,6 +192,8 @@ export async function setSettings(sql: Sql, userId: string, body: unknown, now =
     const [row] =
       await tx<SettingsRow>`update assistant_chat_settings set cloud_enabled = ${input.cloudEnabled},
       fitness_context_enabled = ${input.fitnessContextEnabled}, fitness_context_used = false, consent_generation = ${randomUUID()}, history_generation = ${randomUUID()},
+      manual_workout_context_enabled = ${input.manualWorkoutContextEnabled}, manual_workout_context_used = false,
+      manual_workout_notice_version = ${input.manualWorkoutContextEnabled ? CHAT_MANUAL_WORKOUT_NOTICE_VERSION : null},
       notice_version = ${CHAT_NOTICE_VERSION}, updated_at = ${iso(now)}, active_request_id = null, active_attempt_id = null, lease_until = null where user_id = ${userId} returning *`;
     return { settings: settingsView(row) };
   });
@@ -186,7 +205,7 @@ export async function clearHistory(sql: Sql, userId: string, now = Date.now()) {
     await tx`select user_id from assistant_chat_settings where user_id = ${userId} for update`;
     await tx`delete from assistant_chat_messages where user_id = ${userId}`;
     const [row] =
-      await tx<SettingsRow>`update assistant_chat_settings set history_generation = ${randomUUID()}, fitness_context_used = false, updated_at = ${iso(now)}, active_request_id = null, active_attempt_id = null, lease_until = null where user_id = ${userId} returning *`;
+      await tx<SettingsRow>`update assistant_chat_settings set history_generation = ${randomUUID()}, fitness_context_used = false, manual_workout_context_used = false, updated_at = ${iso(now)}, active_request_id = null, active_attempt_id = null, lease_until = null where user_id = ${userId} returning *`;
     return { settings: settingsView(row), messages: [] };
   });
 }
@@ -291,6 +310,7 @@ export async function chatResponse(
   const actions: ChatAction[] = [];
   let toolCalls = 0;
   let fitnessSnapshot: string | null = null;
+  let manualSnapshot: string | null = null;
   const assertCurrent = async () => {
     if (abort.signal.aborted) throw new ChatError(409, "Reply stopped. You can try again.");
     const [r] =
@@ -481,6 +501,29 @@ export async function chatResponse(
                     "Recorded observations, not a medical assessment. Missing measurements stay unknown.",
                 };
               },
+              manualWorkouts: async () => {
+                await toolGuard();
+                const snapshot = await sql.transaction(async (tx) => {
+                  await lockOwner(tx, userId);
+                  const changed =
+                    await tx`update assistant_chat_settings set manual_workout_context_used = true
+                    where user_id = ${userId} and manual_workout_context_enabled
+                      and manual_workout_notice_version = ${CHAT_MANUAL_WORKOUT_NOTICE_VERSION}
+                      and cloud_enabled and active_attempt_id = ${attemptId}
+                      and consent_generation = ${input.consentGeneration}
+                      and history_generation = ${input.historyGeneration} returning user_id`;
+                  return changed.length ? readManualWorkoutContext(tx, userId, startedAt) : null;
+                });
+                if (snapshot === null)
+                  return {
+                    available: false,
+                    reason:
+                      "Separate manual workout context permission is off. Ask the member to review that permission before sharing saved plans or entered results.",
+                  };
+                manualSnapshot = digest(snapshot);
+                await assertCurrent();
+                return snapshot.context;
+              },
               review: async (kind) => {
                 await toolGuard();
                 if (kind !== "fitness" && process.env.A2A_ENABLED !== "true")
@@ -527,6 +570,14 @@ export async function chatResponse(
             throw new ChatError(
               409,
               "Your workout records changed. Ask again for an up-to-date summary.",
+            );
+          if (
+            manualSnapshot !== null &&
+            digest(await readManualWorkoutContext(tx, userId, startedAt)) !== manualSnapshot
+          )
+            throw new ChatError(
+              409,
+              "Your manual workout records changed. Ask again for an up-to-date reply.",
             );
           const [m] =
             await tx<MessageRow>`insert into assistant_chat_messages (user_id,id,request_id,role,text,actions,status,created_at)

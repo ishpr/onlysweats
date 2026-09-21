@@ -110,6 +110,8 @@ export const workoutSetResultInput = z
 export const updateRunInput = z
   .strictObject({
     expectedRevision: z.number().int().positive(),
+    /** Optional for old clients. Retries keep this ID and the exact payload. */
+    mutationId: workoutPlanId.optional(),
     results: z.array(workoutSetResultInput).max(120),
     note: z.string().trim().max(1000),
     shareAccountability: z.boolean(),
