@@ -1,8 +1,17 @@
 /**
- * Pace design tokens — the same values as the web app's `@theme` block in
- * `src/styles.css`, so both clients read as one product. The web is dark-only,
- * so the app is pinned dark too (`userInterfaceStyle` in app.json); the light
- * map is kept contrast-checked for when that changes. Never pure black or white.
+ * SamePace design tokens. Two themes built from one set of names, so every screen
+ * works in both without knowing which it's in.
+ *
+ * - **Dark** is the original: near-black, glass cards, the bright green and blue.
+ * - **Light** is true white and flat, the way a good messaging app is: content sits
+ *   straight on the page with hairlines, soft grey is kept for inputs and pills, and
+ *   glass (blur) is reserved for what floats — the tab bar, headers, pinned actions.
+ *   The accents are the deeper pair from the logo's light-surface set; the bright
+ *   pair fails contrast on white. Text is near-black, never pure black.
+ *
+ * Contrast (WCAG): light text #0F1419 on #FFFFFF 18.9:1, secondary #536471 6.0:1,
+ * faint #66737F 4.9:1, accent #0B7A2E 5.4:1. Dark: text 18.5:1, secondary 7.9:1,
+ * faint 5.9:1, accent 10.6:1.
  */
 import "@/global.css";
 
@@ -10,26 +19,44 @@ import { Platform } from "react-native";
 
 export const Colors = {
   light: {
-    background: "#F6F6F8",
-    backgroundElement: "#FFFFFE",
-    backgroundSelected: "#E6E6EB",
-    text: "#111113",
-    textSecondary: "#55555C",
-    textFaint: "#6B6B73",
-    border: "rgba(17,17,19,0.10)",
+    background: "#FFFFFF",
+    /** Cards: frosted, see-through white over the page's colour wash. */
+    backgroundElement: "rgba(255,255,255,0.58)",
+    backgroundSelected: "rgba(15,20,25,0.06)",
+    /** Floating chrome over content (tab bar, pinned footers): tint laid over a live blur. */
+    glass: "rgba(255,255,255,0.55)",
+    /** The bright edge a pane of glass catches. */
+    glassEdge: "rgba(255,255,255,0.95)",
+    /** Inputs: a quiet solid, so a field never disappears into the page. */
+    field: "rgba(15,20,25,0.045)",
+    /** The main button and the chosen chip. Green in light — never a black slab on white. */
+    primary: "#0B7A2E",
+    onPrimary: "#FFFFFF",
+    /** An unchosen chip: white with a hairline, so it reads on the page and on a card. */
+    chip: "rgba(255,255,255,0.72)",
+    text: "#0F1419",
+    textSecondary: "#536471",
+    textFaint: "#66737F",
+    border: "rgba(15,20,25,0.10)",
     accent: "#0B7A2E",
-    onAccent: "#FBFFFC",
-    accentSoft: "rgba(11,122,46,0.12)",
+    onAccent: "#FFFFFF",
+    accentSoft: "rgba(11,122,46,0.10)",
     move: "#C4123A",
     exercise: "#2F7A0B",
     stand: "#0B6A94",
     danger: "#B3261E",
-    onDanger: "#FFFBFA",
+    onDanger: "#FFFFFF",
   },
   dark: {
     background: "#050506",
-    backgroundElement: "rgba(22,22,24,0.72)",
-    backgroundSelected: "rgba(245,245,247,0.08)",
+    backgroundElement: "rgba(255,255,255,0.065)",
+    backgroundSelected: "rgba(245,245,247,0.10)",
+    glass: "rgba(12,12,14,0.45)",
+    glassEdge: "rgba(255,255,255,0.14)",
+    field: "rgba(255,255,255,0.07)",
+    primary: "#F5F5F7",
+    onPrimary: "#050506",
+    chip: "rgba(255,255,255,0.07)",
     text: "#F5F5F7",
     textSecondary: "#A1A1A6",
     textFaint: "#8A8A90",

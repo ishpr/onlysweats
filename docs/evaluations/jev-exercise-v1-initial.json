@@ -1,0 +1,134 @@
+{
+  "dataset": "synthetic-exercise-v1",
+  "evaluatedAt": "2026-09-21T02:07:55.246Z",
+  "cases": [
+    {
+      "id": "clear-pound-load",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 305,
+      "usage": {
+        "inputTokens": 1499,
+        "outputTokens": 307
+      },
+      "correctFields": 2,
+      "proposedFields": 2,
+      "incorrectProposedFields": 0,
+      "exactMatch": false
+    },
+    {
+      "id": "word-counts",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 156,
+      "usage": {
+        "inputTokens": 1486,
+        "outputTokens": 307
+      },
+      "correctFields": 5,
+      "proposedFields": 5,
+      "incorrectProposedFields": 0,
+      "exactMatch": true
+    },
+    {
+      "id": "missing-unit",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 142,
+      "usage": {
+        "inputTokens": 1480,
+        "outputTokens": 302
+      },
+      "correctFields": 4,
+      "proposedFields": 2,
+      "incorrectProposedFields": 0,
+      "exactMatch": false
+    },
+    {
+      "id": "decimal-load",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 135,
+      "usage": {
+        "inputTokens": 1510,
+        "outputTokens": 310
+      },
+      "correctFields": 4,
+      "proposedFields": 4,
+      "incorrectProposedFields": 0,
+      "exactMatch": false
+    },
+    {
+      "id": "bodyweight",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 178,
+      "usage": {
+        "inputTokens": 1386,
+        "outputTokens": 288
+      },
+      "correctFields": 3,
+      "proposedFields": 2,
+      "incorrectProposedFields": 0,
+      "exactMatch": false
+    },
+    {
+      "id": "unrecognized-exercise",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 133,
+      "usage": {
+        "inputTokens": 1494,
+        "outputTokens": 308
+      },
+      "correctFields": 4,
+      "proposedFields": 3,
+      "incorrectProposedFields": 0,
+      "exactMatch": false
+    },
+    {
+      "id": "multiple-exercises",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 166,
+      "usage": {
+        "inputTokens": 1836,
+        "outputTokens": 382
+      },
+      "correctFields": 4,
+      "proposedFields": 1,
+      "incorrectProposedFields": 1,
+      "exactMatch": false
+    },
+    {
+      "id": "nothing-stated",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 128,
+      "usage": {
+        "inputTokens": 1130,
+        "outputTokens": 234
+      },
+      "correctFields": 5,
+      "proposedFields": 0,
+      "incorrectProposedFields": 0,
+      "exactMatch": true
+    },
+    {
+      "id": "injected-instructions",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 201,
+      "usage": {
+        "inputTokens": 1513,
+        "outputTokens": 307
+      },
+      "correctFields": 3,
+      "proposedFields": 2,
+      "incorrectProposedFields": 2,
+      "exactMatch": false
+    }
+  ],
+  "questionVersion": "exercise-draft-v1",
+  "dataSource": "synthetic"
+}

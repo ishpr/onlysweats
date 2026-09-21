@@ -26,25 +26,28 @@ export type NextSessionProps = {
   startAt: number;
   venue: string;
   level: string;
-  /** "You posted" · "You’re in" · "Requested" */
+  /** "Hosting" · "Joined" · "Waiting" */
   status: string;
-  /** Where a tap goes: `samepace://session/<id>` or `samepace://post`. */
+  /** Where a tap goes: `samepace://session/<id>`, or Find when nothing is planned. */
   url: string;
 };
 
 const NextSession = (props: NextSessionProps, env: WidgetEnvironment) => {
   "widget";
-  const ink = "#050506";
-  const text = "#F5F5F7";
-  const muted = "#A1A1A6";
-  const accent = "#30D158";
+  // Same two palettes as the app (constants/theme.ts) — repeated here because a
+  // widget function can't see anything outside its own body.
+  const light = env.colorScheme === "light";
+  const ink = light ? "#FFFFFF" : "#050506";
+  const text = light ? "#0F1419" : "#F5F5F7";
+  const muted = light ? "#536471" : "#A1A1A6";
+  const accent = light ? "#0B7A2E" : "#30D158";
   const lock = env.widgetFamily.startsWith("accessory");
   const empty = props.title === "";
 
   if (env.widgetFamily === "accessoryInline") {
     return (
       <Text modifiers={[widgetURL(props.url)]}>
-        {empty ? "SamePace · nothing booked" : `${props.title} · ${props.when}`}
+        {empty ? "SamePace · nothing planned" : `${props.title} · ${props.when}`}
       </Text>
     );
   }
@@ -53,10 +56,10 @@ const NextSession = (props: NextSessionProps, env: WidgetEnvironment) => {
     return (
       <VStack alignment="leading" spacing={1} modifiers={[widgetURL(props.url)]}>
         <Text modifiers={[font({ size: 13, weight: "semibold" }), lineLimit(1)]}>
-          {empty ? "Nothing booked" : props.title}
+          {empty ? "Nothing planned" : props.title}
         </Text>
         <Text modifiers={[font({ size: 12 }), lineLimit(1)]}>
-          {empty ? "Post the workout you’re doing anyway" : props.when}
+          {empty ? "Find a buddy for your next workout" : props.when}
         </Text>
         {!empty && <Text modifiers={[font({ size: 12 }), lineLimit(1)]}>{props.venue}</Text>}
       </VStack>
@@ -88,10 +91,10 @@ const NextSession = (props: NextSessionProps, env: WidgetEnvironment) => {
         {header}
         <Spacer />
         <Text modifiers={[font({ size: 16, weight: "semibold" }), foregroundStyle(text)]}>
-          Nothing booked
+          Nothing planned
         </Text>
         <Text modifiers={[font({ size: 12 }), foregroundStyle(muted), lineLimit(2)]}>
-          Post the workout you’re doing anyway.
+          Find a buddy for your next workout.
         </Text>
       </VStack>
     );

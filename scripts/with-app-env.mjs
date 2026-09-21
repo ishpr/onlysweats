@@ -24,6 +24,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadEnvFile } from "node:process";
 
 export const APP_ENV_REL_PATH = ".grok/app-env.json";
 
@@ -109,6 +110,16 @@ function main(argv) {
   if (!command) {
     console.error("usage: node scripts/with-app-env.mjs <command> [args…]");
     process.exit(2);
+  }
+  // Local server secrets stay outside git and outside VITE_/EXPO_PUBLIC_ client
+  // configuration. Node preserves explicitly supplied process values.
+  try {
+    loadEnvFile(join(projectRoot(), ".env.local"));
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.error("[with-app-env] could not read local server configuration");
+      process.exit(1);
+    }
   }
   const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
   const child = spawn(command, args, { stdio: "inherit", env });

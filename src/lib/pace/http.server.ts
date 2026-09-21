@@ -14,10 +14,18 @@ import * as svc from "./service.server";
 import * as blocks from "./training-blocks.server";
 import { GOAL_KINDS } from "./types";
 import * as agents from "../agents/service.server";
+import * as assistant from "../agents/assistant.server";
 import { delegationInput } from "../agents/contracts";
 import * as health from "../health/service.server";
 import { HealthError, pageInput } from "../health/contracts";
 import { healthEnabled, isHealthPath, readHealthBody } from "../health/http.server";
+import {
+  operationalOverview,
+  recordOperation,
+  type OperationComponent,
+} from "../operations/service.server";
+import * as fitness from "../fitness/service.server";
+import { FitnessError, fitnessPageInput } from "../fitness/contracts";
 
 type Ctx = {
   sql: Sql;
@@ -43,7 +51,12 @@ const EFFORT = z.enum(["easy", "brisk"]);
 
 // Shape only — `rules.validAbility` owns the ranges and the activity match.
 const ability = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("run"), paceMinSec: z.number(), paceMaxSec: z.number(), miles: z.number() }),
+  z.object({
+    kind: z.literal("run"),
+    paceMinSec: z.number(),
+    paceMaxSec: z.number(),
+    miles: z.number(),
+  }),
   z.object({
     kind: z.literal("ride"),
     mphMin: z.number(),
@@ -51,8 +64,17 @@ const ability = z.discriminatedUnion("kind", [
     miles: z.number(),
     surface: z.enum(["road", "gravel"]),
   }),
-  z.object({ kind: z.literal("gym"), experience: EXPERIENCE, focus: z.string().max(60).default("") }),
-  z.object({ kind: z.literal("hike"), miles: z.number(), gainFt: z.number(), difficulty: DIFFICULTY }),
+  z.object({
+    kind: z.literal("gym"),
+    experience: EXPERIENCE,
+    focus: z.string().max(60).default(""),
+  }),
+  z.object({
+    kind: z.literal("hike"),
+    miles: z.number(),
+    gainFt: z.number(),
+    difficulty: DIFFICULTY,
+  }),
   z.object({ kind: z.literal("walk"), effort: EFFORT, miles: z.number() }),
   z.object({ kind: z.literal("open") }),
 ]);
@@ -65,7 +87,10 @@ const postSessionBody = z.object({
   // Optional here so a missing level gets the rule's own words, not a schema error.
   ability: ability.optional(),
   abilityFlex: z.enum(["strict", "flexible"]).default("strict"),
-  routeUrl: z.url({ protocol: /^https$/ }).max(500).nullish(),
+  routeUrl: z
+    .url({ protocol: /^https$/ })
+    .max(500)
+    .nullish(),
   startAt: z.iso.datetime({ offset: true }),
   durationMin: z.number().int().min(10).max(360),
   capacity: z.number().int().min(2).max(4),
@@ -197,142 +222,445 @@ const OPEN_WHEN_SUSPENDED = new Set([
   "GET /health/workouts/:id",
   "DELETE /health/workouts/:id",
   "GET /health/export",
+  "GET /fitness/consent",
+  "PUT /fitness/consent",
+  "GET /fitness/logs",
+  "DELETE /fitness/logs/:id",
+  "GET /fitness/export",
+  "GET /agents/delegations",
+  "GET /agents/preferences",
+  "PUT /agents/preferences",
+  "DELETE /agents/delegations/:id",
+  "POST /agents/negotiations/:id/consent",
+  "POST /agents/negotiations/:id/cancel",
 ]);
 
 const routes: [method: string, pattern: string, handler: Handler][] = [
-  ["GET", "/health/connection", async ({ sql, userId }) => ({ connection: await health.getConnection(sql, userId) })],
-  ["POST", "/health/connection", async ({ sql, userId, body }) => ({ connection: await health.connect(sql, userId, body) })],
-  ["DELETE", "/health/connection", async ({ sql, userId }) => { await health.disconnect(sql, userId); return { ok: true }; }],
-  ["POST", "/health/sync", async ({ sql, userId, body }) => ({ connection: await health.sync(sql, userId, body) })],
-  ["GET", "/health/workouts", ({ sql, userId, query }) => health.listWorkouts(sql, userId, pageInput(50).parse(Object.fromEntries(query)))],
-  ["GET", "/health/workouts/:id", async ({ sql, userId, params }) => ({ workout: await health.getWorkout(sql, userId, params.id) })],
-  ["DELETE", "/health/workouts/:id", async ({ sql, userId, params }) => { await health.deleteWorkout(sql, userId, params.id); return { ok: true }; }],
-  ["GET", "/health/export", ({ sql, userId, query }) => health.exportRecords(sql, userId, pageInput(200).parse(Object.fromEntries(query)))],
+  [
+    "GET",
+    "/fitness/consent",
+    async ({ sql, userId }) => ({ consent: await fitness.getConsent(sql, userId) }),
+  ],
+  [
+    "PUT",
+    "/fitness/consent",
+    async ({ sql, userId, body }) => ({ consent: await fitness.setConsent(sql, userId, body) }),
+  ],
+  [
+    "GET",
+    "/fitness/logs",
+    ({ sql, userId, query }) =>
+      fitness.listStrengthLogs(sql, userId, fitnessPageInput.parse(Object.fromEntries(query))),
+  ],
+  [
+    "POST",
+    "/fitness/logs",
+    async ({ sql, userId, body }) => ({ log: await fitness.createStrengthLog(sql, userId, body) }),
+  ],
+  [
+    "PUT",
+    "/fitness/logs/:id",
+    async ({ sql, userId, params, body }) => ({
+      log: await fitness.updateStrengthLog(sql, userId, params.id, body),
+    }),
+  ],
+  [
+    "DELETE",
+    "/fitness/logs/:id",
+    async ({ sql, userId, params }) => {
+      await fitness.deleteStrengthLog(sql, userId, params.id);
+      return { ok: true };
+    },
+  ],
+  [
+    "POST",
+    "/fitness/draft",
+    async ({ sql, userId, body }) => ({ draft: await fitness.draftExercise(sql, userId, body) }),
+  ],
+  [
+    "GET",
+    "/fitness/export",
+    ({ sql, userId, query }) =>
+      fitness.exportFitness(sql, userId, fitnessPageInput.parse(Object.fromEntries(query))),
+  ],
+  [
+    "GET",
+    "/fitness/workouts/:id/correction",
+    async ({ sql, userId, params }) => ({
+      correction: await fitness.getCorrection(sql, userId, params.id),
+    }),
+  ],
+  [
+    "PUT",
+    "/fitness/workouts/:id/correction",
+    async ({ sql, userId, params, body }) => ({
+      correction: await fitness.saveCorrection(sql, userId, params.id, body),
+    }),
+  ],
+  [
+    "GET",
+    "/fitness/workouts/:id/assessment",
+    async ({ sql, userId, params }) => ({
+      assessment: await fitness.getWorkoutAssessment(sql, userId, params.id),
+    }),
+  ],
+  [
+    "POST",
+    "/fitness/workouts/:id/assessment",
+    async ({ sql, userId, params, body }) => ({
+      assessment: await fitness.assessWorkout(sql, userId, params.id, body),
+    }),
+  ],
+  [
+    "GET",
+    "/agents/preferences",
+    async ({ sql, userId }) => ({ preferences: await assistant.getPreferences(sql, userId) }),
+  ],
+  [
+    "PUT",
+    "/agents/preferences",
+    async ({ sql, userId, body }) => ({
+      preferences: await assistant.setPreferences(sql, userId, body),
+    }),
+  ],
+  [
+    "GET",
+    "/agents/negotiations/:id/candidates",
+    ({ sql, userId, params }) => assistant.suggestPlans(sql, userId, agentId.parse(params.id)),
+  ],
+  [
+    "GET",
+    "/agents/negotiations/:id/history",
+    async ({ sql, userId, params }) => ({
+      events: await assistant.getHistory(sql, userId, agentId.parse(params.id)),
+    }),
+  ],
+  [
+    "POST",
+    "/agents/negotiations/:id/proposal",
+    async ({ sql, userId, params, body }) => ({
+      negotiation: agents.view(
+        await agents.proposeForMember(sql, userId, agentId.parse(params.id), body),
+      ),
+    }),
+  ],
+  [
+    "GET",
+    "/agents/negotiations/:id/booking-terms",
+    ({ sql, userId, params }) => assistant.getBookingTerms(sql, userId, agentId.parse(params.id)),
+  ],
+  [
+    "POST",
+    "/agents/negotiations/:id/book",
+    ({ sql, userId, params, body }) =>
+      assistant.approveBookingTerms(sql, userId, agentId.parse(params.id), body),
+  ],
+  [
+    "GET",
+    "/health/connection",
+    async ({ sql, userId }) => ({ connection: await health.getConnection(sql, userId) }),
+  ],
+  [
+    "POST",
+    "/health/connection",
+    async ({ sql, userId, body }) => ({ connection: await health.connect(sql, userId, body) }),
+  ],
+  [
+    "DELETE",
+    "/health/connection",
+    async ({ sql, userId }) => {
+      await health.disconnect(sql, userId);
+      return { ok: true };
+    },
+  ],
+  [
+    "POST",
+    "/health/sync",
+    async ({ sql, userId, body }) => ({ connection: await health.sync(sql, userId, body) }),
+  ],
+  [
+    "GET",
+    "/health/workouts",
+    ({ sql, userId, query }) =>
+      health.listWorkouts(sql, userId, pageInput(50).parse(Object.fromEntries(query))),
+  ],
+  [
+    "GET",
+    "/health/workouts/:id",
+    async ({ sql, userId, params }) => ({
+      workout: await health.getWorkout(sql, userId, params.id),
+    }),
+  ],
+  [
+    "DELETE",
+    "/health/workouts/:id",
+    async ({ sql, userId, params }) => {
+      await health.deleteWorkout(sql, userId, params.id);
+      return { ok: true };
+    },
+  ],
+  [
+    "GET",
+    "/health/export",
+    ({ sql, userId, query }) =>
+      health.exportRecords(sql, userId, pageInput(200).parse(Object.fromEntries(query))),
+  ],
   // Human control uses the same verified member session as the rest of this
   // API. A scoped sp_agent_ token authenticates only at /api/a2a and cannot
   // create delegations, opt either member in, or approve a proposal here.
-  ["GET", "/agents/delegations", async ({ sql, userId }) => ({
-    delegations: await agents.listDelegations(sql, userId),
-  })],
-  ["POST", "/agents/delegations", async ({ sql, userId, body }) => ({
-    delegation: await agents.createDelegation(sql, userId, delegationInput.parse(body)),
-  })],
-  ["DELETE", "/agents/delegations/:id", async ({ sql, userId, params, body }) => {
-    emptyAgentBody.parse(body ?? {});
-    await agents.revokeDelegation(sql, userId, agentId.parse(params.id));
-    return { ok: true };
-  }],
-  ["GET", "/agents/negotiations", async ({ sql, userId }) => ({
-    negotiations: (await agents.listNegotiations(sql, userId)).map((room) => agents.view(room)),
-  })],
-  ["POST", "/agents/negotiations", async ({ sql, userId, body }) => ({
-    negotiation: agents.view(
-      await agents.createNegotiation(sql, userId, negotiationBody.parse(body).bookingId),
-    ),
-  })],
-  ["GET", "/agents/negotiations/:id", async ({ sql, userId, params }) => ({
-    negotiation: agents.view(await agents.getNegotiation(sql, userId, agentId.parse(params.id))),
-  })],
-  ["POST", "/agents/negotiations/:id/consent", async ({ sql, userId, params, body }) => ({
-    negotiation: agents.view(
-      await agents.consentToNegotiation(sql, userId, agentId.parse(params.id), consentBody.parse(body).allow),
-    ),
-  })],
-  ["POST", "/agents/negotiations/:id/confirm", async ({ sql, userId, params, body }) => ({
-    negotiation: agents.view(
-      await agents.confirmProposal(sql, userId, agentId.parse(params.id), confirmationBody.parse(body).revision),
-    ),
-  })],
-  ["POST", "/agents/negotiations/:id/cancel", async ({ sql, userId, params, body }) => {
-    emptyAgentBody.parse(body ?? {});
-    return { negotiation: agents.view(await agents.cancelNegotiation(sql, userId, agentId.parse(params.id))) };
-  }],
-  ["GET", "/me", async ({ sql, userId, user }) => ({
-    ...(await svc.getMe(sql, userId)),
-    isAdmin: safety.isAdmin(user),
-  })],
-  ["DELETE", "/me", async ({ sql, userId }) => {
-    // Apple asks that deleting the account also revokes the app's access.
-    const { revokeAppleAccess } = await import("../auth/apple-revoke.server");
-    await revokeAppleAccess(sql, userId);
-    await safety.deleteAccount(sql, userId);
-    return { ok: true };
-  }],
+  [
+    "GET",
+    "/agents/delegations",
+    async ({ sql, userId }) => ({
+      delegations: await agents.listDelegations(sql, userId),
+    }),
+  ],
+  [
+    "POST",
+    "/agents/delegations",
+    async ({ sql, userId, body }) => ({
+      delegation: await agents.createDelegation(sql, userId, delegationInput.parse(body)),
+    }),
+  ],
+  [
+    "DELETE",
+    "/agents/delegations/:id",
+    async ({ sql, userId, params, body }) => {
+      emptyAgentBody.parse(body ?? {});
+      await agents.revokeDelegation(sql, userId, agentId.parse(params.id));
+      return { ok: true };
+    },
+  ],
+  [
+    "GET",
+    "/agents/negotiations",
+    async ({ sql, userId }) => ({
+      negotiations: (await agents.listNegotiations(sql, userId)).map((room) => agents.view(room)),
+    }),
+  ],
+  [
+    "POST",
+    "/agents/negotiations",
+    async ({ sql, userId, body }) => ({
+      negotiation: agents.view(
+        await agents.createNegotiation(sql, userId, negotiationBody.parse(body).bookingId),
+      ),
+    }),
+  ],
+  [
+    "GET",
+    "/agents/negotiations/:id",
+    async ({ sql, userId, params }) => ({
+      negotiation: agents.view(await agents.getNegotiation(sql, userId, agentId.parse(params.id))),
+    }),
+  ],
+  [
+    "POST",
+    "/agents/negotiations/:id/consent",
+    async ({ sql, userId, params, body }) => ({
+      negotiation: agents.view(
+        await agents.consentToNegotiation(
+          sql,
+          userId,
+          agentId.parse(params.id),
+          consentBody.parse(body).allow,
+        ),
+      ),
+    }),
+  ],
+  [
+    "POST",
+    "/agents/negotiations/:id/confirm",
+    async ({ sql, userId, params, body }) => ({
+      negotiation: agents.view(
+        await agents.confirmProposal(
+          sql,
+          userId,
+          agentId.parse(params.id),
+          confirmationBody.parse(body).revision,
+        ),
+      ),
+    }),
+  ],
+  [
+    "POST",
+    "/agents/negotiations/:id/cancel",
+    async ({ sql, userId, params, body }) => {
+      emptyAgentBody.parse(body ?? {});
+      return {
+        negotiation: agents.view(
+          await agents.cancelNegotiation(sql, userId, agentId.parse(params.id)),
+        ),
+      };
+    },
+  ],
+  [
+    "GET",
+    "/me",
+    async ({ sql, userId, user }) => ({
+      ...(await svc.getMe(sql, userId)),
+      isAdmin: safety.isAdmin(user),
+    }),
+  ],
+  [
+    "DELETE",
+    "/me",
+    async ({ sql, userId }) => {
+      // Apple asks that deleting the account also revokes the app's access.
+      const { revokeAppleAccess } = await import("../auth/apple-revoke.server");
+      await revokeAppleAccess(sql, userId);
+      await safety.deleteAccount(sql, userId);
+      return { ok: true };
+    },
+  ],
   // Sent once, right after Sign in with Apple, so that revocation is possible later.
-  ["POST", "/me/apple-authorization", async ({ sql, userId, body }) => {
-    const { storeAppleAuthorization } = await import("../auth/apple-revoke.server");
-    const { code } = z.object({ code: z.string().min(1).max(2000) }).parse(body);
-    return { stored: await storeAppleAuthorization(sql, userId, code) };
-  }],
+  [
+    "POST",
+    "/me/apple-authorization",
+    async ({ sql, userId, body }) => {
+      const { storeAppleAuthorization } = await import("../auth/apple-revoke.server");
+      const { code } = z.object({ code: z.string().min(1).max(2000) }).parse(body);
+      return { stored: await storeAppleAuthorization(sql, userId, code) };
+    },
+  ],
 
   // Push: this device, and the activity list the same rows feed.
-  ["POST", "/devices", async ({ sql, userId, body }) => {
-    const input = z
-      .object({
-        token: z.string().max(200).refine(notify.isExpoToken, "not an Expo push token"),
-        platform: z.enum(["ios", "android"]),
-      })
-      .parse(body);
-    await notify.registerDevice(sql, userId, input);
-    return { ok: true };
-  }],
-  ["DELETE", "/devices/:token", async ({ sql, userId, params }) => {
-    await notify.removeDevice(sql, userId, params.token);
-    return { ok: true };
-  }],
+  [
+    "POST",
+    "/devices",
+    async ({ sql, userId, body }) => {
+      const input = z
+        .object({
+          token: z.string().max(200).refine(notify.isExpoToken, "not an Expo push token"),
+          platform: z.enum(["ios", "android"]),
+        })
+        .parse(body);
+      await notify.registerDevice(sql, userId, input);
+      return { ok: true };
+    },
+  ],
+  [
+    "DELETE",
+    "/devices/:token",
+    async ({ sql, userId, params }) => {
+      await notify.removeDevice(sql, userId, params.token);
+      return { ok: true };
+    },
+  ],
   ["GET", "/notifications", ({ sql, userId }) => notify.listNotifications(sql, userId)],
-  ["POST", "/notifications/read", async ({ sql, userId }) => {
-    await notify.markAllRead(sql, userId);
-    return { ok: true };
-  }],
+  [
+    "POST",
+    "/notifications/read",
+    async ({ sql, userId }) => {
+      await notify.markAllRead(sql, userId);
+      return { ok: true };
+    },
+  ],
 
   ["GET", "/blocks", async ({ sql, userId }) => ({ people: await safety.listBlocks(sql, userId) })],
-  ["POST", "/blocks", async ({ sql, userId, body }) => {
-    await safety.blockMember(sql, userId, z.object({ memberId: z.string().min(1) }).parse(body).memberId);
-    return { ok: true };
-  }],
-  ["DELETE", "/blocks/:id", async ({ sql, userId, params }) => {
-    await safety.unblockMember(sql, userId, params.id);
-    return { ok: true };
-  }],
-  ["POST", "/reports", ({ sql, userId, body }) =>
-    safety.reportMember(sql, userId, reportBody.parse(body))],
+  [
+    "POST",
+    "/blocks",
+    async ({ sql, userId, body }) => {
+      await safety.blockMember(
+        sql,
+        userId,
+        z.object({ memberId: z.string().min(1) }).parse(body).memberId,
+      );
+      return { ok: true };
+    },
+  ],
+  [
+    "DELETE",
+    "/blocks/:id",
+    async ({ sql, userId, params }) => {
+      await safety.unblockMember(sql, userId, params.id);
+      return { ok: true };
+    },
+  ],
+  [
+    "POST",
+    "/reports",
+    ({ sql, userId, body }) => safety.reportMember(sql, userId, reportBody.parse(body)),
+  ],
 
   ["GET", "/admin/overview", admin(({ sql }) => safety.adminOverview(sql))],
-  ["GET", "/admin/reports", admin(({ sql, query }) =>
-    safety.adminListReports(
-      sql,
-      z.enum(["open", "actioned", "dismissed"]).catch("open").parse(query.get("status")),
-    ))],
-  ["POST", "/admin/reports/:id/resolve", admin(async ({ sql, adminEmail, params, body }) => {
-    await safety.adminResolveReport(sql, adminEmail, params.id, resolveBody.parse(body));
-    return { ok: true };
-  })],
-  ["GET", "/admin/members", admin(async ({ sql, query }) => ({
-    members: await safety.adminSearchMembers(sql, query.get("q") ?? ""),
-  }))],
-  ["GET", "/admin/members/:id", admin(async ({ sql, params }) => ({
-    member: await safety.adminGetMember(sql, params.id),
-  }))],
-  ["POST", "/admin/members/:id/suspend", admin(async ({ sql, adminEmail, params, body }) => {
-    await safety.adminSuspend(sql, adminEmail, params.id, noteBody.parse(body).note);
-    return { member: await safety.adminGetMember(sql, params.id) };
-  })],
-  ["POST", "/admin/members/:id/unsuspend", admin(async ({ sql, adminEmail, params }) => {
-    await safety.adminUnsuspend(sql, adminEmail, params.id);
-    return { member: await safety.adminGetMember(sql, params.id) };
-  })],
-  ["POST", "/admin/sessions/:id/remove", admin(async ({ sql, adminEmail, params, body }) => {
-    await safety.adminRemoveSession(sql, adminEmail, params.id, noteBody.parse(body).note);
-    return { ok: true };
-  })],
-  ["POST", "/admin/training-blocks/:id/remove", admin(async ({ sql, adminEmail, params, body }) => {
-    await safety.adminRemoveTrainingBlock(sql, adminEmail, params.id, noteBody.parse(body).note);
-    return { ok: true };
-  })],
-  ["GET", "/admin/actions", admin(async ({ sql }) => ({ actions: await safety.adminListActions(sql) }))],
+  ["GET", "/admin/operations", admin(({ sql }) => operationalOverview(sql))],
+  [
+    "GET",
+    "/admin/reports",
+    admin(({ sql, query }) =>
+      safety.adminListReports(
+        sql,
+        z.enum(["open", "actioned", "dismissed"]).catch("open").parse(query.get("status")),
+      ),
+    ),
+  ],
+  [
+    "POST",
+    "/admin/reports/:id/resolve",
+    admin(async ({ sql, adminEmail, params, body }) => {
+      await safety.adminResolveReport(sql, adminEmail, params.id, resolveBody.parse(body));
+      return { ok: true };
+    }),
+  ],
+  [
+    "GET",
+    "/admin/members",
+    admin(async ({ sql, query }) => ({
+      members: await safety.adminSearchMembers(sql, query.get("q") ?? ""),
+    })),
+  ],
+  [
+    "GET",
+    "/admin/members/:id",
+    admin(async ({ sql, params }) => ({
+      member: await safety.adminGetMember(sql, params.id),
+    })),
+  ],
+  [
+    "POST",
+    "/admin/members/:id/suspend",
+    admin(async ({ sql, adminEmail, params, body }) => {
+      await safety.adminSuspend(sql, adminEmail, params.id, noteBody.parse(body).note);
+      return { member: await safety.adminGetMember(sql, params.id) };
+    }),
+  ],
+  [
+    "POST",
+    "/admin/members/:id/unsuspend",
+    admin(async ({ sql, adminEmail, params }) => {
+      await safety.adminUnsuspend(sql, adminEmail, params.id);
+      return { member: await safety.adminGetMember(sql, params.id) };
+    }),
+  ],
+  [
+    "POST",
+    "/admin/sessions/:id/remove",
+    admin(async ({ sql, adminEmail, params, body }) => {
+      await safety.adminRemoveSession(sql, adminEmail, params.id, noteBody.parse(body).note);
+      return { ok: true };
+    }),
+  ],
+  [
+    "POST",
+    "/admin/training-blocks/:id/remove",
+    admin(async ({ sql, adminEmail, params, body }) => {
+      await safety.adminRemoveTrainingBlock(sql, adminEmail, params.id, noteBody.parse(body).note);
+      return { ok: true };
+    }),
+  ],
+  [
+    "GET",
+    "/admin/actions",
+    admin(async ({ sql }) => ({ actions: await safety.adminListActions(sql) })),
+  ],
 
-  ["PATCH", "/me", ({ sql, userId, body }) => svc.updateProfile(sql, userId, profileBody.parse(body))],
+  [
+    "PATCH",
+    "/me",
+    ({ sql, userId, body }) => svc.updateProfile(sql, userId, profileBody.parse(body)),
+  ],
   ["GET", "/venues", async ({ sql }) => ({ venues: await svc.listVenues(sql) })],
 
   [
@@ -341,140 +669,260 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
     ({ sql, userId, query }) =>
       svc.listPublicSessions(sql, userId, { womenOnly: query.get("womenOnly") === "1" }),
   ],
-  ["POST", "/sessions", async ({ sql, userId, body }) => ({
-    session: await svc.postSession(sql, userId, postSessionBody.parse(body) as svc.PostSessionInput),
-  })],
-  ["GET", "/sessions/:id", ({ sql, userId, params, query }) =>
-    svc.getSession(sql, userId, params.id, { inviteCode: query.get("invite") ?? undefined })],
-  ["POST", "/sessions/:id/cancel", async ({ sql, userId, params }) => {
-    await svc.cancelSession(sql, userId, params.id);
-    return { ok: true };
-  }],
-  ["POST", "/sessions/:id/bookings", async ({ sql, userId, params, body }) => ({
-    booking: await svc.bookSeat(
-      sql,
-      userId,
-      params.id,
-      z.object({ inviteCode: z.string().optional() }).parse(body ?? {}),
-    ),
-  })],
-  ["POST", "/sessions/:id/code", ({ sql, userId, params }) => svc.revealCode(sql, userId, params.id)],
+  [
+    "POST",
+    "/sessions",
+    async ({ sql, userId, body }) => ({
+      session: await svc.postSession(
+        sql,
+        userId,
+        postSessionBody.parse(body) as svc.PostSessionInput,
+      ),
+    }),
+  ],
+  [
+    "GET",
+    "/sessions/:id",
+    ({ sql, userId, params, query }) =>
+      svc.getSession(sql, userId, params.id, { inviteCode: query.get("invite") ?? undefined }),
+  ],
+  [
+    "POST",
+    "/sessions/:id/cancel",
+    async ({ sql, userId, params }) => {
+      await svc.cancelSession(sql, userId, params.id);
+      return { ok: true };
+    },
+  ],
+  [
+    "POST",
+    "/sessions/:id/bookings",
+    async ({ sql, userId, params, body }) => ({
+      booking: await svc.bookSeat(
+        sql,
+        userId,
+        params.id,
+        z.object({ inviteCode: z.string().optional() }).parse(body ?? {}),
+      ),
+    }),
+  ],
+  [
+    "POST",
+    "/sessions/:id/code",
+    ({ sql, userId, params }) => svc.revealCode(sql, userId, params.id),
+  ],
   ["GET", "/invites/:code", ({ sql, userId, params }) => svc.getInvite(sql, userId, params.code)],
 
-  ["GET", "/bookings", async ({ sql, userId }) => {
-    const mine = await svc.listMyBookings(sql, userId);
-    const trainingBlocks = await blocks.listMyTrainingBlocks(sql, userId);
-    const known = new Set(mine.people.map((p) => p.id));
-    const missing = trainingBlocks.flatMap((b) => b.memberIds).filter((id) => !known.has(id));
-    return {
-      ...mine,
-      trainingBlocks,
-      people: [...mine.people, ...(await svc.people(sql, missing))],
-    };
-  }],
+  [
+    "GET",
+    "/bookings",
+    async ({ sql, userId }) => {
+      const mine = await svc.listMyBookings(sql, userId);
+      const trainingBlocks = await blocks.listMyTrainingBlocks(sql, userId);
+      const known = new Set(mine.people.map((p) => p.id));
+      const missing = trainingBlocks.flatMap((b) => b.memberIds).filter((id) => !known.has(id));
+      return {
+        ...mine,
+        trainingBlocks,
+        people: [...mine.people, ...(await svc.people(sql, missing))],
+      };
+    },
+  ],
   // "Same time next week": a completed session becomes a standing slot.
-  ["POST", "/bookings/:id/repeat", async ({ sql, userId, params }) => ({
-    series: await svc.repeatWeekly(sql, userId, params.id),
-  })],
+  [
+    "POST",
+    "/bookings/:id/repeat",
+    async ({ sql, userId, params }) => ({
+      series: await svc.repeatWeekly(sql, userId, params.id),
+    }),
+  ],
   ["GET", "/series", async ({ sql, userId }) => ({ series: await svc.listMySeries(sql, userId) })],
-  ["POST", "/series/:id/leave", async ({ sql, userId, params }) => {
-    await svc.leaveSeries(sql, userId, params.id);
-    return { ok: true };
-  }],
-  // "Make this a training block": a standing slot gets a goal and a date.
-  ["POST", "/series/:id/training-block", async ({ sql, userId, params, body }) => ({
-    block: await blocks.blockFromSeries(sql, userId, params.id, blockGoalBody.parse(body)),
-  })],
-  // Discovery, for blocks: public, a regular seat open, four weeks or more to go.
-  ["GET", "/training-blocks", async ({ sql, userId }) => ({
-    blocks: await blocks.listPublicTrainingBlocks(sql, userId),
-  })],
-  ["POST", "/training-blocks", async ({ sql, userId, body }) => ({
-    block: await blocks.postTrainingBlock(
-      sql,
-      userId,
-      postBlockBody.parse(body) as blocks.PostBlockInput,
-    ),
-  })],
-  ["GET", "/training-blocks/:id", ({ sql, userId, params, query }) =>
-    blocks.getTrainingBlock(sql, userId, params.id, {
-      inviteCode: query.get("invite") ?? undefined,
-    })],
-  // Joining takes every slot in the block. It is only ever asked for here.
-  ["POST", "/training-blocks/:id/join", async ({ sql, userId, params, body }) => ({
-    block: await blocks.joinTrainingBlock(sql, userId, params.id, inviteBody.parse(body ?? {})),
-  })],
-  ["POST", "/training-blocks/:id/requests/:memberId/approve", async ({ sql, userId, params }) => ({
-    block: await blocks.resolveBlockRequest(sql, userId, params.id, params.memberId, "approve"),
-  })],
-  ["POST", "/training-blocks/:id/requests/:memberId/decline", async ({ sql, userId, params }) => ({
-    block: await blocks.resolveBlockRequest(sql, userId, params.id, params.memberId, "decline"),
-  })],
-  // "Helped me stick to it?" — a finisher's one answer, in the week after the goal date.
-  ["POST", "/training-blocks/:id/credits", async ({ sql, userId, params, body }) => ({
-    block: await blocks.giveCredits(
-      sql,
-      userId,
-      params.id,
-      z.object({ toIds: z.array(z.string().min(1)).max(8) }).parse(body).toIds,
-    ),
-  })],
-  // What becomes of a finished block's slots: they carry on, or start the next block.
-  ["POST", "/training-blocks/:id/next", async ({ sql, userId, params, body }) => {
-    const next = nextBody.parse(body);
-    if (next.action === "keep_slots") {
-      await blocks.keepBlockSlots(sql, userId, params.id);
+  [
+    "POST",
+    "/series/:id/leave",
+    async ({ sql, userId, params }) => {
+      await svc.leaveSeries(sql, userId, params.id);
       return { ok: true };
-    }
-    return { block: await blocks.nextTrainingBlock(sql, userId, params.id, next) };
-  }],
-  ["POST", "/training-blocks/:id/clone", async ({ sql, userId, params, body }) => ({
-    block: await blocks.cloneTrainingBlock(sql, userId, params.id, inviteBody.parse(body ?? {})),
-  })],
-  ["POST", "/training-blocks/:id/slots", async ({ sql, userId, params, body }) => ({
-    block: await blocks.addBlockSlot(sql, userId, params.id, blockSlotBody.parse(body)),
-  })],
-  ["POST", "/training-blocks/:id/leave", async ({ sql, userId, params }) => {
-    await blocks.leaveTrainingBlock(sql, userId, params.id);
-    return { ok: true };
-  }],
-  ["GET", "/bookings/:id", async ({ sql, userId, params }) => ({
-    booking: await svc.getBooking(sql, userId, params.id),
-  })],
-  ["POST", "/bookings/:id/approve", async ({ sql, userId, params }) => ({
-    booking: await svc.approveBooking(sql, userId, params.id),
-  })],
-  ["POST", "/bookings/:id/decline", async ({ sql, userId, params }) => ({
-    booking: await svc.declineBooking(sql, userId, params.id),
-  })],
-  ["POST", "/bookings/:id/cancel", async ({ sql, userId, params }) => ({
-    booking: await svc.cancelBooking(sql, userId, params.id),
-  })],
-  ["POST", "/bookings/:id/checkin", async ({ sql, userId, params, body }) => ({
-    booking: await svc.checkInGeo(sql, userId, params.id, geoBody.parse(body)),
-  })],
-  ["POST", "/bookings/:id/checkin-code", async ({ sql, userId, params, body }) => ({
-    booking: await svc.checkInCode(
-      sql,
-      userId,
-      params.id,
-      z.object({ code: z.string().regex(/^\d{4}$/) }).parse(body).code,
-    ),
-  })],
-  ["GET", "/bookings/:id/messages", async ({ sql, userId, params }) => ({
-    messages: await svc.listMessages(sql, userId, params.id),
-  })],
-  ["POST", "/bookings/:id/messages", async ({ sql, userId, params, body }) => ({
-    messages: await svc.sendMessage(
-      sql,
-      userId,
-      params.id,
-      z.object({ text: z.string().min(1).max(2000) }).parse(body).text,
-    ),
-  })],
-  ["POST", "/bookings/:id/rating", async ({ sql, userId, params, body }) => ({
-    booking: await svc.submitRating(sql, userId, params.id, ratingBody.parse(body)),
-  })],
+    },
+  ],
+  // "Make this a training block": a standing slot gets a goal and a date.
+  [
+    "POST",
+    "/series/:id/training-block",
+    async ({ sql, userId, params, body }) => ({
+      block: await blocks.blockFromSeries(sql, userId, params.id, blockGoalBody.parse(body)),
+    }),
+  ],
+  // Discovery, for blocks: public, a regular seat open, four weeks or more to go.
+  [
+    "GET",
+    "/training-blocks",
+    async ({ sql, userId }) => ({
+      blocks: await blocks.listPublicTrainingBlocks(sql, userId),
+    }),
+  ],
+  [
+    "POST",
+    "/training-blocks",
+    async ({ sql, userId, body }) => ({
+      block: await blocks.postTrainingBlock(
+        sql,
+        userId,
+        postBlockBody.parse(body) as blocks.PostBlockInput,
+      ),
+    }),
+  ],
+  [
+    "GET",
+    "/training-blocks/:id",
+    ({ sql, userId, params, query }) =>
+      blocks.getTrainingBlock(sql, userId, params.id, {
+        inviteCode: query.get("invite") ?? undefined,
+      }),
+  ],
+  // Joining takes every slot in the block. It is only ever asked for here.
+  [
+    "POST",
+    "/training-blocks/:id/join",
+    async ({ sql, userId, params, body }) => ({
+      block: await blocks.joinTrainingBlock(sql, userId, params.id, inviteBody.parse(body ?? {})),
+    }),
+  ],
+  [
+    "POST",
+    "/training-blocks/:id/requests/:memberId/approve",
+    async ({ sql, userId, params }) => ({
+      block: await blocks.resolveBlockRequest(sql, userId, params.id, params.memberId, "approve"),
+    }),
+  ],
+  [
+    "POST",
+    "/training-blocks/:id/requests/:memberId/decline",
+    async ({ sql, userId, params }) => ({
+      block: await blocks.resolveBlockRequest(sql, userId, params.id, params.memberId, "decline"),
+    }),
+  ],
+  // "Helped me stick to it?" — a finisher's one answer, in the week after the goal date.
+  [
+    "POST",
+    "/training-blocks/:id/credits",
+    async ({ sql, userId, params, body }) => ({
+      block: await blocks.giveCredits(
+        sql,
+        userId,
+        params.id,
+        z.object({ toIds: z.array(z.string().min(1)).max(8) }).parse(body).toIds,
+      ),
+    }),
+  ],
+  // What becomes of a finished block's slots: they carry on, or start the next block.
+  [
+    "POST",
+    "/training-blocks/:id/next",
+    async ({ sql, userId, params, body }) => {
+      const next = nextBody.parse(body);
+      if (next.action === "keep_slots") {
+        await blocks.keepBlockSlots(sql, userId, params.id);
+        return { ok: true };
+      }
+      return { block: await blocks.nextTrainingBlock(sql, userId, params.id, next) };
+    },
+  ],
+  [
+    "POST",
+    "/training-blocks/:id/clone",
+    async ({ sql, userId, params, body }) => ({
+      block: await blocks.cloneTrainingBlock(sql, userId, params.id, inviteBody.parse(body ?? {})),
+    }),
+  ],
+  [
+    "POST",
+    "/training-blocks/:id/slots",
+    async ({ sql, userId, params, body }) => ({
+      block: await blocks.addBlockSlot(sql, userId, params.id, blockSlotBody.parse(body)),
+    }),
+  ],
+  [
+    "POST",
+    "/training-blocks/:id/leave",
+    async ({ sql, userId, params }) => {
+      await blocks.leaveTrainingBlock(sql, userId, params.id);
+      return { ok: true };
+    },
+  ],
+  [
+    "GET",
+    "/bookings/:id",
+    async ({ sql, userId, params }) => ({
+      booking: await svc.getBooking(sql, userId, params.id),
+    }),
+  ],
+  [
+    "POST",
+    "/bookings/:id/approve",
+    async ({ sql, userId, params }) => ({
+      booking: await svc.approveBooking(sql, userId, params.id),
+    }),
+  ],
+  [
+    "POST",
+    "/bookings/:id/decline",
+    async ({ sql, userId, params }) => ({
+      booking: await svc.declineBooking(sql, userId, params.id),
+    }),
+  ],
+  [
+    "POST",
+    "/bookings/:id/cancel",
+    async ({ sql, userId, params }) => ({
+      booking: await svc.cancelBooking(sql, userId, params.id),
+    }),
+  ],
+  [
+    "POST",
+    "/bookings/:id/checkin",
+    async ({ sql, userId, params, body }) => ({
+      booking: await svc.checkInGeo(sql, userId, params.id, geoBody.parse(body)),
+    }),
+  ],
+  [
+    "POST",
+    "/bookings/:id/checkin-code",
+    async ({ sql, userId, params, body }) => ({
+      booking: await svc.checkInCode(
+        sql,
+        userId,
+        params.id,
+        z.object({ code: z.string().regex(/^\d{4}$/) }).parse(body).code,
+      ),
+    }),
+  ],
+  [
+    "GET",
+    "/bookings/:id/messages",
+    async ({ sql, userId, params }) => ({
+      messages: await svc.listMessages(sql, userId, params.id),
+    }),
+  ],
+  [
+    "POST",
+    "/bookings/:id/messages",
+    async ({ sql, userId, params, body }) => ({
+      messages: await svc.sendMessage(
+        sql,
+        userId,
+        params.id,
+        z.object({ text: z.string().min(1).max(2000) }).parse(body).text,
+      ),
+    }),
+  ],
+  [
+    "POST",
+    "/bookings/:id/rating",
+    async ({ sql, userId, params, body }) => ({
+      booking: await svc.submitRating(sql, userId, params.id, ratingBody.parse(body)),
+    }),
+  ],
 ];
 
 function match(pattern: string, path: string): Record<string, string> | null {
@@ -493,6 +941,17 @@ export async function handleApi(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/v1/, "").replace(/\/+$/, "") || "/";
   const healthRequest = isHealthPath(path);
+  const fitnessRequest = path === "/fitness" || path.startsWith("/fitness/");
+  const agentRequest = path === "/agents" || path.startsWith("/agents/");
+  const privateFitnessRequest = healthRequest || fitnessRequest;
+  const sensitiveRequest = privateFitnessRequest || agentRequest;
+  const component: OperationComponent | null = healthRequest
+    ? "health"
+    : fitnessRequest
+      ? "fitness"
+      : agentRequest
+        ? "agents"
+        : null;
   if (healthRequest && !healthEnabled()) return json({ error: "Not found" }, 404);
   // Hide every agent control route before authentication or database work when
   // the foundation is disabled; deployment defaults to disabled.
@@ -515,17 +974,26 @@ export async function handleApi(request: Request): Promise<Response> {
     const { authConfig } = await import("../auth/social.server");
     return json(authConfig());
   }
-  if (!found) return json({ error: pathKnown ? "Method not allowed" : "Not found" }, pathKnown ? 405 : 404);
+  if (!found)
+    return json({ error: pathKnown ? "Method not allowed" : "Not found" }, pathKnown ? 405 : 404);
 
+  const started = Date.now();
+  let metricSql: Sql | null = null;
+  let responseStatus = 500;
+  const respond = (data: unknown, status = 200) => {
+    responseStatus = status;
+    return json(data, status);
+  };
   try {
     const { assertSameSiteRequest } = await import("../auth/isolation.server");
     assertSameSiteRequest();
     const { auth } = await import("../auth/server");
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) return json({ error: "Unauthorized" }, 401);
+    if (!session?.user) return respond({ error: "Unauthorized" }, 401);
 
     const sql = await getSql();
-    if (!healthRequest) await ensureDemoCluster(sql);
+    metricSql = sql;
+    if (!privateFitnessRequest) await ensureDemoCluster(sql);
     // First contact creates the profile from the auth identity.
     const me = await svc.ensureProfile(sql, {
       id: session.user.id,
@@ -533,13 +1001,13 @@ export async function handleApi(request: Request): Promise<Response> {
       email: session.user.email ?? null,
     });
     // A deleted account's token can outlive it by a cached session; it opens nothing.
-    if (me.deleted) return json({ error: "Unauthorized" }, 401);
+    if (me.deleted) return respond({ error: "Unauthorized" }, 401);
     if (me.suspended && !OPEN_WHEN_SUSPENDED.has(found.key)) {
-      return json({ error: "Your account is paused. Email support@samepace.app." }, 403);
+      return respond({ error: "Your account is paused. Email support@samepace.app." }, 403);
     }
 
     let body: unknown = undefined;
-    if (healthRequest && request.method !== "GET") {
+    if (sensitiveRequest && request.method !== "GET") {
       body = await readHealthBody(request);
     } else if (request.method !== "GET" && request.headers.get("content-length") !== "0") {
       const text = await request.text();
@@ -547,7 +1015,7 @@ export async function handleApi(request: Request): Promise<Response> {
         try {
           body = JSON.parse(text);
         } catch {
-          return json({ error: "Body must be JSON." }, 400);
+          return respond({ error: "Body must be JSON." }, 400);
         }
       }
     }
@@ -563,22 +1031,31 @@ export async function handleApi(request: Request): Promise<Response> {
       body,
     });
     // Whatever that request caused is pushed now; the cron sweeps up anything missed.
-    if (!healthRequest && request.method !== "GET") {
+    if (!privateFitnessRequest && request.method !== "GET") {
       await notify.deliverDue(sql).catch((err) => console.error("[push]", err));
     }
-    return json(data);
+    return respond(data);
   } catch (err) {
-    if (err instanceof HealthError) return json({ error: err.message }, err.status);
-    if (err instanceof svc.PaceError) return json({ error: err.message }, err.status);
+    if (err instanceof FitnessError) return respond({ error: err.message }, err.status);
+    if (err instanceof HealthError) return respond({ error: err.message }, err.status);
+    if (err instanceof svc.PaceError) return respond({ error: err.message }, err.status);
     if (err instanceof z.ZodError) {
       const first = err.issues[0];
-      return json({ error: `${first.path.join(".") || "body"}: ${first.message}` }, 400);
+      return respond({ error: `${first.path.join(".") || "body"}: ${first.message}` }, 400);
     }
-    if ((err as { status?: number })?.status === 403) return json({ error: "Forbidden" }, 403);
+    if ((err as { status?: number })?.status === 403) return respond({ error: "Forbidden" }, 403);
     // Database errors may contain SQL parameters. Never log a health payload,
     // anchor, source identifier, or error object from this private boundary.
-    if (healthRequest) console.error("[health] request failed");
+    if (sensitiveRequest) console.error("[private-api] request failed");
     else console.error("[api]", request.method, path, err);
-    return json({ error: "Something broke on our side." }, 500);
+    return respond({ error: "Something broke on our side." }, 500);
+  } finally {
+    if (metricSql && component)
+      await recordOperation(metricSql, {
+        component,
+        action: found.key,
+        status: responseStatus,
+        durationMs: Date.now() - started,
+      }).catch(() => console.error("[operations] metric write failed"));
   }
 }

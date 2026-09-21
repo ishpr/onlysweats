@@ -32,20 +32,24 @@ module, so the buttons hide themselves there):
 npx eas build --profile development --platform ios
 ```
 
+For a physical iPhone, use the `device` profile instead. It includes the native
+HealthKit reader and export sharing, uses the live SamePace API, and preserves
+Expo live reload. See [the release checklist](../docs/RELEASE-CHECKLIST.md).
+
 Then `npx expo start` opens the dev build; `npx expo start --go` still opens Expo Go.
 
 Set up on 2026-09-20 (all public identifiers — no secrets in this flow):
 
-| Where | What |
-| --- | --- |
-| Apple Developer (team `NZBE9W77FA`) | App ID `app.samepace`, *Sign in with Apple* enabled |
+| Where                                  | What                                                                             |
+| -------------------------------------- | -------------------------------------------------------------------------------- |
+| Apple Developer (team `NZBE9W77FA`)    | App ID `app.samepace`, _Sign in with Apple_ enabled                              |
 | Google Cloud project `samepace-509220` | OAuth clients "SamePace server (web)" and "SamePace iOS" (bundle `app.samepace`) |
-| Vercel env | `APPLE_BUNDLE_ID`, `GOOGLE_WEB_CLIENT_ID`, `GOOGLE_IOS_CLIENT_ID` |
-| `eas.json` env | `GOOGLE_IOS_URL_SCHEME` (the iOS client id, reversed) |
+| Vercel env                             | `APPLE_BUNDLE_ID`, `GOOGLE_WEB_CLIENT_ID`, `GOOGLE_IOS_CLIENT_ID`                |
+| `eas.json` env                         | `GOOGLE_IOS_URL_SCHEME` (the iOS client id, reversed)                            |
 
 Still to do: an **Android** OAuth client (package `app.samepace` + the signing
 SHA-1 from the first EAS Android build), and moving the Google OAuth app from
-*Testing* to *In production* — until then only listed test users can sign in
+_Testing_ to _In production_ — until then only listed test users can sign in
 with Google.
 
 The app has no password form. The server still accepts passwords outside
@@ -69,15 +73,15 @@ the API restarts — mint a new one.
   blocks (`training-block/[id]` the block page, `training-block/new` the goal form).
 - `src/lib` — `api.ts` (fetch + bearer token), `auth.tsx` (keychain session),
   `queries.ts` (every server call), `format.ts` (Dallas-time + money).
-- `src/components/ui.tsx` — primitives. `src/constants/theme.ts` — tokens, the same
-  values as the web's `src/styles.css`. Dark-only, like the web.
+- `src/components/ui.tsx` — primitives. `src/constants/theme.ts` — light/dark
+  tokens following the phone's appearance, including the launch screen.
 
 The server decides seats, money and check-in. The app only displays and asks.
 
 ## Push notifications
 
 `expo-notifications`, delivered through Expo's push service — the server queues
-and sends (see *Notifications* in `docs/API.md`); `src/lib/push.ts` registers the
+and sends (see _Notifications_ in `docs/API.md`); `src/lib/push.ts` registers the
 device and opens the screen a tapped notification points at. The app asks in its
 own words first (Today, once there's a session coming up), then the system prompt.
 Settings live under You → Notifications; Inbox → Activity lists everything sent,
@@ -96,7 +100,7 @@ uploaded to EAS.
 ## Widget, Live Activity, haptics, motion
 
 - **Widget** (`src/widgets/next-session.tsx`, iOS): my next session on the Home
-  Screen (small, medium) and Lock Screen. `src/lib/widgets.ts` writes a *timeline*
+  Screen (small, medium) and Lock Screen. `src/lib/widgets.ts` writes a _timeline_
   from `/bookings`, so it moves on to the following session — or "nothing booked" —
   by itself. Tapping opens the session.
 - **Live Activity** (`src/widgets/live-session.tsx`): Lock Screen banner and
@@ -115,7 +119,7 @@ uploaded to EAS.
 
 ## Training blocks
 
-One to four standing slots aimed at a goal and a date — see *Training blocks* in
+One to four standing slots aimed at a goal and a date — see _Training blocks_ in
 `../docs/API.md`. In the app:
 
 - **Start one** from a standing slot ("Give it a finish line", on Today and the
@@ -136,9 +140,9 @@ Training-block progress is attendance-based, with no weight goal. Optional priva
 
 ## Apple Health
 
-The standalone `/health` route connects read-only Apple Health access, manually syncs workouts and selected readings, displays private workout history, and supports removal/disconnect. It requires a rebuilt iOS client and `HEALTH_SYNC_ENABLED=true` on the API. The feature defaults off pending physical-device acceptance. Existing tab/navigation files were left for the concurrent design pass; link to this route or reuse `useHealthSync` in the redesigned UI.
+You → Apple Health opens `/health`: read-only Apple Health access, manual sync of workouts and selected readings, private history, export, removal, and disconnect. It requires the rebuilt iOS client and `HEALTH_SYNC_ENABLED=true` on the API. The flag is configured in production and preview; actual iPhone permissions and source changes still require acceptance.
 
-See [the integration guide](../docs/APPLE-HEALTH.md) for setup, supported data, API contracts, privacy boundaries, and the device checklist. Android/web/Expo Go cannot read HealthKit. Jev inference and health sharing with agents are not enabled.
+See [the integration guide](../docs/APPLE-HEALTH.md) for supported data, privacy boundaries, and device checks. Android/web/Expo Go cannot read HealthKit. `/workout/[id]` preserves corrections separately from source facts. `/fitness` provides manual logs and separately consented editable Jev suggestions; the provider key stays on the server. `/assistant` shares only entered planning preferences through mutually consented conversations, with separate human booking approval. Raw health records are never shared with delegated agents.
 
 ## Not done
 

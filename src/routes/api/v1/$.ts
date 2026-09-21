@@ -8,6 +8,6 @@ async function handle({ request }: { request: Request }) {
 
 export const Route = createFileRoute("/api/v1/$")({
   server: {
-    handlers: { GET: handle, POST: handle, PATCH: handle, DELETE: handle },
+    handlers: { GET: handle, POST: handle, PUT: handle, PATCH: handle, DELETE: handle },
   },
 });

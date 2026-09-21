@@ -8,13 +8,13 @@ import type { Person } from "./types";
 export function reputationLine(p: Person): string {
   if (p.completedCount === 0) return "New on SamePace · no sessions yet";
   const parts = [
-    `${p.completedCount} completed`,
+    `${p.completedCount} session${p.completedCount === 1 ? "" : "s"}`,
     `${p.onTimePct}% on time`,
     `${p.wouldJoinPct}% would join again`,
   ];
   if (p.blocksFinished > 0) {
-    parts.push(`${p.blocksFinished} block${p.blocksFinished === 1 ? "" : "s"} finished`);
+    parts.push(`${p.blocksFinished} goal${p.blocksFinished === 1 ? "" : "s"} finished`);
   }
-  if (p.helpedCount > 0) parts.push(`helped ${p.helpedCount} finish`);
+  if (p.helpedCount > 0) parts.push(`helped ${p.helpedCount} reach a goal`);
   return parts.join(" · ");
 }

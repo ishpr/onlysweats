@@ -1,6 +1,6 @@
 # Jev for SamePace fitness tracking
 
-Status: Jev implementation design, researched September 20, 2026. The TypeSafe skill is installed. The first [Apple Health import](./APPLE-HEALTH.md) is implemented behind a default-off flag, with physical-device acceptance pending. No TypeSafe runtime SDK or inference calls have been added. Track delivery in the [vision roadmap](./VISION-ROADMAP.md).
+Status: server integration and editable logging implemented September 21, 2026; a small synthetic live evaluation is complete; member-cohort validation and physical-device acceptance remain pending. The project TypeSafe skill was used, including the current HTTP API, Choice, confidence, models, and pre-parsed value extraction cookbook. [Apple Health import](./APPLE-HEALTH.md) supplies real source records; private manual logs and correction overlays are separate. Inference is off unless `JEV_ENABLED=true` and a server-side `TYPESAFE_API_KEY` are configured, and each member separately opts in. Track delivery in the [vision roadmap](./VISION-ROADMAP.md).
 
 ## Product direction
 
@@ -76,24 +76,67 @@ Health-store synchronization and observer callbacks are not guaranteed live sens
 
 ## First implementation boundary
 
-The health import layer now exists; inference-specific modules below remain proposed:
+The import and first inference layers now exist:
 
 | Module | Responsibility |
 | --- | --- |
 | `mobile/modules/samepace-healthkit` and `mobile/src/lib/health/` — implemented | Native source reader, explicit permissions, manual sync lifecycle, and account-bound transport. Anchors persist on the server; raw health records are not stored locally. |
-| `shared/health.ts` and `src/lib/health/contracts.ts` — implemented | Source records, units, provenance, connection generation, and strict import contracts. Goal, snapshot, and assessment contracts remain pending. |
+| `shared/health.ts` and `src/lib/health/contracts.ts` — implemented | Source records, units, provenance, connection generation, and strict import contracts. Private manual logs, corrections, consent, drafts, and assessment contracts are in `shared/fitness.ts`. |
 | `src/lib/health/summary.ts` — implemented | Tested elapsed time, source active-duration pace, and source-bound heart-rate sample statistics. |
-| `src/lib/workouts/questions.ts` | Versioned TypeSafe questions with explicit unknown/none outcomes and concrete criteria. |
-| `src/lib/workouts/assessment.server.ts` | Server-only TypeSafe adapter; input allowlist, limits, timeout, validated answers, and fallback. No booking permissions. |
-| Private workout API and screen — first slice implemented | Owner-only records, source deletions/tombstones, removal, disconnect/purge, paginated export API, and measured facts. Corrections, export UI, manual logging, and interpretations remain pending. |
+| `src/lib/fitness/questions.ts` | Versioned TypeSafe Choice questions, source-span number candidates, a closed exercise catalogue, explicit unknown outcomes, and conservative editable-draft composition. |
+| `src/lib/fitness/typesafe.server.ts` and `service.server.ts` | Server-only HTTP adapter, private persistence, distinct consent, bounded input, five-second timeout, strict response validation, freshness checks, and manual fallback. No booking permissions. |
+| Private fitness API and mobile screen | Owner-only manual strength logs, explicit editable AI drafts, correction overlays that survive source resync, paginated fitness export, and labeled note-versus-goal interpretation. The mobile release combines these with health sync and export. |
 
 Use the existing authenticated API transport, but place health authorization and data access in a separate workout domain. A source record needs at least `source`, `externalId`, `sourceRevision`, start/end timestamps, activity, and provenance for each optional metric. Deduplicate imports by source identity; process source deletions rather than reintroducing them from an older cache.
 
 The assessment result should include `workoutId`, `snapshotRevision`, `questionVersion`, `model`, `assessedAt`, typed answers, and an explicit `available | insufficient_data | provider_unavailable` outcome. Fingerprint the entire authorized input snapshot, including readings, freshness, and connection/consent generation. The existing workout `revision` covers only its source object: late heart-rate samples or removed permissions can change a summary independently. Reject results after any relevant snapshot change. Never apply a result from a different workout or member.
 
-Use `@typesafe-ai/sdk` on the server, with `TypeSafeClient.systemOne({ state, questions, model })`; the [JavaScript SDK](https://docs.typesafe.ai/sdk/javascript) reads `TYPESAFE_API_KEY`. Pin an evaluated model version and record the actual returned model. The documentation currently lists `jev-1.13.0`; recheck before implementation. Set an explicit latency/retry budget, disable body logging, and batch independent questions against the same compact state. No live model accuracy or latency has been measured for SamePace yet.
+The server uses the documented [HTTP API](https://docs.typesafe.ai/api) directly instead of adding an SDK dependency. It sends `POST https://api.typesafe.ai/v1/systemone` with `state`, `questions`, and the pinned model `jev-1.13.0`; the server alone reads `TYPESAFE_API_KEY`. Current model documentation was checked during implementation. This model is pinned for reproducibility, **evaluated only on the small synthetic examples below, not member health data**. An answer must report that exact model, every requested question and option, finite probabilities summing to one, the highest-probability selected option, and valid token counts. Unexpected schemas fail closed. A five-second total deadline, no automatic retries, 24 KB request cap, 64 KB response cap, three-second member cooldown, and 60 requests per member per UTC day bound usage. Requests and provider errors are never logged; operational logs contain only question version, model, success/unavailable status, elapsed milliseconds, and input/output token counts. Cost is not estimated from unverified prices. Observed synthetic latency and draft results are recorded below; these do not establish member-cohort accuracy or production latency.
 
 Start with synthetic and explicitly contributed examples, then evaluate real, authorized records before enabling user-facing inference. Device permissions, sending selected data to TypeSafe, and sharing preferences with another member are separate user choices. A2A consent alone does not authorize exporting health history.
+
+## Implemented behavior and privacy
+
+`POST /api/v1/fitness/draft` takes one member-submitted note of at most 1,000 characters. Code finds numeric source spans (including supported English number words) and explicitly written units. Jev selects from those candidates and the exercise catalogue; it cannot supply a new number. Unsupported or conflicting values stay missing. The provisional 0.75 probability and concentration floors only decide whether to show an editable suggestion; they are not an accuracy claim. Different set schemes and multiple exercises require manual entry when they cannot be expressed as one uniform draft. A separate `log_scope` judgment now requires a sufficiently clear single actual exercise log before any field is suggested; multiple exercises, output instructions, and unclear notes produce a whole-draft abstention. The draft does not create a log. The member edits it and uses the ordinary save action.
+
+Manual strength logs are available without HealthKit or Jev. They contain member-entered time, exercise, notes, and individual sets. Code counts repetitions and normalizes explicitly known external load to kilograms. Unknown load and bodyweight retain `totalVolumeKg: null`. No calories, heartbeat, energy, distance, or body mass are fabricated. Updates use revisions to avoid overwriting a newer edit.
+
+Imported-workout corrections are overlays: title, activity label, and note. A resync can change the source record while retaining this member-authored overlay. Source or member deletion removes the overlay and any saved interpretation; disconnect removes imported-workout overlays through source foreign keys. Independent manual logs survive a HealthKit disconnect. Account deletion cascades all private fitness tables.
+
+Workout assessment only interprets an explicit note relative to an explicit member goal: following the goal, a deliberate change, or unclear. It never labels a physiological state or infers the reason for a deviation from heart rate. The provider receives only that note, goal, selected source/member activity label, source duration, and source distance. It receives no identity, device or workout ID, timestamps, raw heart-rate samples, sleep, HRV, daily metrics, or other history. A useful note, current HealthKit connection, and sync within the past seven days are required. The full authorized local snapshot is fingerprinted before and after inference, including member, consent generation, connection/cursors, source workout and summary, correction revision, requested goal/note, and question version. Late samples, edits, disconnect, or permission changes invalidate the result. Saved results are rechecked before retrieval/export.
+
+`PUT /api/v1/fitness/consent` records a separate generation and notice version. Revocation removes saved interpretations and invalidates in-flight replies; it does not erase the member's own logs or correction notes. The consent notice lists the data sent and makes clear that accepting a draft and sharing a preference are separate choices. A2A scope never grants access to these endpoints.
+
+## Evaluation harness and acceptance
+
+`src/lib/fitness/evaluation.ts` contains a **synthetic**, labeled exercise dataset and `evaluateExerciseFixtures(provider)`. It records per-case availability, exact field agreement, incorrect proposed fields, abstention/coverage counts, latency, returned model, and token usage. Examples include spelled numbers, decimal weights, bodyweight, missing units, an unknown exercise, multiple exercises, empty evidence, and embedded instructions. Unit tests verify the harness with a stub. Separately, the user authorized the recorded live synthetic evaluations below.
+
+The private service and adapter tests cover real PGlite persistence, owner isolation, revisions, resync-preserved overlays, deletion/disconnect/account cascades, paginated export, separate consent, revocation during a request, stale snapshots after late samples, bounded input/output, response schema rejection, unavailable providers, and timeout without retries. The user subsequently supplied and authorized a server credential for a bounded synthetic live evaluation. The evaluation process reads the ignored server environment file without printing credentials; no member records or health data are loaded.
+
+Before a wider rollout, expand the evaluation with contributed real notes and contradictions, review correction/abstention rates, choose acceptance targets, and measure production end-to-end p50/p95/p99 latency and token cost. Physiological assessment, continuous sensors, live segment recognition, personalized readiness, and background inference are outside this narrow logging integration and need their own evidence and product decisions.
+
+### Authorized live synthetic results — September 21, 2026
+
+The TypeSafe HTTP contract was verified against `jev-1.13.0` with 36 synthetic requests: the initial nine exercise cases, those same nine after adding the single-log eligibility question, nine held-out exercise cases added afterward, and nine separate workout-note intent cases. Thresholds remained at 0.75 for both selected-option probability and distribution confidence. The held-out cases were not used to change prompts or thresholds before their recorded first run.
+
+| Run | Successful requests | Exact drafts | Incorrect proposed fields | Correct field agreement (including correct abstentions) | Request latency p50 / sample p95 |
+| --- | --- | --- | --- | --- | --- |
+| Initial `exercise-draft-v1` | 9 / 9 | 2 / 9 | 3 / 21 proposed | 34 / 45 | 156 / 305 ms |
+| Revised `exercise-draft-v2`, same examples | 9 / 9 | 4 / 9 | 0 / 19 proposed | 38 / 45 | 168 / 271 ms |
+| `exercise-draft-v2`, held-out examples | 9 / 9 | 5 / 9 | 0 / 22 proposed | 40 / 45 | 174 / 393 ms |
+
+With only nine requests per run, the reported p95 is the observed maximum, not a reliable tail-latency estimate. The revised and held-out runs used 31,863 input tokens and 6,587 output tokens altogether. No dollar cost is inferred from these counts.
+
+The original implementation suggested fields for a multiple-exercise note and an instruction-only note. Adding a whole-draft eligibility question fixed those observed cases without lowering thresholds. In the two v2 runs, all 41 proposed fields matched their labels; six notes were fully abstained from, and several otherwise clear notes still omitted sets or units. Only nine of the eighteen drafts matched every field. This supports an **optional, editable exercise-draft pilot**, not claims of autonomous logging accuracy. These exercise-only fixtures do not establish physiological or workout-intent model quality. A separate, unchanged `workout-note-v1` prompt was then tested on nine synthetic note/goal/summary cases: all nine final labels matched, consisting of three explicit intent labels and six unclear/abstention outcomes. Contradictory notes, unrelated notes, attempts to demand an output, missing goal evidence, incomplete summaries, and heart-rate text without a stated reason all abstained. Observed p50 was 149 ms and sample p95/maximum 461 ms, with 5,255 input and 501 output tokens. This remains a small smoke test of member-stated intent; no physiological inference is supported.
+
+Reports preserve both the initial weaknesses and the revised outcomes:
+
+- [Initial exercise evaluation](./evaluations/jev-exercise-v1-initial.json)
+- [Revised exercise evaluation](./evaluations/jev-exercise-v2-recheck.json)
+- [Held-out exercise evaluation](./evaluations/jev-exercise-v2-heldout.json)
+- [Workout-note intent evaluation](./evaluations/jev-workout-intent-v1.json)
+
+The explicit runner is `src/lib/fitness/evaluate-live.ts`, invoked with the ignored server environment file and an output path; adding `--heldout` selects the separate exercise dataset and `--workout-notes` selects note/goal interpretation. Its temporary `JEV_ENABLED=true` affects only that evaluator process and does not change deployment flags. No real health records are accessed. Production activation is a separate deployment decision.
 
 ## Joining this to A2A
 

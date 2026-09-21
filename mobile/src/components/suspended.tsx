@@ -14,10 +14,10 @@ export function Suspended({ reason }: { reason: string }) {
   return (
     <Screen edges={["top", "bottom"]} contentStyle={styles.content}>
       <Lockup />
-      <T variant="title">Your account is paused.</T>
+      <T variant="title">Your account is suspended.</T>
       <T color="textSecondary">
-        We paused it after reviewing a report. Your sessions were called off and your seats
-        released, at no charge to anyone.
+        We suspended it after reviewing a report. Your upcoming sessions were cancelled at no cost
+        to anyone.
       </T>
       {reason ? <Notice tone="danger">{reason}</Notice> : null}
       <T color="textSecondary">
@@ -26,9 +26,12 @@ export function Suspended({ reason }: { reason: string }) {
       <Button
         label={`Email ${SUPPORT}`}
         accessibilityRole="link"
-        onPress={() => void Linking.openURL(`mailto:${SUPPORT}?subject=Paused%20account`)}
+        onPress={() => void Linking.openURL(`mailto:${SUPPORT}?subject=Suspended%20account`)}
       />
       <Button variant="ghost" label="Sign out" onPress={() => void signOut()} />
+      <Button variant="ghost" label="Manage Apple Health data" onPress={() => router.push("/health")} />
+      <Button variant="ghost" label="Fitness data and AI permissions" onPress={() => router.push("/fitness")} />
+      <Button variant="ghost" label="Manage assistant access" onPress={() => router.push("/assistant")} />
       <Button
         variant="ghost"
         label="Delete account"

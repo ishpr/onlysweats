@@ -22,13 +22,13 @@ const databaseUrl = process.env.DATABASE_URL?.trim();
 // A deploy build without a usable database would ship an app that can't persist
 // anything — fail the build instead of skipping migrations.
 if (process.env.VERCEL && !/^postgres(ql)?:\/\//.test(databaseUrl ?? "")) {
-  console.error("[migrate] DATABASE_URL is missing or is not a postgres:// URL — failing the build.");
+  console.error(
+    "[migrate] DATABASE_URL is missing or is not a postgres:// URL — failing the build.",
+  );
   process.exit(1);
 }
 if (!databaseUrl) {
-  console.log(
-    "[migrate] DATABASE_URL not set — skipping (the PGLite fallback migrates itself).",
-  );
+  console.log("[migrate] DATABASE_URL not set — skipping (the PGLite fallback migrates itself).");
   process.exit(0);
 }
 
@@ -51,24 +51,33 @@ async function main() {
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 1 });
   const client = await pool.connect();
   try {
-    await client.query(
-      "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    );
-    const applied = (await client.query("SELECT name FROM _migrations")).rows.map(
-      (r) => r.name,
-    );
-
     let count = 0;
-    for (const { name } of pendingMigrations(entries, applied)) {
-      const text = await readFile(join(migrationsDir, name), "utf8");
+    for (;;) {
+      let name;
       try {
         await client.query("BEGIN");
+        // Transaction pooling can move a connection between backend sessions.
+        // Keep the lock, refreshed migration list, and one file in the same
+        // transaction; concurrent deploys can then safely take turns.
+        await client.query("select pg_advisory_xact_lock(hashtext('samepace:migrations'))");
+        await client.query(
+          "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+        );
+        const applied = (await client.query("SELECT name FROM _migrations")).rows.map(
+          (r) => r.name,
+        );
+        name = pendingMigrations(entries, applied)[0]?.name;
+        if (!name) {
+          await client.query("COMMIT");
+          break;
+        }
+        const text = await readFile(join(migrationsDir, name), "utf8");
         // pg's simple-query protocol runs a whole multi-statement file at once.
         await client.query(text);
         await client.query("INSERT INTO _migrations (name) VALUES ($1)", [name]);
         await client.query("COMMIT");
       } catch (err) {
-        console.error(`[migrate] error applying ${name}`);
+        console.error(`[migrate] error applying ${name ?? "migration setup"}`);
         try {
           await client.query("ROLLBACK");
         } catch {
@@ -79,7 +88,9 @@ async function main() {
       console.log(`[migrate] applied ${name}`);
       count += 1;
     }
-    console.log(count ? `[migrate] done — ${count} migration(s) applied.` : "[migrate] up to date.");
+    console.log(
+      count ? `[migrate] done — ${count} migration(s) applied.` : "[migrate] up to date.",
+    );
   } finally {
     client.release();
     await pool.end();

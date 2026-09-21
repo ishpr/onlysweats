@@ -4,13 +4,7 @@ import { useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { IntelligenceBloom } from "@/components/icons";
 import { askSiri } from "@/lib/ask-siri";
-import {
-  localSiri,
-  sanitizeCopy,
-  SIRI_CHIPS,
-  type SiriContext,
-  type SiriResult,
-} from "@/lib/siri";
+import { localSiri, sanitizeCopy, SIRI_CHIPS, type SiriContext, type SiriResult } from "@/lib/siri";
 import { usePaceStore } from "@/lib/store";
 import { isInCheckinWindow } from "@/lib/time";
 import { ME_ID } from "@/lib/types";
@@ -18,13 +12,7 @@ import { cn } from "@/lib/utils";
 
 type Turn = { role: "me" | "siri"; text: string };
 
-export function SiriSheet({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+export function SiriSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate();
   const ask = useServerFn(askSiri);
   const sessions = usePaceStore((s) => s.sessions);
@@ -35,17 +23,14 @@ export function SiriSheet({
   const [turns, setTurns] = useState<Turn[]>([
     {
       role: "siri",
-      text: "Personal context is on. Ask what you can join, post the workout you’re doing anyway, or check recovery from Apple Fitness.",
+      text: "This is a demo using sample listings and simulated health readings. Try finding or posting a sample session. It cannot read your Apple Health data.",
     },
   ]);
 
   const ctx: SiriContext = useMemo(() => {
     const live = sessions.find((s) => {
       const mine = bookings.find(
-        (b) =>
-          b.sessionId === s.id &&
-          b.participantId === ME_ID &&
-          b.status === "confirmed",
+        (b) => b.sessionId === s.id && b.participantId === ME_ID && b.status === "confirmed",
       );
       return Boolean(mine) && isInCheckinWindow(s.startAt);
     });
@@ -64,10 +49,9 @@ export function SiriSheet({
     setTurns((t) => [...t, { role: "me", text }]);
     setBusy(true);
     const local = localSiri(text, ctx);
-    let result: SiriResult =
-      local ?? {
-        reply: "I’ll look across your listings and Health.",
-      };
+    let result: SiriResult = local ?? {
+      reply: "I’ll look across the sample listings and simulated readings.",
+    };
     if (!local) {
       try {
         const remote = await ask({ data: { prompt: text, ctx } });
@@ -82,7 +66,8 @@ export function SiriSheet({
         }
       } catch {
         result = local ?? {
-          reply: "On-device only right now. Ask what you can join this morning, or to post a session.",
+          reply:
+            "On-device only right now. Ask what you can join this morning, or to post a session.",
           chips: SIRI_CHIPS.slice(0, 3),
         };
       }
@@ -118,17 +103,13 @@ export function SiriSheet({
                 key={`${turn.role}-${i}`}
                 className={cn(
                   "max-w-[92%] text-pretty text-[15px] leading-relaxed",
-                  turn.role === "me"
-                    ? "ml-auto rounded-2xl bg-fg/10 px-3 py-2 text-fg"
-                    : "text-fg",
+                  turn.role === "me" ? "ml-auto rounded-2xl bg-fg/10 px-3 py-2 text-fg" : "text-fg",
                 )}
               >
                 {turn.text}
               </p>
             ))}
-            {busy && (
-              <p className="text-sm text-muted">Listening across Health and listings…</p>
-            )}
+            {busy && <p className="text-sm text-muted">Checking sample readings and listings…</p>}
           </div>
         </div>
         <div className="mb-3 flex flex-wrap gap-2">
@@ -169,10 +150,7 @@ export function SiriSheet({
   );
 }
 
-function interpretRemote(
-  text: string,
-  ctx: SiriContext,
-): SiriResult {
+function interpretRemote(text: string, ctx: SiriContext): SiriResult {
   const session = text.match(/\[\[session:([^\]]+)\]\]/);
   const cleaned = text
     .replace(/\[\[session:[^\]]+\]\]/g, "")

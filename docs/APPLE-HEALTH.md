@@ -5,11 +5,11 @@ The first implementation imports private workout history and selected Apple Heal
 ## Run and integrate
 
 1. Apply `0014_health_sync.sql` using the normal migration process on an isolated development database. Local embedded Postgres applies it automatically.
-2. Start the API with `HEALTH_SYNC_ENABLED=true`. Keep the flag unset on production until physical-device acceptance is complete.
+2. Start the API with `HEALTH_SYNC_ENABLED=true`. The production flag was enabled at the user’s request; physical-device acceptance is still required before a broader rollout.
 3. Rebuild the iOS development client. The local Expo module and `mobile/plugins/with-healthkit.js` add the HealthKit capability and a read-permission description. Expo Go, web, and Android cannot read HealthKit.
 4. Open the mobile route `/health` (`samepace://health`), sign in, choose readings, and tap **Connect Apple Health**. Then tap **Sync now**. The initial window starts 30 days before first connection; later queries keep that exact boundary and apply source changes.
 
-The new standalone screen uses existing primitives. No existing tabs, layout, theme, or redesigned screens were edited. The design pass can add an entry under You, reskin the standalone screen, or compose the same hook elsewhere:
+The new standalone screen uses existing primitives. The release integrates the committed redesign and adds entries under You. The design pass can add an entry under You, reskin the standalone screen, or compose the same hook elsewhere:
 
 ```tsx
 const [session] = useState(captureApiSession);
@@ -73,7 +73,7 @@ HealthKit replacements use new source UUIDs. Source deletions and user-removed w
 
 Code computes elapsed time, active-duration pace for running/walking/hiking, and an arithmetic heart-rate sample mean, min/max, count, and first/last sample time. Only heart-rate samples from the workout's source bundle and within its time interval contribute. The arithmetic sample mean is not time-weighted. Unavailable readings remain null; there is no invented recovery score, calorie count, or rep count.
 
-`PrivateWorkout.revision` versions the workout source record only. Late heart-rate readings, deletion of readings, and consent changes can change derived summaries without changing that field. Before adding Jev, fingerprint the **entire authorized input snapshot**, including selected readings, their freshness, workout revision, and connection/consent generation. Reject stale results against that fingerprint. No TypeSafe key or runtime inference is included in this slice.
+`PrivateWorkout.revision` versions the workout source record only. Late heart-rate readings, deletion of readings, and consent changes can change derived summaries without changing that field. Before adding Jev, fingerprint the **entire authorized input snapshot**, including selected readings, their freshness, workout revision, and connection/consent generation. Reject stale results against that fingerprint. The release adds the separately consented TypeSafe adapter, editable exercise drafts, and bounded workout-note interpretation described in [Jev fitness](./JEV-FITNESS.md). Inputs exclude raw heart-rate samples and sleep history.
 
 ## Verification and remaining acceptance
 
@@ -87,4 +87,4 @@ The unsigned iOS simulator build and real-framework serialization checks pass. T
 - Source additions/deletions, two recording sources, a locked phone, account switching, and a second iPhone.
 - Remove workout, remove a type, disconnect/purge, reconnect, and account deletion.
 
-Remaining work includes redesigned navigation, correction/manual set logging, a member-facing full export flow, optional context summaries, background sync if needed, operational monitoring, and the separately consented Jev pilot. The current export API supports paginated retrieval; the standalone screen does not yet export all records. See the [vision roadmap](./VISION-ROADMAP.md).
+Redesigned navigation, persistent correction overlays, manual set logging, native sharing of complete paginated exports, operational counts, and a separately consented Jev pilot are now implemented. Remaining acceptance includes actual iPhone source changes, locked-device behavior, multiple devices, permissions, and battery behavior. Background sync and broader daily/context summaries remain future work. See the [vision roadmap](./VISION-ROADMAP.md).

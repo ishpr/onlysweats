@@ -1,9 +1,11 @@
+import { useColorScheme as useSystemScheme } from "react-native";
+
 /**
- * Pace is dark-only, like the web app. `userInterfaceStyle: "dark"` in app.json
- * pins production builds, but Expo Go on Android ignores it — so the scheme is
- * pinned here too. To follow the system later, re-export `useColorScheme` from
- * 'react-native'; the light tokens in `constants/theme.ts` are already checked.
+ * The scheme in force: the member's choice under You → Appearance, or the phone's
+ * when they've left it on System (`lib/appearance.ts` pushes the choice into the
+ * platform, so alerts, the keyboard and the share sheet follow it too). Dark is the
+ * fallback when the platform can't say.
  */
 export function useColorScheme(): "light" | "dark" {
-  return "dark";
+  return useSystemScheme() === "light" ? "light" : "dark";
 }

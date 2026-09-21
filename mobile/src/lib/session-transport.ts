@@ -1,5 +1,5 @@
 export type SessionRequest = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   json?: unknown;
   signal?: AbortSignal;
 };

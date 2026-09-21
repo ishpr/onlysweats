@@ -1,99 +1,161 @@
 import { useRouter } from "expo-router";
-import { MapPinned } from "lucide-react-native";
+import { Search } from "lucide-react-native";
 import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
-import { SessionCard } from "@/components/session-card";
-import { Enter } from "@/components/motion";
-import { TrainingBlockCard } from "@/components/training-block-card";
-import { Chip, EmptyState, Screen, StateView, T } from "@/components/ui";
-import { Spacing } from "@/constants/theme";
-import { clusterHour } from "@/lib/format";
-import { byId } from "@/lib/lookup";
-import { usePublicTrainingBlocks, useRefreshOnFocus, useSessions, useVenues } from "@/lib/queries";
-import type { Session } from "@/lib/types";
 import { AppHeader } from "@/components/brand";
+import { SectionTitle } from "@/components/list";
+import { Enter } from "@/components/motion";
+import { SessionCard, type MineTag } from "@/components/session-card";
+import { TrainingBlockCard } from "@/components/training-block-card";
+import { Button, Card, Chip, EmptyState, Screen, StateView, T } from "@/components/ui";
+import { Spacing } from "@/constants/theme";
+import { clusterHour, formatWhen } from "@/lib/format";
+import { byId } from "@/lib/lookup";
+import {
+  useMe,
+  useMine,
+  usePublicTrainingBlocks,
+  useRefreshOnFocus,
+  useSessions,
+  useVenues,
+} from "@/lib/queries";
+import type { Activity, Session } from "@/lib/types";
 
-const FILTERS: { id: string; label: string; test: (s: Session) => boolean }[] = [
-  { id: "all", label: "All", test: () => true },
-  { id: "run", label: "Run", test: (s) => s.activity === "run" },
-  { id: "hike", label: "Hike", test: (s) => s.activity === "hike" },
-  { id: "ride", label: "Ride", test: (s) => s.activity === "ride" },
-  { id: "gym", label: "Gym", test: (s) => s.activity === "strength" },
-  { id: "subs", label: "Substitute seats", test: (s) => s.substituteSeat },
-  { id: "women", label: "Women-only", test: (s) => s.womenOnly },
-  {
-    id: "morning",
-    label: "Morning",
-    test: (s) => clusterHour(s.startAt) >= 5 && clusterHour(s.startAt) < 10,
-  },
+const ACTIVITY_FILTERS: { id: Activity | "all"; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "run", label: "Run" },
+  { id: "ride", label: "Ride" },
+  { id: "strength", label: "Gym" },
+  { id: "hike", label: "Hike" },
+  { id: "walk", label: "Walk" },
+  { id: "mobility", label: "Mobility" },
 ];
 
-export default function Sessions() {
+/**
+ * Find is the one place to browse: every open session for the next two weeks, at
+ * my level unless I ask otherwise, grouped by day. Home only ever shows a few.
+ */
+export default function Find() {
   useRefreshOnFocus();
   const router = useRouter();
-  const [filter, setFilter] = useState("all");
+  const me = useMe().data;
+  const mine = useMine().data;
   const open = useSessions();
-  const blocks = usePublicTrainingBlocks();
+  const goals = usePublicTrainingBlocks();
   const venues = byId(useVenues().data);
-  const test = FILTERS.find((f) => f.id === filter)!.test;
-  // By default, hide only what I KNOW is the wrong level; unknown levels stay.
+
+  const [activity, setActivity] = useState<Activity | "all">("all");
   const [allLevels, setAllLevels] = useState(false);
-  const inWindow = (open.data?.sessions ?? []).filter(test);
-  const list = allLevels ? inWindow : inWindow.filter((s) => s.fitsMe !== false);
-  const hidden = inWindow.length - list.length;
-  // Same rule as sessions: hide only what I know is the wrong level.
-  const trainingBlocks = (blocks.data ?? []).filter((b) => allLevels || b.fitsMe !== false);
+  const [early, setEarly] = useState(false);
+  const [fillIn, setFillIn] = useState(false);
+  const [womenOnly, setWomenOnly] = useState(false);
+
+  const levelSet = Object.keys(me?.abilities ?? {}).length > 0;
+  const matches = (s: Session) =>
+    (activity === "all" || s.activity === activity) &&
+    (!early || clusterHour(s.startAt) < 10) &&
+    (!fillIn || s.substituteSeat) &&
+    (!womenOnly || s.womenOnly);
+
+  const inFilter = (open.data?.sessions ?? []).filter(matches);
+  // Hide only what I KNOW is the wrong level; a level I haven't set hides nothing.
+  const list = allLevels ? inFilter : inFilter.filter((s) => s.fitsMe !== false);
+  const hidden = inFilter.length - list.length;
+  const visibleGoals = (goals.data ?? []).filter(
+    (g) => (activity === "all" || g.activity === activity) && (allLevels || g.fitsMe !== false),
+  );
+
+  // What a session already is to me, so my own plans don't look like strangers'.
+  const tags = new Map<string, MineTag>();
+  for (const s of mine?.sessions ?? []) if (s.hostId === me?.id) tags.set(s.id, "Hosting");
+  for (const b of mine?.bookings ?? []) {
+    if (b.participantId !== me?.id) continue;
+    if (b.status === "confirmed") tags.set(b.sessionId, "Joined");
+    if (b.status === "pending") tags.set(b.sessionId, "Waiting for approval");
+  }
+
+  const days: { day: string; sessions: Session[] }[] = [];
+  for (const s of list) {
+    const day = formatWhen(s.startAt).split(" · ")[0];
+    const last = days[days.length - 1];
+    if (last?.day === day) last.sessions.push(s);
+    else days.push({ day, sessions: [s] });
+  }
+
+  const anyFilter = activity !== "all" || early || fillIn || womenOnly;
+  const clear = () => {
+    setActivity("all");
+    setEarly(false);
+    setFillIn(false);
+    setWomenOnly(false);
+  };
 
   return (
     <Screen
+      hidesTabBar
       header={<AppHeader />}
-      onRefresh={() => void Promise.all([open.refetch(), blocks.refetch()])}
-      refreshing={open.isRefetching}
+      onRefresh={() => void Promise.all([open.refetch(), goals.refetch()])}
     >
       <View>
-        <T color="textSecondary">Dallas · next 14 days</T>
-        <T variant="title">Sessions</T>
+        <T variant="title">Find a session</T>
         <T variant="caption" color="textSecondary">
-          Upcoming time and place — not a grid of faces.
+          Near Dallas · the next two weeks
         </T>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filters}
-      >
-        {FILTERS.map((f) => (
+      <View style={styles.wrap} accessibilityRole="radiogroup" accessibilityLabel="Activity">
+        {ACTIVITY_FILTERS.map((f) => (
           <Chip
             key={f.id}
             label={f.label}
-            selected={filter === f.id}
-            onPress={() => setFilter(f.id)}
+            selected={activity === f.id}
+            onPress={() => setActivity(f.id)}
           />
         ))}
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.row}
+      >
+        {levelSet && (
+          <Chip
+            label="My level only"
+            selected={!allLevels}
+            onPress={() => setAllLevels(!allLevels)}
+          />
+        )}
+        <Chip label="Before 10 AM" selected={early} onPress={() => setEarly(!early)} />
+        <Chip label="Fill-in spots" selected={fillIn} onPress={() => setFillIn(!fillIn)} />
+        {me?.gender === "woman" && (
+          <Chip label="Women-only" selected={womenOnly} onPress={() => setWomenOnly(!womenOnly)} />
+        )}
       </ScrollView>
-      {(hidden > 0 || allLevels) && (
-        <Chip
-          label={allLevels ? "Showing all levels" : `${hidden} more outside your level`}
-          selected={allLevels}
-          onPress={() => setAllLevels(!allLevels)}
-        />
+
+      {!levelSet && (
+        <Card>
+          <T variant="label">See what fits you</T>
+          <T variant="caption" color="textSecondary">
+            Set your level and we’ll put sessions at your pace first.
+          </T>
+          <Button variant="soft" label="Set my level" onPress={() => router.push("/welcome")} />
+        </Card>
       )}
 
-      {trainingBlocks.length > 0 && (
+      {visibleGoals.length > 0 && (
         <View style={styles.section}>
-          <T variant="heading">Training blocks</T>
+          <SectionTitle>Train for a goal</SectionTitle>
           <T variant="caption" color="textSecondary">
-            Every week until a date. Joining one is joining all of its sessions.
+            The same people every week until a date. Joining means joining every session.
           </T>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filters}
+            contentContainerStyle={styles.row}
           >
-            {trainingBlocks.map((b) => (
-              <TrainingBlockCard key={b.id} block={b} venues={venues} />
+            {visibleGoals.map((g) => (
+              <TrainingBlockCard key={g.id} block={g} venues={venues} />
             ))}
           </ScrollView>
         </View>
@@ -107,30 +169,55 @@ export default function Sessions() {
         />
       ) : list.length === 0 ? (
         <EmptyState
-          icon={MapPinned}
-          title={hidden > 0 ? "Nothing at your level right now" : "Nothing posted for that yet"}
+          icon={Search}
+          title={hidden > 0 ? "Nothing at your level for this" : "No sessions for this yet"}
           body={
             hidden > 0
-              ? `${hidden} session${hidden === 1 ? " is" : "s are"} outside the level on your profile. Or post yours — someone at your level is looking too.`
-              : "Be the first. Post the workout you’re doing anyway and someone at your level can join."
+              ? `There ${hidden === 1 ? "is 1 session" : `are ${hidden} sessions`} at other levels. Have a look, or post your own.`
+              : anyFilter
+                ? "Try fewer filters, or post your own and people at your level will see it."
+                : "Be the first: post your own and people at your level will see it."
           }
-          action={{ label: "Post a session", onPress: () => router.push("/post") }}
+          action={
+            hidden > 0
+              ? { label: "Show other levels", onPress: () => setAllLevels(true) }
+              : anyFilter
+                ? { label: "Clear filters", onPress: clear }
+                : { label: "Post a session", onPress: () => router.push("/post") }
+          }
           secondary={
-            hidden > 0 ? { label: "Show all levels", onPress: () => setAllLevels(true) } : undefined
+            hidden > 0 || anyFilter
+              ? { label: "Post a session", onPress: () => router.push("/post") }
+              : undefined
           }
         />
       ) : (
-        list.map((s, i) => (
-          <Enter key={s.id} index={i}>
-            <SessionCard session={s} venue={venues.get(s.venueId)} />
-          </Enter>
-        ))
+        <>
+          {days.map(({ day, sessions }) => (
+            <View key={day} style={styles.section}>
+              <SectionTitle>{day}</SectionTitle>
+              {sessions.map((s, i) => (
+                <Enter key={s.id} index={i}>
+                  <SessionCard session={s} venue={venues.get(s.venueId)} mine={tags.get(s.id)} />
+                </Enter>
+              ))}
+            </View>
+          ))}
+          {hidden > 0 && (
+            <Button
+              variant="ghost"
+              label={`Show ${hidden} more at other levels`}
+              onPress={() => setAllLevels(true)}
+            />
+          )}
+        </>
       )}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  filters: { gap: Spacing.one, paddingRight: Spacing.three },
-  section: { gap: Spacing.one },
+  wrap: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.one },
+  row: { gap: Spacing.one, paddingRight: Spacing.three },
+  section: { gap: Spacing.two },
 });

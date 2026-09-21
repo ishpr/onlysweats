@@ -38,7 +38,7 @@ export default function NewTrainingBlock() {
         <StateView
           loading={mine.isPending}
           error={mine.error}
-          empty="That standing slot has ended."
+          empty="That weekly session has ended."
         />
       </Screen>
     );
@@ -60,7 +60,7 @@ export default function NewTrainingBlock() {
       <T variant="title">{previous ? "What’s next?" : "Give it a finish line."}</T>
       <T color="textSecondary">
         {previous
-          ? `${previous.goalLabel} is done. Same people, same weekly slots — pick the next goal and its date.`
+          ? `${previous.goalLabel} is done. Same people, same weekly sessions — pick the next goal and its date.`
           : `${slot.title} keeps running every week — until the date you pick. You’ll see the sessions you’ve kept out of the ones you had.`}
       </T>
 
@@ -69,7 +69,7 @@ export default function NewTrainingBlock() {
       <Card>
         <T variant="label">Ends {formatDate(goalDateOf(goal))}</T>
         <T variant="caption" color="textSecondary">
-          Everyone in the {previous ? "last block" : "slot"} is in the block. Check-in, skipping a
+          Everyone in the {previous ? "last goal" : "weekly session"} is in. Check-in, skipping a
           week and the no-show rules stay exactly as they are. Anyone can leave at any time.
         </T>
       </Card>
@@ -77,7 +77,7 @@ export default function NewTrainingBlock() {
       {error && <Notice tone="danger">{error.message}</Notice>}
       <Button
         variant="accent"
-        label="Start the training block"
+        label="Start training for it"
         loading={busy}
         disabled={!goalReady(goal)}
         onPress={start}

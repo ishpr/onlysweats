@@ -1,0 +1,990 @@
+{
+  "dataset": "synthetic-exercise-heldout-v1",
+  "evaluatedAt": "2026-09-21T02:09:58.617Z",
+  "cases": [
+    {
+      "id": "heldout-dumbbell-row",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 393,
+      "usage": {
+        "inputTokens": 1774,
+        "outputTokens": 362
+      },
+      "expected": {
+        "exerciseId": "row",
+        "sets": 3,
+        "reps": 12,
+        "weight": 22.5,
+        "unit": "kg"
+      },
+      "draft": {
+        "exerciseId": "row",
+        "sets": 3,
+        "reps": 12,
+        "weight": 22.5,
+        "unit": "kg",
+        "missingFields": [],
+        "status": "available"
+      },
+      "answers": {
+        "log_scope": {
+          "type": "choice",
+          "choice": "single_exercise",
+          "probabilities": {
+            "not_a_log": 0.01,
+            "single_exercise": 0.98,
+            "not_stated": 0.01,
+            "multiple_exercises": 0
+          },
+          "confidence": 0.98
+        },
+        "exercise": {
+          "type": "choice",
+          "choice": "row",
+          "probabilities": {
+            "pull_up": 0,
+            "push_up": 0,
+            "biceps_curl": 0,
+            "bench_press": 0,
+            "deadlift": 0,
+            "row": 0.98,
+            "lat_pulldown": 0,
+            "lunge": 0,
+            "triceps_extension": 0,
+            "squat": 0,
+            "shoulder_press": 0,
+            "not_stated": 0.02,
+            "leg_press": 0
+          },
+          "confidence": 0.97
+        },
+        "sets": {
+          "type": "choice",
+          "choice": "n0",
+          "probabilities": {
+            "n2": 0,
+            "n0": 0.86,
+            "not_stated": 0.14,
+            "n1": 0
+          },
+          "confidence": 0.81
+        },
+        "reps": {
+          "type": "choice",
+          "choice": "n1",
+          "probabilities": {
+            "n2": 0,
+            "n0": 0,
+            "not_stated": 0,
+            "n1": 1
+          },
+          "confidence": 1
+        },
+        "weight": {
+          "type": "choice",
+          "choice": "n2",
+          "probabilities": {
+            "n2": 0.99,
+            "n0": 0,
+            "not_stated": 0.01,
+            "n1": 0
+          },
+          "confidence": 0.98
+        },
+        "unit": {
+          "type": "choice",
+          "choice": "kg",
+          "probabilities": {
+            "not_stated": 0.01,
+            "kg": 0.99
+          },
+          "confidence": 0.98
+        }
+      },
+      "correctFields": 5,
+      "proposedFields": 5,
+      "incorrectProposedFields": 0,
+      "exactMatch": true
+    },
+    {
+      "id": "heldout-pull-ups",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 170,
+      "usage": {
+        "inputTokens": 1640,
+        "outputTokens": 344
+      },
+      "expected": {
+        "exerciseId": "pull_up",
+        "sets": 4,
+        "reps": 6,
+        "weight": null,
+        "unit": "bodyweight"
+      },
+      "draft": {
+        "exerciseId": "pull_up",
+        "sets": null,
+        "reps": 6,
+        "weight": null,
+        "unit": null,
+        "missingFields": [
+          "sets",
+          "unit",
+          "weight"
+        ],
+        "status": "available"
+      },
+      "answers": {
+        "log_scope": {
+          "type": "choice",
+          "choice": "single_exercise",
+          "probabilities": {
+            "not_a_log": 0.01,
+            "multiple_exercises": 0,
+            "single_exercise": 0.98,
+            "not_stated": 0.01
+          },
+          "confidence": 0.97
+        },
+        "exercise": {
+          "type": "choice",
+          "choice": "pull_up",
+          "probabilities": {
+            "leg_press": 0,
+            "deadlift": 0,
+            "shoulder_press": 0,
+            "row": 0,
+            "lunge": 0,
+            "lat_pulldown": 0,
+            "squat": 0,
+            "triceps_extension": 0,
+            "pull_up": 0.98,
+            "bench_press": 0,
+            "push_up": 0,
+            "not_stated": 0.02,
+            "biceps_curl": 0
+          },
+          "confidence": 0.98
+        },
+        "sets": {
+          "type": "choice",
+          "choice": "n0",
+          "probabilities": {
+            "n0": 0.77,
+            "n1": 0,
+            "not_stated": 0.23
+          },
+          "confidence": 0.64
+        },
+        "reps": {
+          "type": "choice",
+          "choice": "n1",
+          "probabilities": {
+            "n0": 0,
+            "n1": 0.99,
+            "not_stated": 0.01
+          },
+          "confidence": 0.99
+        },
+        "weight": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "n0": 0,
+            "n1": 0,
+            "not_stated": 1
+          },
+          "confidence": 1
+        },
+        "unit": {
+          "type": "choice",
+          "choice": "bodyweight",
+          "probabilities": {
+            "not_stated": 0.48,
+            "bodyweight": 0.52
+          },
+          "confidence": 0.04
+        }
+      },
+      "correctFields": 3,
+      "proposedFields": 2,
+      "incorrectProposedFields": 0,
+      "exactMatch": false
+    },
+    {
+      "id": "heldout-leg-press",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 141,
+      "usage": {
+        "inputTokens": 1767,
+        "outputTokens": 363
+      },
+      "expected": {
+        "exerciseId": "leg_press",
+        "sets": 5,
+        "reps": 10,
+        "weight": 180,
+        "unit": "kg"
+      },
+      "draft": {
+        "exerciseId": "leg_press",
+        "sets": 5,
+        "reps": 10,
+        "weight": 180,
+        "unit": "kg",
+        "missingFields": [],
+        "status": "available"
+      },
+      "answers": {
+        "log_scope": {
+          "type": "choice",
+          "choice": "single_exercise",
+          "probabilities": {
+            "not_a_log": 0,
+            "single_exercise": 0.99,
+            "not_stated": 0.01,
+            "multiple_exercises": 0
+          },
+          "confidence": 0.98
+        },
+        "exercise": {
+          "type": "choice",
+          "choice": "leg_press",
+          "probabilities": {
+            "pull_up": 0,
+            "push_up": 0,
+            "biceps_curl": 0,
+            "bench_press": 0,
+            "deadlift": 0,
+            "row": 0,
+            "lat_pulldown": 0,
+            "lunge": 0,
+            "triceps_extension": 0,
+            "squat": 0,
+            "shoulder_press": 0,
+            "not_stated": 0,
+            "leg_press": 1
+          },
+          "confidence": 1
+        },
+        "sets": {
+          "type": "choice",
+          "choice": "n0",
+          "probabilities": {
+            "n2": 0,
+            "n0": 0.82,
+            "not_stated": 0.18,
+            "n1": 0
+          },
+          "confidence": 0.76
+        },
+        "reps": {
+          "type": "choice",
+          "choice": "n1",
+          "probabilities": {
+            "n2": 0,
+            "n0": 0,
+            "not_stated": 0,
+            "n1": 1
+          },
+          "confidence": 0.99
+        },
+        "weight": {
+          "type": "choice",
+          "choice": "n2",
+          "probabilities": {
+            "n2": 0.97,
+            "n0": 0,
+            "not_stated": 0.03,
+            "n1": 0
+          },
+          "confidence": 0.96
+        },
+        "unit": {
+          "type": "choice",
+          "choice": "kg",
+          "probabilities": {
+            "not_stated": 0.02,
+            "kg": 0.98
+          },
+          "confidence": 0.96
+        }
+      },
+      "correctFields": 5,
+      "proposedFields": 5,
+      "incorrectProposedFields": 0,
+      "exactMatch": true
+    },
+    {
+      "id": "heldout-lb-shorthand",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 205,
+      "usage": {
+        "inputTokens": 1756,
+        "outputTokens": 365
+      },
+      "expected": {
+        "exerciseId": "shoulder_press",
+        "sets": 2,
+        "reps": 8,
+        "weight": 25,
+        "unit": "lb"
+      },
+      "draft": {
+        "exerciseId": "shoulder_press",
+        "sets": null,
+        "reps": 8,
+        "weight": 25,
+        "unit": "lb",
+        "missingFields": [
+          "sets"
+        ],
+        "status": "available"
+      },
+      "answers": {
+        "log_scope": {
+          "type": "choice",
+          "choice": "single_exercise",
+          "probabilities": {
+            "single_exercise": 0.98,
+            "multiple_exercises": 0,
+            "not_a_log": 0.01,
+            "not_stated": 0.01
+          },
+          "confidence": 0.98
+        },
+        "exercise": {
+          "type": "choice",
+          "choice": "shoulder_press",
+          "probabilities": {
+            "push_up": 0,
+            "row": 0,
+            "squat": 0,
+            "shoulder_press": 0.99,
+            "deadlift": 0,
+            "bench_press": 0,
+            "not_stated": 0.01,
+            "lunge": 0,
+            "triceps_extension": 0,
+            "leg_press": 0,
+            "biceps_curl": 0,
+            "pull_up": 0,
+            "lat_pulldown": 0
+          },
+          "confidence": 0.99
+        },
+        "sets": {
+          "type": "choice",
+          "choice": "n0",
+          "probabilities": {
+            "not_stated": 0.2,
+            "n1": 0,
+            "n0": 0.8,
+            "n2": 0
+          },
+          "confidence": 0.73
+        },
+        "reps": {
+          "type": "choice",
+          "choice": "n1",
+          "probabilities": {
+            "n0": 0,
+            "n1": 0.99,
+            "n2": 0,
+            "not_stated": 0.01
+          },
+          "confidence": 0.99
+        },
+        "weight": {
+          "type": "choice",
+          "choice": "n2",
+          "probabilities": {
+            "not_stated": 0.02,
+            "n1": 0,
+            "n0": 0,
+            "n2": 0.98
+          },
+          "confidence": 0.97
+        },
+        "unit": {
+          "type": "choice",
+          "choice": "lb",
+          "probabilities": {
+            "lb": 0.91,
+            "not_stated": 0.09
+          },
+          "confidence": 0.83
+        }
+      },
+      "correctFields": 4,
+      "proposedFields": 4,
+      "incorrectProposedFields": 0,
+      "exactMatch": false
+    },
+    {
+      "id": "heldout-unknown-unit",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 174,
+      "usage": {
+        "inputTokens": 1751,
+        "outputTokens": 358
+      },
+      "expected": {
+        "exerciseId": "deadlift",
+        "sets": 4,
+        "reps": 5,
+        "weight": null,
+        "unit": null
+      },
+      "draft": {
+        "exerciseId": "deadlift",
+        "sets": null,
+        "reps": 5,
+        "weight": null,
+        "unit": null,
+        "missingFields": [
+          "sets",
+          "unit",
+          "weight"
+        ],
+        "status": "available"
+      },
+      "answers": {
+        "log_scope": {
+          "type": "choice",
+          "choice": "single_exercise",
+          "probabilities": {
+            "not_stated": 0.12,
+            "multiple_exercises": 0,
+            "not_a_log": 0.01,
+            "single_exercise": 0.87
+          },
+          "confidence": 0.82
+        },
+        "exercise": {
+          "type": "choice",
+          "choice": "deadlift",
+          "probabilities": {
+            "shoulder_press": 0,
+            "pull_up": 0,
+            "leg_press": 0,
+            "lunge": 0,
+            "biceps_curl": 0,
+            "not_stated": 0.01,
+            "lat_pulldown": 0,
+            "bench_press": 0,
+            "squat": 0,
+            "push_up": 0,
+            "row": 0,
+            "deadlift": 0.99,
+            "triceps_extension": 0
+          },
+          "confidence": 0.99
+        },
+        "sets": {
+          "type": "choice",
+          "choice": "n0",
+          "probabilities": {
+            "not_stated": 0.26,
+            "n0": 0.73,
+            "n2": 0.01,
+            "n1": 0
+          },
+          "confidence": 0.64
+        },
+        "reps": {
+          "type": "choice",
+          "choice": "n1",
+          "probabilities": {
+            "not_stated": 0.02,
+            "n0": 0,
+            "n2": 0,
+            "n1": 0.98
+          },
+          "confidence": 0.97
+        },
+        "weight": {
+          "type": "choice",
+          "choice": "n2",
+          "probabilities": {
+            "not_stated": 0.37,
+            "n0": 0,
+            "n2": 0.63,
+            "n1": 0
+          },
+          "confidence": 0.5
+        },
+        "unit": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "not_stated": 1
+          },
+          "confidence": 1
+        }
+      },
+      "correctFields": 4,
+      "proposedFields": 2,
+      "incorrectProposedFields": 0,
+      "exactMatch": false
+    },
+    {
+      "id": "heldout-outside-catalogue",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 181,
+      "usage": {
+        "inputTokens": 1761,
+        "outputTokens": 364
+      },
+      "expected": {
+        "exerciseId": null,
+        "sets": 3,
+        "reps": 15,
+        "weight": 40,
+        "unit": "kg"
+      },
+      "draft": {
+        "exerciseId": null,
+        "sets": 3,
+        "reps": 15,
+        "weight": 40,
+        "unit": "kg",
+        "missingFields": [
+          "exercise"
+        ],
+        "status": "available"
+      },
+      "answers": {
+        "log_scope": {
+          "type": "choice",
+          "choice": "single_exercise",
+          "probabilities": {
+            "multiple_exercises": 0,
+            "single_exercise": 0.98,
+            "not_stated": 0.01,
+            "not_a_log": 0.01
+          },
+          "confidence": 0.98
+        },
+        "exercise": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "lunge": 0,
+            "leg_press": 0,
+            "pull_up": 0,
+            "biceps_curl": 0,
+            "not_stated": 1,
+            "lat_pulldown": 0,
+            "triceps_extension": 0,
+            "bench_press": 0,
+            "shoulder_press": 0,
+            "deadlift": 0,
+            "row": 0,
+            "squat": 0,
+            "push_up": 0
+          },
+          "confidence": 1
+        },
+        "sets": {
+          "type": "choice",
+          "choice": "n0",
+          "probabilities": {
+            "n2": 0,
+            "n1": 0,
+            "not_stated": 0.13,
+            "n0": 0.87
+          },
+          "confidence": 0.82
+        },
+        "reps": {
+          "type": "choice",
+          "choice": "n1",
+          "probabilities": {
+            "n2": 0,
+            "n1": 1,
+            "not_stated": 0,
+            "n0": 0
+          },
+          "confidence": 1
+        },
+        "weight": {
+          "type": "choice",
+          "choice": "n2",
+          "probabilities": {
+            "n2": 0.98,
+            "n1": 0,
+            "not_stated": 0.02,
+            "n0": 0
+          },
+          "confidence": 0.98
+        },
+        "unit": {
+          "type": "choice",
+          "choice": "kg",
+          "probabilities": {
+            "kg": 0.99,
+            "not_stated": 0.01
+          },
+          "confidence": 0.98
+        }
+      },
+      "correctFields": 5,
+      "proposedFields": 4,
+      "incorrectProposedFields": 0,
+      "exactMatch": true
+    },
+    {
+      "id": "heldout-uncertain-counts",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 131,
+      "usage": {
+        "inputTokens": 1861,
+        "outputTokens": 384
+      },
+      "expected": {
+        "exerciseId": "bench_press",
+        "sets": null,
+        "reps": null,
+        "weight": null,
+        "unit": null
+      },
+      "draft": {
+        "status": "insufficient_data",
+        "exerciseId": null,
+        "sets": null,
+        "reps": null,
+        "weight": null,
+        "unit": null,
+        "missingFields": [
+          "exercise",
+          "sets",
+          "reps",
+          "weight",
+          "unit"
+        ]
+      },
+      "answers": {
+        "log_scope": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "not_a_log": 0.02,
+            "single_exercise": 0.31,
+            "not_stated": 0.67,
+            "multiple_exercises": 0
+          },
+          "confidence": 0.56
+        },
+        "exercise": {
+          "type": "choice",
+          "choice": "bench_press",
+          "probabilities": {
+            "shoulder_press": 0,
+            "pull_up": 0,
+            "not_stated": 0.02,
+            "row": 0,
+            "lat_pulldown": 0,
+            "bench_press": 0.98,
+            "push_up": 0,
+            "lunge": 0,
+            "squat": 0,
+            "triceps_extension": 0,
+            "biceps_curl": 0,
+            "deadlift": 0,
+            "leg_press": 0
+          },
+          "confidence": 0.98
+        },
+        "sets": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "n3": 0,
+            "not_stated": 1,
+            "n2": 0,
+            "n1": 0,
+            "n0": 0
+          },
+          "confidence": 1
+        },
+        "reps": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "n3": 0,
+            "not_stated": 1,
+            "n2": 0,
+            "n1": 0,
+            "n0": 0
+          },
+          "confidence": 0.99
+        },
+        "weight": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "n3": 0,
+            "not_stated": 1,
+            "n2": 0,
+            "n1": 0,
+            "n0": 0
+          },
+          "confidence": 1
+        },
+        "unit": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "not_stated": 1
+          },
+          "confidence": 1
+        }
+      },
+      "correctFields": 4,
+      "proposedFields": 0,
+      "incorrectProposedFields": 0,
+      "exactMatch": false
+    },
+    {
+      "id": "heldout-several-exercises",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 209,
+      "usage": {
+        "inputTokens": 2091,
+        "outputTokens": 438
+      },
+      "expected": {
+        "exerciseId": null,
+        "sets": null,
+        "reps": null,
+        "weight": null,
+        "unit": null
+      },
+      "draft": {
+        "status": "insufficient_data",
+        "exerciseId": null,
+        "sets": null,
+        "reps": null,
+        "weight": null,
+        "unit": null,
+        "missingFields": [
+          "exercise",
+          "sets",
+          "reps",
+          "weight",
+          "unit"
+        ]
+      },
+      "answers": {
+        "log_scope": {
+          "type": "choice",
+          "choice": "multiple_exercises",
+          "probabilities": {
+            "single_exercise": 0,
+            "not_stated": 0,
+            "not_a_log": 0,
+            "multiple_exercises": 1
+          },
+          "confidence": 1
+        },
+        "exercise": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "biceps_curl": 0,
+            "not_stated": 1,
+            "deadlift": 0,
+            "bench_press": 0,
+            "triceps_extension": 0,
+            "lat_pulldown": 0,
+            "shoulder_press": 0,
+            "squat": 0,
+            "leg_press": 0,
+            "lunge": 0,
+            "pull_up": 0,
+            "row": 0,
+            "push_up": 0
+          },
+          "confidence": 1
+        },
+        "sets": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "n1": 0,
+            "not_stated": 0.56,
+            "n4": 0,
+            "n2": 0,
+            "n5": 0,
+            "n0": 0.43,
+            "n3": 0.01
+          },
+          "confidence": 0.48
+        },
+        "reps": {
+          "type": "choice",
+          "choice": "n1",
+          "probabilities": {
+            "n1": 0.6,
+            "n4": 0.05,
+            "not_stated": 0.34,
+            "n2": 0,
+            "n5": 0,
+            "n0": 0.01,
+            "n3": 0
+          },
+          "confidence": 0.53
+        },
+        "weight": {
+          "type": "choice",
+          "choice": "not_stated",
+          "probabilities": {
+            "n1": 0,
+            "n4": 0,
+            "not_stated": 0.56,
+            "n2": 0.43,
+            "n5": 0.01,
+            "n0": 0,
+            "n3": 0
+          },
+          "confidence": 0.48
+        },
+        "unit": {
+          "type": "choice",
+          "choice": "kg",
+          "probabilities": {
+            "not_stated": 0.02,
+            "kg": 0.98
+          },
+          "confidence": 0.95
+        }
+      },
+      "correctFields": 5,
+      "proposedFields": 0,
+      "incorrectProposedFields": 0,
+      "exactMatch": true
+    },
+    {
+      "id": "heldout-parser-instructions",
+      "providerAvailable": true,
+      "model": "jev-1.13.0",
+      "latencyMs": 146,
+      "usage": {
+        "inputTokens": 1770,
+        "outputTokens": 362
+      },
+      "expected": {
+        "exerciseId": null,
+        "sets": null,
+        "reps": null,
+        "weight": null,
+        "unit": null
+      },
+      "draft": {
+        "status": "insufficient_data",
+        "exerciseId": null,
+        "sets": null,
+        "reps": null,
+        "weight": null,
+        "unit": null,
+        "missingFields": [
+          "exercise",
+          "sets",
+          "reps",
+          "weight",
+          "unit"
+        ]
+      },
+      "answers": {
+        "log_scope": {
+          "type": "choice",
+          "choice": "not_a_log",
+          "probabilities": {
+            "single_exercise": 0,
+            "multiple_exercises": 0.02,
+            "not_stated": 0.01,
+            "not_a_log": 0.97
+          },
+          "confidence": 0.97
+        },
+        "exercise": {
+          "type": "choice",
+          "choice": "squat",
+          "probabilities": {
+            "squat": 0.5700000000000001,
+            "lunge": 0,
+            "bench_press": 0,
+            "shoulder_press": 0,
+            "not_stated": 0.43,
+            "pull_up": 0,
+            "push_up": 0,
+            "deadlift": 0,
+            "biceps_curl": 0,
+            "row": 0,
+            "triceps_extension": 0,
+            "leg_press": 0,
+            "lat_pulldown": 0
+          },
+          "confidence": 0.52
+        },
+        "sets": {
+          "type": "choice",
+          "choice": "n0",
+          "probabilities": {
+            "n0": 0.67,
+            "not_stated": 0.33,
+            "n2": 0,
+            "n1": 0
+          },
+          "confidence": 0.55
+        },
+        "reps": {
+          "type": "choice",
+          "choice": "n1",
+          "probabilities": {
+            "n0": 0,
+            "not_stated": 0.06,
+            "n2": 0,
+            "n1": 0.94
+          },
+          "confidence": 0.92
+        },
+        "weight": {
+          "type": "choice",
+          "choice": "n2",
+          "probabilities": {
+            "n0": 0,
+            "not_stated": 0.06,
+            "n2": 0.94,
+            "n1": 0
+          },
+          "confidence": 0.92
+        },
+        "unit": {
+          "type": "choice",
+          "choice": "kg",
+          "probabilities": {
+            "not_stated": 0.01,
+            "kg": 0.99
+          },
+          "confidence": 0.98
+        }
+      },
+      "correctFields": 5,
+      "proposedFields": 0,
+      "incorrectProposedFields": 0,
+      "exactMatch": true
+    }
+  ],
+  "questionVersion": "exercise-draft-v2",
+  "dataSource": "synthetic"
+}

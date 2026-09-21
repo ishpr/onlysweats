@@ -1,12 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { LucideIcon } from "lucide-react";
-import {
-  CalendarDays,
-  MapPinned,
-  MessageCircle,
-  Plus,
-  UserRound,
-} from "lucide-react";
+import { CalendarDays, MapPinned, MessageCircle, Plus, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { IntelligenceBloom, PaceMark, PaceWordmark } from "@/components/icons";
 import { SiriSheet } from "@/components/siri-sheet";
@@ -41,23 +35,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const bookings = usePaceStore((s) => s.bookings);
   const sessions = usePaceStore((s) => s.sessions);
   const unread = bookings.filter(
-    (b) =>
-      b.participantId === ME_ID &&
-      (b.status === "pending" || b.status === "confirmed"),
+    (b) => b.participantId === ME_ID && (b.status === "pending" || b.status === "confirmed"),
   ).length;
 
   const live = sessions.find((s) => {
     const mine = bookings.find(
-      (b) =>
-        b.sessionId === s.id &&
-        b.participantId === ME_ID &&
-        b.status === "confirmed",
+      (b) => b.sessionId === s.id && b.participantId === ME_ID && b.status === "confirmed",
     );
     const hosting = s.hostId === ME_ID;
     return (mine || hosting) && isInCheckinWindow(s.startAt);
   });
 
-  if (hideChrome) return <>{children}</>;
+  if (hideChrome)
+    return (
+      <>
+        {pathname.startsWith("/live") && <PrototypeNotice />}
+        {children}
+      </>
+    );
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-6xl">
@@ -108,9 +103,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <PaceMark className="size-7" />
             <PaceWordmark className="text-[17px]" />
           </Link>
-          <p className="hidden text-sm text-muted md:block">
-            Dallas · Oak Lawn cluster
-          </p>
+          <p className="hidden text-sm text-muted md:block">Dallas · Oak Lawn cluster</p>
           <button
             type="button"
             onClick={() => setSiri(true)}
@@ -132,7 +125,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         )}
 
-        <div className="flex-1 px-4 pb-28 pt-4 md:px-8 md:pb-10">{children}</div>
+        <div className="flex-1 px-4 pb-28 pt-4 md:px-8 md:pb-10">
+          <PrototypeNotice />
+          {children}
+        </div>
 
         <nav className="tab-bar fixed inset-x-0 bottom-0 z-30 flex justify-around px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-2 md:hidden">
           {NAV.map((item) => {
@@ -168,6 +164,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <SiriSheet open={siri} onClose={() => setSiri(false)} />
     </div>
+  );
+}
+
+function PrototypeNotice() {
+  return (
+    <p role="note" className="mb-5 rounded-2xl border border-fg/15 px-4 py-3 text-sm text-muted">
+      Interactive demo · People, bookings, health readings, and credits on these web screens are
+      simulated. Use the SamePace iPhone app for your real account and Apple Health sync.
+    </p>
   );
 }
 

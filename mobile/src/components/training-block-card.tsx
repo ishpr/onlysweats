@@ -18,11 +18,11 @@ export function TrainingBlockCard({
   venues: Map<string, Venue>;
 }) {
   const router = useRouter();
-  const seats = `${block.seatsLeft} seat${block.seatsLeft === 1 ? "" : "s"}`;
+  const seats = `${block.seatsLeft} spot${block.seatsLeft === 1 ? "" : "s"} left`;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Training block: ${block.goalLabel}, ${block.weeks} weeks, ${seats} open`}
+      accessibilityLabel={`Train for a goal: ${block.goalLabel}, ${block.weeks} weeks, ${seats}`}
       onPress={() => router.push({ pathname: "/training-block/[id]", params: { id: block.id } })}
       style={styles.card}
     >

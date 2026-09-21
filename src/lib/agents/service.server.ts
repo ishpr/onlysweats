@@ -1,9 +1,10 @@
-/** Durable, consent-scoped negotiation. This module deliberately has no booking mutations. */
+/** Durable, consent-scoped negotiation. Booking needs separate member-only term approvals. */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Sql } from "../db.ts";
 import { getBooking, PaceError } from "../pace/service.server.ts";
 import { MIN_LEAD_TIME_MS, validAbility } from "../pace/rules.ts";
+import { enqueue } from "../pace/notify.server.ts";
 import { delegationInput, proposalCommand, type WorkoutPlan } from "./contracts.ts";
 
 const iso = (n: number) => new Date(n).toISOString();
@@ -26,21 +27,26 @@ export type Negotiation = {
   confirmations: string[];
   expires_at: Date;
   updated_at: Date;
+  booking_terms?: import("../../../shared/assistant.ts").AssistantBookingTerms | null;
+  booking_terms_hash?: string | null;
+  booking_approvals?: string[];
+  result_session_id?: string | null;
+  result_booking_id?: string | null;
 };
 export type NegotiationEvent = {
   sequence: number;
   profile_id: string;
   message_id: string;
   command_hash: string;
-  kind: "consent" | "proposal" | "confirmation" | "cancel";
+  kind: "consent" | "proposal" | "confirmation" | "cancel" | "booking_approval" | "booked";
   revision: number;
   data: Record<string, unknown>;
   created_at: Date;
 };
 
-async function eligible(sql: Sql, people: string[], lock: boolean | "update" = false) {
+export async function eligible(sql: Sql, people: string[], lock: boolean | "update" = false) {
   const rows = await sql.query<{ id: string }>(
-    `select id from profiles where id = any($1) and deleted_at is null and suspended_at is null order by id${lock === "update" ? " for update" : lock ? " for share" : ""}`,
+    `select id from profiles where id = any($1) and deleted_at is null and suspended_at is null order by id${lock === "update" ? " for no key update" : lock ? " for share" : ""}`,
     [people],
   );
   if (rows.length !== new Set(people).size) throw new PaceError(404, "Conversation unavailable.");
@@ -131,6 +137,15 @@ export async function createNegotiation(
       on conflict (booking_id) where state = 'open' do nothing returning *`;
     if (!room) return getNegotiationByBooking(tx, userId, bookingId);
     await event(tx, room, userId, id(), "consent", { allowed: true }, now);
+    await notifyOther(
+      tx,
+      room,
+      userId,
+      "invitation",
+      "Plan another workout?",
+      "Your workout partner invited you to a planning conversation. Opt in to review proposals.",
+      now,
+    );
     return room;
   });
 }
@@ -162,7 +177,30 @@ export async function getNegotiation(
   if (agent && (!r.host_consented || !r.participant_consented)) {
     throw new PaceError(404, "Conversation unavailable.");
   }
-  return { ...r, plan: parseJson(r.plan), confirmations: parseJson(r.confirmations) };
+  return {
+    ...r,
+    plan: parseJson(r.plan),
+    confirmations: parseJson(r.confirmations),
+    booking_terms: parseJson(r.booking_terms ?? null),
+    booking_approvals: parseJson(r.booking_approvals ?? []),
+  };
+}
+
+/** Revocation remains available after suspension or a partner block. Ownership is
+ * still required; this path can only remove authority, never restore it. */
+async function withdrawalRoom(sql: Sql, userId: string, roomId: string, lock = false) {
+  const [r] = await sql.query<Negotiation>(
+    `select * from agent_negotiations where id = $1 and (host_id = $2 or participant_id = $2)${lock ? " for update" : ""}`,
+    [roomId, userId],
+  );
+  if (!r) throw new PaceError(404, "Conversation unavailable.");
+  return {
+    ...r,
+    plan: parseJson(r.plan),
+    confirmations: parseJson(r.confirmations),
+    booking_terms: parseJson(r.booking_terms ?? null),
+    booking_approvals: parseJson(r.booking_approvals ?? []),
+  };
 }
 
 export async function listNegotiations(sql: Sql, userId: string, agent = false) {
@@ -251,7 +289,7 @@ function assertOpen(r: Negotiation, now: number) {
   }
 }
 
-async function event(
+export async function event(
   sql: Sql,
   r: Negotiation,
   userId: string,
@@ -267,6 +305,30 @@ async function event(
       ${JSON.stringify(data)}::jsonb, ${iso(now)})`;
 }
 
+async function notifyOther(
+  sql: Sql,
+  r: Negotiation,
+  userId: string,
+  kind: string,
+  title: string,
+  body: string,
+  now: number,
+) {
+  await enqueue(
+    sql,
+    {
+      profileId: r.host_id === userId ? r.participant_id : r.host_id,
+      kind: `assistant_${kind}`,
+      category: "sessions",
+      title,
+      body,
+      url: `/assistant?negotiationId=${r.id}`,
+      dedupeKey: `assistant:${r.id}:${kind}:${r.revision}:${userId}`,
+    },
+    now,
+  );
+}
+
 export async function consentToNegotiation(
   sql: Sql,
   userId: string,
@@ -275,20 +337,23 @@ export async function consentToNegotiation(
   now = Date.now(),
 ) {
   return sql.transaction(async (tx) => {
-    const r = await getNegotiation(tx, userId, roomId, false, true);
+    const r = allow
+      ? await getNegotiation(tx, userId, roomId, false, true)
+      : await withdrawalRoom(tx, userId, roomId, true);
     if (allow) assertOpen(r, now);
     await tx`update agent_negotiations set
       host_consented = case when host_id = ${userId} then ${allow} else host_consented end,
       participant_consented = case when participant_id = ${userId} then ${allow} else participant_consented end,
       state = case when ${allow} then state else 'cancelled' end,
       confirmations = case when ${allow} then confirmations else '[]'::jsonb end,
+      booking_approvals = case when ${allow} then booking_approvals else '[]'::jsonb end,
       updated_at = ${iso(now)} where id = ${roomId}`;
     await event(tx, r, userId, id(), "consent", { allowed: allow }, now);
-    return getNegotiation(tx, userId, roomId);
+    return allow ? getNegotiation(tx, userId, roomId) : withdrawalRoom(tx, userId, roomId);
   });
 }
 
-async function validatePlan(sql: Sql, plan: WorkoutPlan, now: number) {
+export async function validatePlan(sql: Sql, plan: WorkoutPlan, now: number) {
   const start = +new Date(plan.startAt);
   if (start < now + MIN_LEAD_TIME_MS || start > now + 14 * 24 * HOUR) {
     throw new PaceError(400, "Propose a start between 30 minutes and 14 days from now.");
@@ -308,42 +373,101 @@ export async function propose(
   input: unknown,
   now = Date.now(),
 ) {
+  return proposeAs(sql, actor.profileId, roomId, messageId, input, actor, now);
+}
+
+/** A signed-in human can propose or counter without issuing a delegation. */
+export async function proposeForMember(
+  sql: Sql,
+  userId: string,
+  roomId: string,
+  input: unknown,
+  now = Date.now(),
+) {
+  const body = z
+    .object({
+      messageId: z.string().min(1).max(100),
+      expectedRevision: z.number().int().min(0),
+      plan: proposalCommand.shape.plan,
+    })
+    .strict()
+    .parse(input);
+  return proposeAs(
+    sql,
+    userId,
+    roomId,
+    body.messageId,
+    {
+      schema: "samepace.workout-proposal.v1",
+      action: "propose",
+      expectedRevision: body.expectedRevision,
+      plan: body.plan,
+    },
+    false,
+    now,
+  );
+}
+
+async function proposeAs(
+  sql: Sql,
+  userId: string,
+  roomId: string,
+  messageId: string,
+  input: unknown,
+  actor: Delegate | false,
+  now: number,
+) {
   const command = proposalCommand.parse(input);
   z.string().min(1).max(100).parse(messageId);
   const digest = hash(JSON.stringify(command));
   return sql.transaction(async (tx) => {
-    const r = await getNegotiation(tx, actor.profileId, roomId, true, true);
-    await assertActiveDelegate(tx, actor, now);
+    const r = await getNegotiation(tx, userId, roomId, true, true);
+    if (actor) await assertActiveDelegate(tx, actor, now);
     const [prior] = await tx<{
       command_hash: string;
     }>`select command_hash from agent_negotiation_events
-      where negotiation_id = ${roomId} and profile_id = ${actor.profileId} and message_id = ${messageId}`;
+      where negotiation_id = ${roomId} and profile_id = ${userId} and message_id = ${messageId}`;
     if (prior) {
       if (prior.command_hash !== digest)
         throw new PaceError(409, "Message ID was already used for another proposal.");
       return r;
     }
-    assertOpen(r, now);
+    // Human counteroffers can replace an approved but not executed plan. A delegated
+    // assistant retains the original protocol boundary and cannot reopen approvals.
+    if (!actor && r.state === "approved" && !r.result_booking_id) {
+      if (+new Date(r.expires_at) <= now) throw new PaceError(409, "This conversation has ended.");
+    } else assertOpen(r, now);
     if (r.revision !== command.expectedRevision)
       throw new PaceError(409, "Proposal changed. Read the latest revision first.");
     if (r.revision >= 50) throw new PaceError(409, "This conversation reached its proposal limit.");
     await validatePlan(tx, command.plan, now);
-    const [next] = await tx<Negotiation>`update agent_negotiations set revision = revision + 1,
-      plan = ${JSON.stringify(command.plan)}::jsonb, confirmations = '[]'::jsonb, updated_at = ${iso(now)}
+    const [next] =
+      await tx<Negotiation>`update agent_negotiations set revision = revision + 1, state = 'open',
+      plan = ${JSON.stringify(command.plan)}::jsonb, confirmations = '[]'::jsonb,
+      booking_approvals = '[]'::jsonb, booking_terms = null, booking_terms_hash = null, updated_at = ${iso(now)}
       where id = ${roomId} returning *`;
     await event(
       tx,
       next,
-      actor.profileId,
+      userId,
       messageId,
       "proposal",
       {
         plan: command.plan,
-        agentLabel: actor.label,
+        agentLabel: actor ? actor.label : "Member",
         requiresHumanConfirmation: true,
       },
       now,
       digest,
+    );
+    await notifyOther(
+      tx,
+      next,
+      userId,
+      "proposal",
+      "A workout proposal is ready",
+      "Review the latest plan. Earlier approvals no longer apply to a changed proposal.",
+      now,
     );
     return next;
   });
@@ -380,6 +504,15 @@ export async function confirmProposal(
         { approvedRevision: revision, booked: false },
         now,
       );
+      await notifyOther(
+        tx,
+        r,
+        userId,
+        "confirmation",
+        "Your partner reviewed the plan",
+        "Review the current proposal and its booking terms in your planning conversation.",
+        now,
+      );
     }
     return next;
   });
@@ -399,17 +532,22 @@ export async function cancelNegotiation(
   now = Date.now(),
 ) {
   return sql.transaction(async (tx) => {
-    const r = await getNegotiation(tx, userId, roomId, !!agent, true);
+    const r = agent
+      ? await getNegotiation(tx, userId, roomId, true, true)
+      : await withdrawalRoom(tx, userId, roomId, true);
     if (agent) {
       if (agent.profileId !== userId) throw new PaceError(404, "Conversation unavailable.");
       await assertActiveDelegate(tx, agent, now);
     }
     if (r.state === "cancelled") return r;
-    assertOpen(r, now);
+    if (!agent && r.state === "approved" && !r.result_booking_id) {
+      // Canceling an unexecuted plan only withdraws authority; no seat exists.
+    } else assertOpen(r, now);
     await tx`update agent_negotiations set state = 'cancelled', confirmations = '[]'::jsonb,
+      booking_approvals = '[]'::jsonb,
       updated_at = ${iso(now)} where id = ${roomId}`;
     await event(tx, r, userId, id(), "cancel", { booked: false }, now);
-    return getNegotiation(tx, userId, roomId, !!agent);
+    return agent ? getNegotiation(tx, userId, roomId, true) : withdrawalRoom(tx, userId, roomId);
   });
 }
 
@@ -435,6 +573,8 @@ export function view(r: Negotiation, now = Date.now()) {
     plan: r.plan,
     confirmedIds: r.confirmations,
     expiresAt: new Date(r.expires_at).toISOString(),
-    booked: false,
+    booked: Boolean(r.result_booking_id),
+    sessionId: r.result_session_id ?? null,
+    resultBookingId: r.result_booking_id ?? null,
   };
 }
