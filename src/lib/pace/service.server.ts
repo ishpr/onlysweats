@@ -38,6 +38,8 @@ import {
   settle,
   STRIKES_TO_FREEZE,
   STRIKE_WINDOW_MS,
+  verificationNeeded,
+  VERIFY_COPY,
 } from "./rules.ts";
 import type {
   Ability,
@@ -58,11 +60,45 @@ import type {
 
 export class PaceError extends Error {
   readonly status: 400 | 403 | 404 | 409;
-  constructor(status: 400 | 403 | 404 | 409, message: string) {
+  /** Machine-readable, for the refusals the app acts on rather than just shows. */
+  readonly code?: string;
+  constructor(status: 400 | 403 | 404 | 409, message: string, code?: string) {
     super(message);
     this.name = "PaceError";
     this.status = status;
+    this.code = code;
   }
+}
+
+/** Nobody is turned away for being unverified until this is switched on. */
+export const verificationEnforced = (env: Record<string, string | undefined> = process.env) =>
+  env.VERIFICATION_ENFORCED === "1";
+
+/**
+ * Refuse, with a code the app acts on, when this member still has something to
+ * verify before posting or joining this. See `rules.verificationNeeded`.
+ */
+export async function requireVerified(
+  sql: Sql,
+  userId: string,
+  what: { visibility: Visibility; womenOnly: boolean },
+) {
+  if (!verificationEnforced()) return;
+  const [p] = await sql<{
+    verified_member_at: Date | null;
+    verified_id_at: Date | null;
+    id_required_at: Date | null;
+  }>`select verified_member_at, verified_id_at, id_required_at from profiles where id = ${userId}`;
+  const need = verificationNeeded(
+    {
+      member: Boolean(p?.verified_member_at),
+      governmentId: Boolean(p?.verified_id_at),
+      idRequired: Boolean(p?.id_required_at),
+    },
+    what,
+    true,
+  );
+  if (need) throw new PaceError(403, VERIFY_COPY[need], `verify_${need}`);
 }
 
 export function newId(prefix: string) {
@@ -672,6 +708,10 @@ export async function postSession(
       now,
     );
     if (!verdict.ok) throw new PaceError(400, verdict.error);
+    await requireVerified(tx, userId, {
+      visibility: input.visibility,
+      womenOnly: input.womenOnly,
+    });
     await assertNoAssistantOverlap(tx, userId, input.startAt, input.durationMin);
 
     const id = newId("ses");
@@ -896,6 +936,7 @@ export async function bookSeat(
       now,
     );
     if (!verdict.ok) throw new PaceError(409, verdict.error);
+    await requireVerified(tx, userId, { visibility: s.visibility, womenOnly: s.women_only });
     await assertNoAssistantOverlap(tx, userId, iso(s.start_at)!, s.duration_min, sessionId);
 
     // Not a regular on this standing slot? Then this is a substitute seat: one

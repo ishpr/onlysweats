@@ -50,6 +50,7 @@ import {
   PaceError,
   people,
   profileRow,
+  requireVerified,
   validRegulars,
   type SessionRow,
 } from "./service.server.ts";
@@ -795,6 +796,7 @@ export async function postTrainingBlock(
     starts.push(startAt);
   }
   const startsOn = clusterDate(Math.min(...starts));
+  await requireVerified(sql, userId, { visibility: input.visibility, womenOnly: input.womenOnly });
   const goal = validBlock({
     activity: input.activity,
     goalKind: input.goalKind,
@@ -944,6 +946,7 @@ export async function joinTrainingBlock(
       now,
     );
     if (!verdict.ok) throw new PaceError(409, verdict.error);
+    await requireVerified(tx, userId, { visibility: b.visibility, womenOnly: b.women_only });
     if (b.join_mode === "instant") return admit(tx, b, userId, now);
 
     const [asked] = await tx<{ status: string }>`

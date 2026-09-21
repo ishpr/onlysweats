@@ -12,6 +12,7 @@ import * as notify from "./notify.server";
 import * as safety from "./safety.server";
 import * as svc from "./service.server";
 import * as blocks from "./training-blocks.server";
+import * as verification from "./verification.server";
 import { GOAL_KINDS } from "./types";
 import * as agents from "../agents/service.server";
 import * as assistant from "../agents/assistant.server";
@@ -500,7 +501,36 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
     async ({ sql, userId, user }) => ({
       ...(await svc.getMe(sql, userId)),
       isAdmin: safety.isAdmin(user),
+      verification: await verification.getVerification(sql, userId),
     }),
+  ],
+  // Identity verification. Persona sees the selfie and the ID; we learn how it came out.
+  [
+    "POST",
+    "/verification",
+    ({ sql, userId, body }) =>
+      verification.startVerification(
+        sql,
+        userId,
+        z.object({ tier: z.enum(["member", "government_id"]) }).parse(body).tier,
+      ),
+  ],
+  [
+    "POST",
+    "/verification/:id/refresh",
+    ({ sql, userId, params }) => verification.refreshVerification(sql, userId, params.id),
+  ],
+  // The stand-in's whole flow. 404 wherever Persona is configured, and in production.
+  [
+    "POST",
+    "/verification/:id/dev-complete",
+    ({ sql, userId, params, body }) =>
+      verification.devComplete(
+        sql,
+        userId,
+        params.id,
+        z.object({ outcome: z.enum(["approved", "declined"]) }).parse(body).outcome,
+      ),
   ],
   [
     "DELETE",
@@ -509,6 +539,8 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
       // Apple asks that deleting the account also revokes the app's access.
       const { revokeAppleAccess } = await import("../auth/apple-revoke.server");
       await revokeAppleAccess(sql, userId);
+      // …and Persona is asked to delete the selfie and ID it holds.
+      await verification.redactVerifications(sql, userId);
       await safety.deleteAccount(sql, userId);
       return { ok: true };
     },
@@ -1038,7 +1070,12 @@ export async function handleApi(request: Request): Promise<Response> {
   } catch (err) {
     if (err instanceof FitnessError) return respond({ error: err.message }, err.status);
     if (err instanceof HealthError) return respond({ error: err.message }, err.status);
-    if (err instanceof svc.PaceError) return respond({ error: err.message }, err.status);
+    if (err instanceof svc.PaceError) {
+      return respond(
+        err.code ? { error: err.message, code: err.code } : { error: err.message },
+        err.status,
+      );
+    }
     if (err instanceof z.ZodError) {
       const first = err.issues[0];
       return respond({ error: `${first.path.join(".") || "body"}: ${first.message}` }, 400);

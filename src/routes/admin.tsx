@@ -76,6 +76,7 @@ type Member = {
   reportsAgainst: number;
   reportsFiled: number;
   upcomingSessions: number;
+  verification: { member: boolean; governmentId: boolean; idRequired: boolean };
   trainingBlocks: {
     id: string;
     goalLabel: string;
@@ -682,6 +683,16 @@ function Members({ onChanged }: { onChanged: () => Promise<void> }) {
                   Paused {when(m.suspended.at)} — {m.suspended.reason}
                 </span>
               )}
+              <span className="text-sm text-muted">
+                {m.verification.governmentId
+                  ? "Phone, face and ID verified"
+                  : m.verification.member
+                    ? "Phone and face verified"
+                    : "Not verified"}
+                {m.verification.idRequired && !m.verification.governmentId
+                  ? " · ID required after a report"
+                  : ""}
+              </span>
               <span className="text-sm text-muted">
                 {m.person.blocksFinished} blocks finished · helped {m.person.helpedCount} finish
               </span>

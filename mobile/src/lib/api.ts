@@ -6,10 +6,13 @@ export type { ApiSession } from "./session-transport";
 /** A rule or auth rejection from the server. `message` is user-facing copy. */
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /** Set on the refusals the app acts on, e.g. `verify_member`. */
+  readonly code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -77,8 +80,12 @@ async function parse<T>(res: Response): Promise<T> {
     /* non-JSON error page */
   }
   if (!res.ok) {
-    const body = data as { error?: string; message?: string } | null;
-    throw new ApiError(res.status, body?.error ?? body?.message ?? "Something went wrong.");
+    const body = data as { error?: string; message?: string; code?: string } | null;
+    throw new ApiError(
+      res.status,
+      body?.error ?? body?.message ?? "Something went wrong.",
+      body?.code,
+    );
   }
   return data as T;
 }

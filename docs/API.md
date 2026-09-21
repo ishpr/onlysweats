@@ -271,6 +271,57 @@ occurrence keeps their place; the open seat shows in discovery as
 `substituteSeat`, and whoever takes it has `substituteFor` set and joins that
 occurrence only.
 
+## Verification
+
+PRD v0.3 §8. Persona runs the checks and is the one that receives the phone
+number, the selfie and the ID. SamePace stores which check it was, Persona's
+inquiry id, and how it came out — never an image, a number or a document.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| POST | `/verification` | `{ tier: "member" \| "government_id" }` → `{ id, tier, provider, url }`. Open `url` in a browser sheet. An open check is resumed, not started again. `409` when already verified, under human review, after three declines in 30 days, or not set up. |
+| POST | `/verification/:id/refresh` | Back from the sheet: the server re-reads the inquiry rather than wait on the webhook. Returns `me.verification`. |
+| POST | `/verification/:id/dev-complete` | `{ outcome }`. The stand-in's whole flow. `404` in production and wherever Persona is configured. |
+| POST | `/api/webhooks/persona` | Not under `/api/v1`. No session: authenticated by `Persona-Signature` (HMAC-SHA256 of `t.body`, five-minute window, one or two secrets). `401` otherwise. |
+
+`GET /me` carries `verification: { available, enforced, provider, member,
+governmentId, idRequired }`; each tier is `none`, `pending`, `needs_review`,
+`approved` or `declined`. `Person.identityVerified` is what other members see.
+
+- **`member`** — a phone number and selfie liveness. Needed to post or join
+  anything **public** (sessions and training blocks).
+- **`government_id`** — needed for **women-only**, and for anything public once a
+  report about the member has been acted on (`idRequired`). For women-only it
+  makes a member accountable; it is not a test of who is a woman, which stays
+  what the member says.
+- **An invite from someone you know takes nothing**, the way a freeze doesn't
+  reach it.
+- A refusal is `403` with `code: "verify_member"` or `"verify_government_id"`:
+  send the member to verify, don't show it as an error.
+- **Nothing is enforced until `VERIFICATION_ENFORCED=1`.** Switching it on before
+  members can verify would lock everyone out.
+- A webhook can only move a check we created, for the member we created it for,
+  once per event id. A stray late event can't undo a decision; a reviewer's later
+  decline can, and clears the badge.
+- Deleting an account asks Persona to redact its inquiries (best effort).
+
+**Setting it up.** In Persona: two inquiry templates — phone + selfie, and
+government ID + selfie — each with a workflow that approves or declines the
+inquiry; a webhook to `https://samepace.app/api/webhooks/persona` for the
+`inquiry.*` events; `https://samepace.app/verified` allowed as a redirect. On
+Vercel: `PERSONA_API_KEY`, `PERSONA_TEMPLATE_MEMBER`,
+`PERSONA_TEMPLATE_GOVERNMENT_ID`, `PERSONA_WEBHOOK_SECRET` (comma-separate two
+while rotating), then `VERIFICATION_ENFORCED=1` once members have had time to
+verify. With no key, outside production, a `dev` provider stands in.
+
+**Background checks are not built.** The `background` tier is reserved in the
+schema and nothing starts one. In the US a criminal-record check is a consumer
+report under the FCRA: it takes a standalone disclosure and written
+authorisation, written criteria for what disqualifies someone, and a pre-adverse
+and adverse-action process with a copy of the report before anyone is turned
+away. That is a legal and policy decision before it is an integration, and the
+PRD leaves it out of v1.
+
 ## Training blocks
 
 One to four standing slots tied to a goal and a date (PRD v0.3 §6). A block adds
@@ -356,7 +407,7 @@ A hit is a `400` naming the word. The list is `BANNED_WORDS` in `rules.ts`.
   passes its density gate), card on file, and actually collecting fees. The
   ledger records what is owed; nothing is charged.
 - Gym sessions matched on `gym_id`, `route_url` in the app.
-- **Verification** (phone, selfie liveness, ID for women-only) and fee disputes.
+- **Fee disputes.** Background checks — see *Verification* for why.
 
 
 ## Local dev

@@ -6,8 +6,11 @@ import type { Person } from "./types";
  * they are counts, never a rate, so a zero is not a mark against anyone.
  */
 export function reputationLine(p: Person): string {
-  if (p.completedCount === 0) return "New on SamePace · no sessions yet";
+  if (p.completedCount === 0) {
+    return `${p.identityVerified ? "Verified · new" : "New"} on SamePace · no sessions yet`;
+  }
   const parts = [
+    ...(p.identityVerified ? ["Verified"] : []),
     `${p.completedCount} session${p.completedCount === 1 ? "" : "s"}`,
     `${p.onTimePct}% on time`,
     `${p.wouldJoinPct}% would join again`,

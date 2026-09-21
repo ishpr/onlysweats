@@ -19,6 +19,7 @@ import { Route as PrototypeRouteImport } from './routes/prototype'
 import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as VerifiedRouteImport } from './routes/verified'
 import { Route as YouRouteImport } from './routes/you'
 import { Route as DotwellKnownAgentCardDotjsonRouteImport } from './routes/[.]well-known.agent-card[.]json'
 import { Route as ApiA2aRouteImport } from './routes/api/a2a'
@@ -31,6 +32,7 @@ import { Route as SessionsIdRouteImport } from './routes/sessions.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronSettleRouteImport } from './routes/api/cron/settle'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
+import { Route as ApiWebhooksPersonaRouteImport } from './routes/api/webhooks/persona'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -80,6 +82,11 @@ const SupportRoute = SupportRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VerifiedRoute = VerifiedRouteImport.update({
+  id: '/verified',
+  path: '/verified',
   getParentRoute: () => rootRouteImport,
 } as any)
 const YouRoute = YouRouteImport.update({
@@ -143,6 +150,11 @@ const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
   path: '/api/v1/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhooksPersonaRoute = ApiWebhooksPersonaRouteImport.update({
+  id: '/api/webhooks/persona',
+  path: '/api/webhooks/persona',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -155,6 +167,7 @@ export interface FileRoutesByFullPath {
   '/sessions': typeof SessionsRouteWithChildren
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/verified': typeof VerifiedRoute
   '/you': typeof YouRoute
   '/.well-known/agent-card.json': typeof DotwellKnownAgentCardDotjsonRoute
   '/api/a2a': typeof ApiA2aRoute
@@ -167,6 +180,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/settle': typeof ApiCronSettleRoute
   '/api/v1/$': typeof ApiV1SplatRoute
+  '/api/webhooks/persona': typeof ApiWebhooksPersonaRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -177,6 +191,7 @@ export interface FileRoutesByTo {
   '/prototype': typeof PrototypeRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/verified': typeof VerifiedRoute
   '/you': typeof YouRoute
   '/.well-known/agent-card.json': typeof DotwellKnownAgentCardDotjsonRoute
   '/api/a2a': typeof ApiA2aRoute
@@ -189,6 +204,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/settle': typeof ApiCronSettleRoute
   '/api/v1/$': typeof ApiV1SplatRoute
+  '/api/webhooks/persona': typeof ApiWebhooksPersonaRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -202,6 +218,7 @@ export interface FileRoutesById {
   '/sessions': typeof SessionsRouteWithChildren
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/verified': typeof VerifiedRoute
   '/you': typeof YouRoute
   '/.well-known/agent-card.json': typeof DotwellKnownAgentCardDotjsonRoute
   '/api/a2a': typeof ApiA2aRoute
@@ -214,6 +231,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/settle': typeof ApiCronSettleRoute
   '/api/v1/$': typeof ApiV1SplatRoute
+  '/api/webhooks/persona': typeof ApiWebhooksPersonaRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -228,6 +246,7 @@ export interface FileRouteTypes {
     | '/sessions'
     | '/support'
     | '/terms'
+    | '/verified'
     | '/you'
     | '/.well-known/agent-card.json'
     | '/api/a2a'
@@ -240,6 +259,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/cron/settle'
     | '/api/v1/$'
+    | '/api/webhooks/persona'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -250,6 +270,7 @@ export interface FileRouteTypes {
     | '/prototype'
     | '/support'
     | '/terms'
+    | '/verified'
     | '/you'
     | '/.well-known/agent-card.json'
     | '/api/a2a'
@@ -262,6 +283,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/cron/settle'
     | '/api/v1/$'
+    | '/api/webhooks/persona'
   id:
     | '__root__'
     | '/'
@@ -274,6 +296,7 @@ export interface FileRouteTypes {
     | '/sessions'
     | '/support'
     | '/terms'
+    | '/verified'
     | '/you'
     | '/.well-known/agent-card.json'
     | '/api/a2a'
@@ -286,6 +309,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/cron/settle'
     | '/api/v1/$'
+    | '/api/webhooks/persona'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -299,6 +323,7 @@ export interface RootRouteChildren {
   SessionsRoute: typeof SessionsRouteWithChildren
   SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
+  VerifiedRoute: typeof VerifiedRoute
   YouRoute: typeof YouRoute
   DotwellKnownAgentCardDotjsonRoute: typeof DotwellKnownAgentCardDotjsonRoute
   ApiA2aRoute: typeof ApiA2aRoute
@@ -307,6 +332,7 @@ export interface RootRouteChildren {
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCronSettleRoute: typeof ApiCronSettleRoute
   ApiV1SplatRoute: typeof ApiV1SplatRoute
+  ApiWebhooksPersonaRoute: typeof ApiWebhooksPersonaRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -379,6 +405,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verified': {
+      id: '/verified'
+      path: '/verified'
+      fullPath: '/verified'
+      preLoaderRoute: typeof VerifiedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/you': {
@@ -465,6 +498,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1SplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/webhooks/persona': {
+      id: '/api/webhooks/persona'
+      path: '/api/webhooks/persona'
+      fullPath: '/api/webhooks/persona'
+      preLoaderRoute: typeof ApiWebhooksPersonaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -505,6 +545,7 @@ const rootRouteChildren: RootRouteChildren = {
   SessionsRoute: SessionsRouteWithChildren,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
+  VerifiedRoute: VerifiedRoute,
   YouRoute: YouRoute,
   DotwellKnownAgentCardDotjsonRoute: DotwellKnownAgentCardDotjsonRoute,
   ApiA2aRoute: ApiA2aRoute,
@@ -513,6 +554,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCronSettleRoute: ApiCronSettleRoute,
   ApiV1SplatRoute: ApiV1SplatRoute,
+  ApiWebhooksPersonaRoute: ApiWebhooksPersonaRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

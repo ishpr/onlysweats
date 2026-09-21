@@ -117,6 +117,18 @@ uploaded to EAS.
   entrance, skeletons, the check-in success mark) and
   `src/components/animated-splash.tsx` (launch). All of it honours Reduce Motion.
 
+## Verification
+
+`src/app/verify.tsx` says what is asked for and who sees it, then opens Persona's
+hosted flow in a browser sheet (`expo-web-browser`, so no native module and it
+works in Expo Go). Persona hands back through `https://samepace.app/verified` →
+`samepace://verified`, and the app asks the server how it came out. A post or a
+join refused with `code: "verify_member"` / `"verify_government_id"` goes to that
+screen instead of showing an error (`lib/verify-gate.ts`). With no Persona key on
+the server, the screen shows a development stand-in with Approve and Decline.
+Persona's native SDK (`react-native-persona`) captures better and reads NFC; it
+needs a development build, and is the upgrade if pass rates disappoint.
+
 ## Training blocks
 
 One to four standing slots aimed at a goal and a date — see _Training blocks_ in
@@ -147,6 +159,6 @@ See [the integration guide](../docs/APPLE-HEALTH.md) for supported data, privacy
 ## Not done
 
 Membership billing and fee collection (the server only keeps a ledger), gym
-matching, a map, phone verification, fee disputes. Invite links open
+matching, a map, fee disputes. Invite links open
 `https://samepace.app/invite/<code>`, which hands off to the app; universal links
 (no hand-off page) still need the associated-domains files.

@@ -177,6 +177,15 @@ function Routes() {
               headerLeft: () => <CloseButton />,
             }}
           />
+          <Stack.Screen
+            name="verify"
+            options={{
+              title: "Verification",
+              presentation: "modal",
+              headerLeft: () => <CloseButton />,
+            }}
+          />
+          <Stack.Screen name="verified" options={{ headerShown: false }} />
           <Stack.Screen name="training-block/[id]" options={{ title: "Goal" }} />
           <Stack.Screen
             name="training-block/new"

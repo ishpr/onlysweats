@@ -595,3 +595,40 @@ export function creditable(
 /** A finished block's slots can still be kept, or carried into the next block. */
 export const slotsUndecided = (goalDate: string, today: string) =>
   today > goalDate && daysBetween(goalDate, today) <= KEEP_SLOTS_DAYS;
+
+// ── Verification ─────────────────────────────────────────────────────────────
+
+export type VerificationTier = "member" | "government_id";
+
+export type Verified = {
+  /** Phone number and selfie liveness. */
+  member: boolean;
+  governmentId: boolean;
+  /** A report about this member was acted on: ID before any more public sessions. */
+  idRequired: boolean;
+};
+
+/**
+ * What a member still has to verify before posting or joining this — or `null`.
+ * Public sessions take a verified phone and face. Women-only takes a government
+ * ID: it makes a member accountable, it is not a test of who is a woman — that
+ * stays what the member says it is. An invite from someone you know takes
+ * nothing, the same way a two-strike freeze doesn't reach it.
+ */
+export function verificationNeeded(
+  v: Verified,
+  what: { visibility: Visibility; womenOnly: boolean },
+  enforced: boolean,
+): VerificationTier | null {
+  if (!enforced) return null;
+  if (what.visibility === "public" && !v.member) return "member";
+  if ((what.womenOnly || (what.visibility === "public" && v.idRequired)) && !v.governmentId) {
+    return "government_id";
+  }
+  return null;
+}
+
+export const VERIFY_COPY: Record<VerificationTier, string> = {
+  member: "Verify your phone and face first. It takes about a minute, once.",
+  government_id: "This takes a government ID check first. It takes a couple of minutes, once.",
+};
