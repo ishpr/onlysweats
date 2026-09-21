@@ -35,7 +35,8 @@ import {
   hoursMinutes,
   pickForToday,
   readToday,
-  type ObservationStatus,
+  type Effort,
+  type TodayRead,
   type TodaySummary,
   type Week,
 } from "../../../shared/today";
@@ -86,15 +87,25 @@ function useToday(ownerId: string, session: ApiSession) {
   });
 }
 
-function Dial({ status, size }: { status: ObservationStatus; size?: number }) {
+const LEVEL: Record<Effort, 0 | 1 | 2> = { easy: 0, steady: 1, ready: 2 };
+const WORD: Record<Effort, string> = { easy: "Easy", steady: "Steady", ready: "Ready" };
+
+/** The gauge shows OUR read, so it is lit only when we have one. */
+function Dial({ read, size }: { read: TodayRead; size?: number }) {
   const theme = useTheme();
+  const ours = read.ourRead;
   return (
-    <DayDial size={size}>
-      <T variant="label" style={{ color: status === "unknown" ? theme.textFaint : theme.accent }}>
-        {status === "observed" ? "Recorded" : "No data"}
+    <DayDial level={ours ? LEVEL[ours.effort] : null} size={size}>
+      <T
+        variant="label"
+        style={{
+          color: !ours ? theme.textFaint : ours.effort === "easy" ? theme.stand : theme.accent,
+        }}
+      >
+        {ours ? WORD[ours.effort] : read.status === "observed" ? "Synced" : "No data"}
       </T>
       <T variant="caption" color="textFaint" style={styles.dialSub}>
-        history
+        {ours ? "our read" : "today"}
       </T>
     </DayDial>
   );
@@ -159,7 +170,10 @@ function Compact({
       id: s.id,
       fitsMe: s.fitsMe,
       startAt: +new Date(s.startAt),
+      activity: s.activity,
+      anyLevelWelcome: s.abilityFlex === "flexible",
     })),
+    read.ourRead?.effort,
   );
   const picked = pick ? sessions.find((s) => s.id === pick.id) : undefined;
   const stats = [
@@ -205,14 +219,12 @@ function Compact({
           <ChevronRight size={16} color={theme.accent} />
         </Row>
         <Row style={styles.hero}>
-          <Dial status={read.status} />
+          <Dial read={read} />
           <View style={styles.flex}>
             <T variant="heading">{read.headline}</T>
-            {read.lines.slice(0, 2).map((line) => (
-              <T key={line} variant="caption" color="textSecondary">
-                {line}
-              </T>
-            ))}
+            <T variant="caption" color="textSecondary">
+              {read.ourRead ? read.ourRead.because : read.lines[0]}
+            </T>
             {stats.length > 0 && (
               <View style={styles.stats}>
                 {stats.map(({ icon: Icon, color, value, label }) => (
@@ -470,16 +482,37 @@ function Detail({ ownerId, session }: { ownerId: string; session: ApiSession }) 
           }
         />
         <Row style={styles.hero}>
-          <Dial status={read.status} />
+          <Dial read={read} />
           <View style={styles.flex}>
-            <T variant="heading">{read.headline}</T>
-            {read.lines.map((line) => (
-              <T key={line} variant="caption" color="textSecondary">
-                {line}
+            {read.ourRead ? (
+              <T variant="eyebrow" color="accent">
+                SamePace’s read
               </T>
-            ))}
+            ) : null}
+            <T variant="heading">{read.headline}</T>
+            {read.ourRead ? (
+              <T variant="caption" color="textSecondary">
+                {read.ourRead.because}
+              </T>
+            ) : null}
           </View>
         </Row>
+        <View style={[styles.recorded, { borderTopColor: theme.border }]}>
+          <T variant="eyebrow" color="textFaint">
+            Recorded
+          </T>
+          {read.lines.map((line) => (
+            <T key={line} variant="caption" color="textSecondary">
+              {line}
+            </T>
+          ))}
+        </View>
+        {read.ourRead ? (
+          <T variant="caption" color="textFaint" style={styles.axis}>
+            Our read is a rough guide from your sleep, heart readings and training — to help pick a
+            session, not medical advice.
+          </T>
+        ) : null}
       </Card>
 
       {heart.length > 1 && (
@@ -681,6 +714,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.half,
   },
   statText: { fontFamily: Fonts.medium, fontVariant: ["tabular-nums"] },
+  recorded: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: Spacing.two, gap: 2 },
   dialSub: { fontSize: 11, lineHeight: 14 },
   panel: { padding: Spacing.three, gap: Spacing.half },
   axis: { fontSize: 12, lineHeight: 16 },

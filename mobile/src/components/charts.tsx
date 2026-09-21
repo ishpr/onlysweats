@@ -182,8 +182,20 @@ const arc = (c: number, r: number, from: number, to: number) => {
 };
 
 /** Decorative frame for recorded history. It never fills or encodes readiness. */
-export function DayDial({ size = 112, children }: { size?: number; children?: React.ReactNode }) {
+export function DayDial({
+  level = null,
+  size = 112,
+  children,
+}: {
+  /** Our read of the day: 0 easy · 1 steady · 2 ready. `null` = no read, nothing lit. */
+  level?: 0 | 1 | 2 | null;
+  size?: number;
+  children?: React.ReactNode;
+}) {
   const theme = useTheme();
+  // A gauge that fills: calm blue on an easy day, the brand green otherwise. Never red —
+  // no part of this dial is a warning.
+  const lit = level === 0 ? theme.stand : theme.accent;
   const stroke = 11;
   const c = size / 2;
   const r = c - stroke / 2 - 1;
@@ -204,7 +216,7 @@ export function DayDial({ size = 112, children }: { size?: number; children?: Re
           <Path
             key={i}
             d={arc(c, r, from, to)}
-            stroke={withAlpha(theme.text, 0.08)}
+            stroke={level !== null && i <= level ? lit : withAlpha(theme.text, 0.08)}
             strokeWidth={stroke}
             strokeLinecap="round"
             fill="none"

@@ -1,7 +1,10 @@
 /**
- * Recorded history from the Apple Health data a member chose to sync. Comparisons
- * describe observations only; they do not infer readiness or recommend effort.
- * Session ordering uses entered preferences and time, independently of health.
+ * Today, from the Apple Health data a member chose to sync — in two layers that stay
+ * apart. RECORDED: what was measured, in plain words, compared only with the member's
+ * own earlier days. OUR READ: SamePace's modest take on the day (easy · steady · ready)
+ * from sleep, resting heart rate, HRV and training already done. It is labelled as ours
+ * wherever it appears, it is never a score, and it is not medical advice; it only helps
+ * pick a session that suits the day. Nothing here is shown to another member.
  *
  * Pure functions and wire types only, shared by the API and the app.
  */
@@ -34,11 +37,23 @@ export type DaySnapshot = {
 
 export type ObservationStatus = "observed" | "unknown";
 
+export type Effort = "easy" | "steady" | "ready";
+
+/** SamePace's take on the day. Always shown as ours, beside — never instead of — the facts. */
+export type OurRead = {
+  effort: Effort;
+  headline: string;
+  /** The one recorded fact that tipped it, in plain words. */
+  because: string;
+};
+
 export type TodayRead = {
   status: ObservationStatus;
   headline: string;
-  /** Facts, most useful first. At most three. */
+  /** Recorded facts, most useful first. At most three. */
   lines: string[];
+  /** `null` when there isn't enough to go on. */
+  ourRead: OurRead | null;
 };
 
 const VERB: Record<WorkoutKind, string> = {
@@ -60,13 +75,73 @@ export const hoursMinutes = (min: number) => {
   return h === 0 ? `${m} min` : m === 0 ? `${h} h` : `${h} h ${m} min`;
 };
 
-/** A numerical comparison, never a physiological interpretation. */
-const comparison = (value: number, base: number | null) =>
+/** A comparison with the member's own earlier average — a number beside a number. */
+const comparison = (value: number, base: number | null, show: (n: number) => string) =>
   base == null
     ? ""
     : value === base
-      ? " — equal to your earlier recorded average"
-      : ` — ${value > base ? "above" : "below"} your earlier recorded average`;
+      ? ", the same as your usual"
+      : `, ${value > base ? "above" : "below"} your usual ${show(base)}`;
+
+const whole = (n: number) => String(Math.round(n));
+
+/** Up or down against the member's own earlier average, as a fraction. `null` = can't say. */
+const change = (now: number | null, base: number | null) =>
+  now == null || base == null || base <= 0 ? null : (now - base) / base;
+
+/**
+ * Our read of the day. Deliberately coarse: three words, one reason. Training already
+ * done counts first; then a short night, a raised resting heart rate or a lowered HRV
+ * (each against the member's own usual) make it an easy day; a full night with nothing
+ * done yet makes it a ready one. With no sleep, heart or training data there is no read.
+ */
+export function ourRead(d: DaySnapshot): OurRead | null {
+  const trainedMin = d.workouts.reduce((sum, w) => sum + w.minutes, 0);
+  const hrv = d.hrvMs ?? d.hrvRmssdMs;
+  const hrvBase = d.hrvMs != null ? d.hrvBase : d.hrvRmssdBase;
+  if (d.sleepMin == null && d.restingHr == null && hrv == null && trainedMin === 0) return null;
+  const sleepShort =
+    d.sleepMin != null &&
+    (d.sleepMin < 6 * 60 || (d.sleepBaseMin != null && d.sleepMin < d.sleepBaseMin - 60));
+  const hrUp = (change(d.restingHr, d.restingHrBase) ?? 0) >= 0.07;
+  const hrvDown = (change(hrv, hrvBase) ?? 0) <= -0.15;
+  if (trainedMin >= 45) {
+    return {
+      effort: "easy",
+      headline: "You’ve done the work today",
+      because: `You’ve already trained for ${hoursMinutes(trainedMin)}.`,
+    };
+  }
+  if (sleepShort) {
+    return {
+      effort: "easy",
+      headline: "An easy day",
+      because: `You slept ${hoursMinutes(d.sleepMin!)}, a short night for you.`,
+    };
+  }
+  if (hrUp) {
+    return {
+      effort: "easy",
+      headline: "An easy day",
+      because: "Your resting heart rate is up on your usual.",
+    };
+  }
+  if (hrvDown) {
+    return { effort: "easy", headline: "An easy day", because: "Your HRV is below your usual." };
+  }
+  if (d.sleepMin != null && d.sleepMin >= 7 * 60 && trainedMin < 20) {
+    return {
+      effort: "ready",
+      headline: "A good day to go",
+      because: `You slept ${hoursMinutes(d.sleepMin)} and haven’t trained yet.`,
+    };
+  }
+  return {
+    effort: "steady",
+    headline: "A steady day",
+    because: "Nothing in your readings stands out from your usual.",
+  };
+}
 
 export function readToday(d: DaySnapshot, trends?: DayTrends): TodayRead {
   const lines: string[] = [];
@@ -81,20 +156,23 @@ export function readToday(d: DaySnapshot, trends?: DayTrends): TodayRead {
     );
   }
   if (d.sleepMin != null) {
-    lines.push(`You slept ${hoursMinutes(d.sleepMin)}${comparison(d.sleepMin, d.sleepBaseMin)}.`);
+    lines.push(
+      `You slept ${hoursMinutes(d.sleepMin)}${comparison(d.sleepMin, d.sleepBaseMin, hoursMinutes)}.`,
+    );
   }
   if (d.restingHr != null) {
     lines.push(
-      `Recorded resting heart rate: ${d.restingHr} bpm${comparison(d.restingHr, d.restingHrBase)}.`,
+      `Resting heart rate ${d.restingHr} bpm${comparison(d.restingHr, d.restingHrBase, whole)}.`,
     );
   }
   if (d.hrvMs != null) {
-    lines.push(`Recorded HRV (SDNN): ${d.hrvMs} ms${comparison(d.hrvMs, d.hrvBase)}.`);
+    // SDNN and RMSSD are different measures: name them whenever both are on the card.
+    lines.push(
+      `${d.hrvRmssdMs != null ? "HRV (SDNN)" : "HRV"} ${d.hrvMs} ms${comparison(d.hrvMs, d.hrvBase, whole)}.`,
+    );
   }
   if (d.hrvRmssdMs != null) {
-    lines.push(
-      `Recorded HRV (RMSSD): ${d.hrvRmssdMs} ms${comparison(d.hrvRmssdMs, d.hrvRmssdBase)}.`,
-    );
+    lines.push(`HRV (RMSSD) ${d.hrvRmssdMs} ms${comparison(d.hrvRmssdMs, d.hrvRmssdBase, whole)}.`);
   }
   if (!longest && d.weekWorkouts > 0) {
     lines.push(`${d.weekWorkouts} workout${d.weekWorkouts === 1 ? "" : "s"} in the last 7 days.`);
@@ -118,37 +196,63 @@ export function readToday(d: DaySnapshot, trends?: DayTrends): TodayRead {
         trends.moveKcalWeek,
       ].some((values) => values.some((value) => value !== null)))
   ) {
-    lines.push("Your synced measurements are available in your history.");
+    lines.push("Your synced readings are in your day’s charts.");
   }
 
   if (lines.length === 0) {
     return {
       status: "unknown",
-      headline: "No recent readings synced",
-      lines: ["Sync the readings you choose to see your recorded history."],
+      headline: "Nothing synced for today yet",
+      lines: ["Sync the readings you choose and your day shows up here."],
+      ourRead: null,
     };
   }
-  return { status: "observed", headline: "Your recorded activity", lines: lines.slice(0, 3) };
+  const read = ourRead(d);
+  return {
+    status: "observed",
+    headline: read?.headline ?? "Your day so far",
+    lines: lines.slice(0, 3),
+    ourRead: read,
+  };
 }
 
-/** Entered preference match and schedule; no health measurements. */
+/** What a session asks of the member, as far as the day's read cares. */
 export type Candidate = {
   id: string;
   fitsMe: boolean | null;
   startAt: number;
+  activity?: string;
+  anyLevelWelcome?: boolean;
 };
 
+const GENTLE = new Set(["walk", "mobility"]);
+
 /**
- * Prefer entered ability matches, then start time. Exclude known mismatches and
- * describe unknown matches neutrally. Health data is deliberately not an input.
+ * The one session to point at. Entered level and time decide; on a day we read as easy,
+ * a walk, mobility or an "any level welcome" session comes first. Never one known not
+ * to fit. The session list itself is never reordered or hidden by health data.
  */
-export function pickForToday(sessions: Candidate[]): { id: string; why: string } | null {
+export function pickForToday(
+  sessions: Candidate[],
+  effort?: Effort | null,
+): { id: string; why: string } | null {
   const open = sessions.filter((s) => s.fitsMe !== false).sort((a, b) => a.startAt - b.startAt);
   if (open.length === 0) return null;
+  if (effort === "easy") {
+    const gentle =
+      open.find((s) => s.activity !== undefined && GENTLE.has(s.activity)) ??
+      open.find((s) => s.anyLevelWelcome === true);
+    if (gentle) return { id: gentle.id, why: "Gentle enough for today" };
+  }
   const mine = open.find((s) => s.fitsMe === true) ?? open[0];
   return {
     id: mine.id,
-    why: mine.fitsMe === true ? "Matches your entered level" : "Upcoming session",
+    why:
+      mine.fitsMe !== true
+        ? "Coming up"
+        : effort === "ready"
+          ? "At your level, and you’re fresh"
+          : "At your level",
   };
 }
 
