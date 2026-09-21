@@ -2,11 +2,20 @@ import { Link, Redirect, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 
 import { Button, Screen, StateView, T } from "@/components/ui";
+import SignIn from "@/app/sign-in";
+import { useAuth } from "@/lib/auth";
 import { formatWhen } from "@/lib/format";
 import { byId } from "@/lib/lookup";
 import { useInvite, useVenues } from "@/lib/queries";
 
 export default function Invite() {
+  const { signedIn } = useAuth();
+  // The route stays in the stack while authentication changes. Do not request
+  // private invite details until the member has signed in.
+  return signedIn ? <InviteDetails /> : <SignIn hasInvite />;
+}
+
+function InviteDetails() {
   const { code } = useLocalSearchParams<{ code: string }>();
   const invite = useInvite(code);
   const venues = byId(useVenues().data);

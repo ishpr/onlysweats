@@ -12,9 +12,9 @@ import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
 import { api } from "./api";
+import { createPushRegistration, type PushStatus } from "./push-registration";
 
 type Notifications = typeof import("expo-notifications");
-export type PushStatus = "granted" | "denied" | "undetermined" | "unavailable";
 
 const TOKEN_KEY = "samepace.push-token";
 let cached: Notifications | null | undefined;
@@ -52,7 +52,7 @@ export async function pushStatus(): Promise<PushStatus> {
   return status === "denied" && !canAskAgain ? "denied" : "undetermined";
 }
 
-async function register(n: Notifications): Promise<boolean> {
+async function register(n: Notifications): Promise<void> {
   if (Platform.OS === "android") {
     // One channel per kind, so Android's own settings can mute them separately.
     const channels = [
@@ -69,43 +69,51 @@ async function register(n: Notifications): Promise<boolean> {
   }
   const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)
     ?.eas?.projectId;
-  if (!projectId) return false;
+  if (!projectId)
+    throw new Error(
+      "Push notifications aren’t configured in this build. Update the app and try again.",
+    );
   const { data: token } = await n.getExpoPushTokenAsync({ projectId });
   await api("/devices", {
     method: "POST",
     json: { token, platform: Platform.OS === "ios" ? "ios" : "android" },
   });
   await SecureStore.setItemAsync(TOKEN_KEY, token).catch(() => undefined);
-  return true;
 }
+
+const registration = createPushRegistration({
+  permission: async (request) => {
+    const n = load();
+    if (!n || !Device.isDevice) return "unavailable";
+    if (request) await n.requestPermissionsAsync();
+    return pushStatus();
+  },
+  register: async () => {
+    const n = load();
+    if (!n) throw new Error("Notifications aren’t available in this build.");
+    await register(n);
+  },
+});
+
+export const getPushState = registration.getSnapshot;
+export const subscribePush = registration.subscribe;
 
 /** Ask (the system prompt appears once) and register this device. */
-export async function enablePush(): Promise<PushStatus> {
-  const n = load();
-  if (!n || !Device.isDevice) return "unavailable";
-  const { status } = await n.requestPermissionsAsync();
-  if (status !== "granted") return pushStatus();
-  await register(n);
-  return "granted";
-}
+export const enablePush = () => registration.sync(true);
 
-/** On launch: if permission was already given, keep the server's token fresh. Never prompts. */
-export async function syncPush(): Promise<void> {
-  const n = load();
-  if (!n || !Device.isDevice) return;
-  try {
-    if ((await n.getPermissionsAsync()).status === "granted") await register(n);
-  } catch {
-    /* offline, or the push service is unreachable — the next launch retries */
-  }
-}
+/** Launch, foreground or retry: keep the token fresh without prompting. */
+export const syncPush = () => registration.sync();
 
 /** Before signing out: this phone stops getting that member's notifications. */
 export async function unregisterPush(): Promise<void> {
+  // Finish a registration already in flight before removing its saved token.
+  await registration.finishPending();
   const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
-  if (!token) return;
-  await api(`/devices/${encodeURIComponent(token)}`, { method: "DELETE" }).catch(() => undefined);
-  await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => undefined);
+  if (token) {
+    await api(`/devices/${encodeURIComponent(token)}`, { method: "DELETE" }).catch(() => undefined);
+    await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => undefined);
+  }
+  registration.reset();
 }
 
 /** The in-app route a notification carries. Only our own paths are ever opened. */

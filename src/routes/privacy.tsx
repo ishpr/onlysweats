@@ -33,7 +33,7 @@ function Privacy() {
             <li><strong>Reliability.</strong> Strikes, fees and credits recorded on your account under the rules in our Terms.</li>
             <li><strong>Location, once.</strong> When you tap Check in, your phone sends its position so our server can measure the distance to the meeting pin. We record that you checked in and when — not where you were. The app never reads location in the background.</li>
           </ul>
-          <p>We don’t collect your contacts, photos, health data, age (beyond confirming you’re 18 or over), height, weight or relationship status. A training block has no weight goal, and nothing about your workout is logged: the miles it shows are the planned distance of the sessions you checked in to.</p>
+          <p>We don’t collect your contacts, photos, health data, date of birth, height, weight or relationship status. A training block has no weight goal, and nothing about your workout is logged: the miles it shows are the planned distance of the sessions you checked in to.</p>
         </Section>
 
         <Section title="Who sees what">

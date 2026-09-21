@@ -6,18 +6,17 @@ See `../docs/API.md` for the contract.
 
 ## Run it
 
-Start the API first (repo root) on port 8088 — `.claude/launch.json` does that;
-`npm run dev` alone binds 8080, which is often taken locally. By hand:
-`node scripts/with-app-env.mjs node_modules/.bin/vite dev --host 0.0.0.0 --port 8088`.
+Start the API first (repo root): `npm run dev` — serves `/api/v1` on port 8080.
 
 ```bash
 npm install
 npx expo start --ios --android
 ```
 
-The app finds the API at the same host Metro is served from, on port 8088, so
+The app finds the API at the same host Metro is served from, on port 8080, so
 simulators, emulators and phones on the LAN all work. Override with
-`EXPO_PUBLIC_API_URL`.
+`EXPO_PUBLIC_API_URL` if you start the API on a different port (for example,
+`EXPO_PUBLIC_API_URL=http://192.168.1.10:8088`).
 
 ## Sign-in
 
@@ -83,6 +82,10 @@ device and opens the screen a tapped notification points at. The app asks in its
 own words first (Today, once there's a session coming up), then the system prompt.
 Settings live under You → Notifications; Inbox → Activity lists everything sent,
 push or not.
+
+The app refreshes registration on sign-in and whenever it returns to the foreground,
+including after permission changes in Settings. Notification settings distinguish
+permission from successful device registration and offer a retry when registration fails.
 
 Push needs a build that contains the native module, and a real phone — simulators
 and Expo Go can't get a token, and there the app simply reports "not available".

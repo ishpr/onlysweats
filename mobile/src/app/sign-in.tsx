@@ -24,7 +24,7 @@ import {
  * Sign in with Apple or Google — no passwords to make, lose or reuse. The server
  * says which of the two it accepts; the device says which it can do.
  */
-export default function SignIn() {
+export default function SignIn({ hasInvite = false }: { hasInvite?: boolean }) {
   const theme = useTheme();
   const { signInWithToken } = useAuth();
   const config = useQuery({ queryKey: ["auth-config"], queryFn: fetchAuthConfig });
@@ -79,6 +79,9 @@ export default function SignIn() {
       </Appear>
 
       <View style={styles.actions}>
+        {hasInvite && (
+          <Notice>Sign in to open your invite. We’ll bring you back to it here.</Notice>
+        )}
         {error ? <Notice tone="danger">{error}</Notice> : null}
 
         {showApple && (

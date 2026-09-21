@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Alert, Share, StyleSheet, View } from "react-native";
 
 import { venueImage } from "@/components/session-card";
+import { LeaveStandingSlot } from "@/components/leave-standing-slot";
 import { Avatar, Badge, Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
 import { Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
@@ -68,6 +69,8 @@ export default function SessionDetail() {
       (b.status === "pending" || b.status === "confirmed" || b.status === "completed"),
   );
   const requests = isHost ? seats.filter((b) => b.status === "pending") : [];
+  const completed = seats.filter((b) => b.status === "completed");
+  const standingSlot = mine.data?.series.find((slot) => slot.id === session.seriesId);
   const people = byId(mine.data?.people);
   const started = now >= +new Date(session.startAt);
   const liveSeat = isHost
@@ -284,6 +287,25 @@ export default function SessionDetail() {
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
+      {completed.map((b) => (
+        <Card key={b.id}>
+          <T variant="label">
+            Completed with{" "}
+            {isHost
+              ? (people.get(b.participantId)?.name ?? "a member")
+              : (host?.name ?? "the poster")}
+          </T>
+          <Link href={{ pathname: "/live/[id]", params: { id: b.id } }} asChild>
+            <Button
+              variant="soft"
+              label={
+                b.ratedByMe ? "Review session · repeat weekly" : "Rate session · repeat weekly"
+              }
+            />
+          </Link>
+        </Card>
+      ))}
+
       {live && liveSeat ? (
         <Link href={{ pathname: "/live/[id]", params: { id: liveSeat.id } }} asChild>
           <Button variant="accent" label="Open live session" />
@@ -356,6 +378,20 @@ export default function SessionDetail() {
           onPress={hold}
         />
       )}
+      {standingSlot &&
+        (standingSlot.trainingBlockId ? (
+          <Link
+            href={{
+              pathname: "/training-block/[id]",
+              params: { id: standingSlot.trainingBlockId },
+            }}
+            asChild
+          >
+            <Button variant="soft" label="Manage training block" />
+          </Link>
+        ) : (
+          <LeaveStandingSlot seriesId={standingSlot.id} />
+        ))}
     </Screen>
   );
 }

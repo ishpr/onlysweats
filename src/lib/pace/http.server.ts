@@ -13,6 +13,8 @@ import * as safety from "./safety.server";
 import * as svc from "./service.server";
 import * as blocks from "./training-blocks.server";
 import { GOAL_KINDS } from "./types";
+import * as agents from "../agents/service.server";
+import { delegationInput } from "../agents/contracts";
 
 type Ctx = {
   sql: Sql;
@@ -163,6 +165,11 @@ const resolveBody = z.object({
   note: z.string().max(1000).optional(),
 });
 const noteBody = z.object({ note: z.string().trim().min(1).max(1000) });
+const agentId = z.uuid();
+const negotiationBody = z.object({ bookingId: z.string().min(1).max(100) }).strict();
+const consentBody = z.object({ allow: z.boolean() }).strict();
+const confirmationBody = z.object({ revision: z.number().int().min(1) }).strict();
+const emptyAgentBody = z.object({}).strict();
 
 /** Admin routes answer 404 to everyone else — the queue isn't advertised. */
 const admin =
@@ -183,6 +190,45 @@ const OPEN_WHEN_SUSPENDED = new Set([
 ]);
 
 const routes: [method: string, pattern: string, handler: Handler][] = [
+  // Human control uses the same verified member session as the rest of this
+  // API. A scoped sp_agent_ token authenticates only at /api/a2a and cannot
+  // create delegations, opt either member in, or approve a proposal here.
+  ["GET", "/agents/delegations", async ({ sql, userId }) => ({
+    delegations: await agents.listDelegations(sql, userId),
+  })],
+  ["POST", "/agents/delegations", async ({ sql, userId, body }) => ({
+    delegation: await agents.createDelegation(sql, userId, delegationInput.parse(body)),
+  })],
+  ["DELETE", "/agents/delegations/:id", async ({ sql, userId, params, body }) => {
+    emptyAgentBody.parse(body ?? {});
+    await agents.revokeDelegation(sql, userId, agentId.parse(params.id));
+    return { ok: true };
+  }],
+  ["GET", "/agents/negotiations", async ({ sql, userId }) => ({
+    negotiations: (await agents.listNegotiations(sql, userId)).map((room) => agents.view(room)),
+  })],
+  ["POST", "/agents/negotiations", async ({ sql, userId, body }) => ({
+    negotiation: agents.view(
+      await agents.createNegotiation(sql, userId, negotiationBody.parse(body).bookingId),
+    ),
+  })],
+  ["GET", "/agents/negotiations/:id", async ({ sql, userId, params }) => ({
+    negotiation: agents.view(await agents.getNegotiation(sql, userId, agentId.parse(params.id))),
+  })],
+  ["POST", "/agents/negotiations/:id/consent", async ({ sql, userId, params, body }) => ({
+    negotiation: agents.view(
+      await agents.consentToNegotiation(sql, userId, agentId.parse(params.id), consentBody.parse(body).allow),
+    ),
+  })],
+  ["POST", "/agents/negotiations/:id/confirm", async ({ sql, userId, params, body }) => ({
+    negotiation: agents.view(
+      await agents.confirmProposal(sql, userId, agentId.parse(params.id), confirmationBody.parse(body).revision),
+    ),
+  })],
+  ["POST", "/agents/negotiations/:id/cancel", async ({ sql, userId, params, body }) => {
+    emptyAgentBody.parse(body ?? {});
+    return { negotiation: agents.view(await agents.cancelNegotiation(sql, userId, agentId.parse(params.id))) };
+  }],
   ["GET", "/me", async ({ sql, userId, user }) => ({
     ...(await svc.getMe(sql, userId)),
     isAdmin: safety.isAdmin(user),
@@ -428,6 +474,11 @@ function match(pattern: string, path: string): Record<string, string> | null {
 export async function handleApi(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/v1/, "").replace(/\/+$/, "") || "/";
+  // Hide every agent control route before authentication or database work when
+  // the foundation is disabled; deployment defaults to disabled.
+  if ((path === "/agents" || path.startsWith("/agents/")) && process.env.A2A_ENABLED !== "true") {
+    return json({ error: "Not found" }, 404);
+  }
   let found: { handler: Handler; params: Record<string, string>; key: string } | null = null;
   let pathKnown = false;
   for (const [method, pattern, handler] of routes) {
