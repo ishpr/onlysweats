@@ -13,7 +13,15 @@ import {
   type ChatSettings,
 } from "../../../shared/conversation.ts";
 import type { ChatProvider } from "./provider.server.ts";
-import { ChatError, chatResponse, getHistory, setSettings } from "./service.server.ts";
+import {
+  ChatError,
+  chatResponse,
+  getHistory,
+  setSettings,
+  acceptAppTerms,
+  getAppTerms,
+} from "./service.server.ts";
+import { APP_TERMS_VERSION } from "../../../shared/app-terms.ts";
 
 // Opt-in only. Remote runs additionally acknowledge schema-only acceptance;
 // credentials come from the caller's environment and never enter diagnostics.
@@ -220,6 +228,78 @@ test(
       }
       assert.equal((await sql`select name from _migrations`).length, names.length);
       process.env.HEALTH_SYNC_ENABLED = "true";
+
+      await t.test(
+        "simultaneous terms acceptance initializes grants once after a real lock wait",
+        async () => {
+          const id = randomUUID();
+          await sql`insert into "user" (id,name,email,"emailVerified")
+          values (${id},'Terms race fixture',${`${id}@example.test`},true)`;
+          await ensureProfile(sql, { id, name: "Terms race fixture", email: `${id}@example.test` });
+          const held = holdNextOwnerLock(sql);
+          const first = acceptAppTerms(held.sql, id, { version: APP_TERMS_VERSION });
+          const settled = Promise.allSettled([first]);
+          try {
+            const pid = await within(held.locked, "terms acceptance lock");
+            const second = acceptAppTerms(sql, id, { version: APP_TERMS_VERSION });
+            await assertBlocked(sql, pid);
+            held.resume();
+            const [one, two] = await within(
+              Promise.all([first, second]),
+              "terms acceptance receipts",
+            );
+            assert.deepEqual(one, two);
+            const rows = await sql`select * from app_terms_acceptances where user_id=${id}`;
+            assert.equal(rows.length, 1);
+            const settings = (await getHistory(sql, id)).settings;
+            assert.equal(settings.historyUse, "when_relevant");
+            assert.equal(settings.consentReviewed, true);
+            assert.equal(rows[0].assistant_consent_generation, settings.consentGeneration);
+          } finally {
+            held.resume();
+            await settled;
+          }
+        },
+      );
+
+      await t.test(
+        "terms acceptance waiting behind an opt-out cannot reactivate reviewed permissions",
+        async () => {
+          const id = randomUUID();
+          await sql`insert into "user" (id,name,email,"emailVerified")
+          values (${id},'Terms opt-out fixture',${`${id}@example.test`},true)`;
+          await ensureProfile(sql, {
+            id,
+            name: "Terms opt-out fixture",
+            email: `${id}@example.test`,
+          });
+          assert.equal((await getHistory(sql, id)).settings.consentReviewed, false);
+          const held = holdNextOwnerLock(sql);
+          const off = setSettings(held.sql, id, {
+            cloudEnabled: false,
+            fitnessContextEnabled: false,
+            noticeVersion: CHAT_NOTICE_VERSION,
+          });
+          const settled = Promise.allSettled([off]);
+          try {
+            const pid = await within(held.locked, "explicit opt-out lock");
+            const accepting = acceptAppTerms(sql, id, { version: APP_TERMS_VERSION });
+            await assertBlocked(sql, pid);
+            held.resume();
+            const [optedOut, accepted] = await within(
+              Promise.all([off, accepting]),
+              "terms versus opt-out",
+            );
+            assert.equal(accepted.accepted, true);
+            assert.deepEqual((await getHistory(sql, id)).settings, optedOut.settings);
+            assert.equal((await getHistory(sql, id)).settings.cloudEnabled, false);
+            assert.equal((await getAppTerms(sql, id)).accepted, true);
+          } finally {
+            held.resume();
+            await settled;
+          }
+        },
+      );
 
       await t.test(
         "simultaneous turns invoke one provider after a real database lock wait",

@@ -224,6 +224,8 @@ const OPEN_WHEN_SUSPENDED = new Set([
   "PUT /assistant/settings",
   "DELETE /assistant/chat",
   "GET /me",
+  "GET /me/terms",
+  "PUT /me/terms",
   "DELETE /me",
   "POST /devices",
   "DELETE /devices/:token",
@@ -269,6 +271,8 @@ const OPEN_WHEN_SUSPENDED = new Set([
 ]);
 
 const routes: [method: string, pattern: string, handler: Handler][] = [
+  ["GET", "/me/terms", ({ sql, userId }) => conversation.getAppTerms(sql, userId)],
+  ["PUT", "/me/terms", ({ sql, userId, body }) => conversation.acceptAppTerms(sql, userId, body)],
   ["GET", "/fitness/summary", async ({ sql, userId, query }) =>
     ({ summary: await getFitnessActivitySummary(sql, userId, Object.fromEntries(query)) })],
   ["GET", "/assistant/chat", async ({ sql, userId, query }) => {
@@ -1193,7 +1197,7 @@ export async function handleApi(request: Request): Promise<Response> {
   const fitnessRequest = path === "/fitness" || path.startsWith("/fitness/");
   const sessionWorkoutRequest = /^\/sessions\/[^/]+\/workout-plan(?:\/copy)?$/.test(path);
   const agentRequest = path === "/agents" || path.startsWith("/agents/");
-  const conversationRequest = path === "/assistant" || path.startsWith("/assistant/");
+  const conversationRequest = path === "/assistant" || path.startsWith("/assistant/") || path === "/me/terms";
   const privateFitnessRequest = healthRequest || fitnessRequest || conversationRequest || sessionWorkoutRequest;
   const sensitiveRequest =
     privateFitnessRequest ||

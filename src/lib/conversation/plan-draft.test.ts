@@ -47,7 +47,7 @@ describe("structured cloud workout draft boundary", () => {
     const modelDraft = {
       title: "Walking",
       activity: "walk" as const,
-      instructions: "Planned walking intervals.",
+      overview: "Planned walking intervals.",
       exercises: [
         {
           name: "Walk",
@@ -60,6 +60,7 @@ describe("structured cloud workout draft boundary", () => {
       ],
     };
     const normalized = normalizeWorkoutPlanModelDraft(modelDraft);
+    assert.equal(normalized.instructions, modelDraft.overview);
     assert.equal(normalized.exercises[0].durationSeconds, 300);
     assert.equal(normalized.exercises[0].reps, null);
     assert.equal(isAIWorkoutPlanDraft(normalized), true);
@@ -216,7 +217,7 @@ describe("structured cloud workout draft boundary", () => {
     const input = {
       title: "Walk",
       activity: "walk",
-      instructions: "Review first.",
+      overview: "Review first.",
       exercises: [
         {
           name: "Walk",

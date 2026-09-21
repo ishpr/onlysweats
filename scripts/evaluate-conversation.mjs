@@ -227,7 +227,7 @@ export async function evaluateCase(
         failures.push("invalid_preference_draft");
         throw new Error("Invalid draft");
       }
-      return { reviewOffered: true, saved: false, sharingEnabled: false };
+      return { reviewOffered: true, saved: false, sharingChanged: false };
     },
   };
   let timer;
