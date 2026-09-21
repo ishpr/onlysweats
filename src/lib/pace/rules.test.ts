@@ -27,6 +27,7 @@ import {
   slotsUndecided,
   validAbility,
   validBlock,
+  verificationNeeded,
   type BlockFacts,
   type BlockInput,
   type Occurrence,
@@ -430,5 +431,36 @@ describe("the end of a block", () => {
     assert.equal(slotsUndecided("2026-12-13", "2026-12-14"), true);
     assert.equal(slotsUndecided("2026-12-13", "2026-12-27"), true, "day 14");
     assert.equal(slotsUndecided("2026-12-13", "2026-12-28"), false);
+  });
+});
+
+describe("verification", () => {
+  const nobody = { member: false, governmentId: false, idRequired: false };
+  const phoneAndFace = { ...nobody, member: true };
+  const pub = { visibility: "public" as const, womenOnly: false };
+  const invite = { visibility: "unlisted" as const, womenOnly: false };
+
+  it("asks for nothing until it is switched on", () => {
+    assert.equal(verificationNeeded(nobody, pub, false), null);
+    assert.equal(verificationNeeded(nobody, { ...pub, womenOnly: true }, false), null);
+  });
+
+  it("takes a phone and a face for anything public, and nothing for an invite", () => {
+    assert.equal(verificationNeeded(nobody, pub, true), "member");
+    assert.equal(verificationNeeded(phoneAndFace, pub, true), null);
+    assert.equal(verificationNeeded(nobody, invite, true), null);
+  });
+
+  it("takes a government ID for women-only, and after a report is acted on", () => {
+    assert.equal(verificationNeeded(phoneAndFace, { ...pub, womenOnly: true }, true), "government_id");
+    assert.equal(verificationNeeded(nobody, { ...pub, womenOnly: true }, true), "member", "first things first");
+    assert.equal(verificationNeeded(nobody, { ...invite, womenOnly: true }, true), "government_id");
+    const withId = { ...phoneAndFace, governmentId: true };
+    assert.equal(verificationNeeded(withId, { ...pub, womenOnly: true }, true), null);
+
+    const reported = { ...phoneAndFace, idRequired: true };
+    assert.equal(verificationNeeded(reported, pub, true), "government_id");
+    assert.equal(verificationNeeded(reported, invite, true), null, "people who know them still can");
+    assert.equal(verificationNeeded({ ...reported, governmentId: true }, pub, true), null);
   });
 });

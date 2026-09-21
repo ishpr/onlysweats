@@ -589,6 +589,12 @@ export async function adminResolveReport(
     ) {
       await adminRemoveSession(tx, adminEmail, r.session_id, note, now);
     }
+    // One confirmed report: government ID before any more public sessions (PRD §8).
+    if (input.action !== "dismiss") {
+      await tx`
+        update profiles set id_required_at = coalesce(id_required_at, ${at(now)})
+        where id = ${r.reported_id}`;
+    }
     // A report that was acted on takes back any goal credit the reporter gave them.
     if (input.action !== "dismiss") await withdrawCredits(tx, r.reporter_id, r.reported_id);
     await tx`
