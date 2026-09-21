@@ -91,7 +91,7 @@ export function AssistantCoordinationPanel({
             {mine?.valid
               ? `on until ${new Date(mine.expiresAt).toLocaleString()}`
               : "off or needs renewal"}
-            . Your partner’s permission: {partner?.valid ? "on" : "not ready"}.
+            . Your buddy’s permission: {partner?.valid ? "on" : "not ready"}.
           </T>
           {!mine?.valid && canPlan && (
             <>
@@ -159,7 +159,7 @@ export function AssistantCoordinationPanel({
               </T>
               {run.steps.map((step) => (
                 <T key={step.number} variant="caption" color="textSecondary">
-                  {step.memberId === ownerId ? "Your assistant" : "Your partner’s assistant"}:{" "}
+                  {step.memberId === ownerId ? "Your assistant" : "Your buddy’s assistant"}:{" "}
                   {STEP[step.action]} · revision {step.proposalRevision}
                 </T>
               ))}

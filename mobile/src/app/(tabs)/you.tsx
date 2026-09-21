@@ -40,6 +40,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { myLevelLabel } from "@/lib/ability";
 import { type AppearancePref, loadAppearance, saveAppearance } from "@/lib/appearance";
 import { useAuth } from "@/lib/auth";
+import { tidyName } from "@/lib/names";
 import { SITE_URL } from "@/lib/config";
 import { formatUsd, formatWhen } from "@/lib/format";
 import { useMe, useUpdateMe } from "@/lib/queries";
@@ -114,31 +115,30 @@ export default function You() {
         </TrackRings>
         <View style={styles.flex}>
           <T variant="title" numberOfLines={2} style={styles.name}>
-            {p.name}
+            {tidyName(p.name)}
           </T>
           <T variant="caption" color="textSecondary">
-            {p.neighborhood} · since {p.memberSince}
+            Member since {p.memberSince}
           </T>
           <View style={styles.legend}>
             <Legend
               color={theme.move}
               value={String(p.completedCount)}
-              label={`of ${milestone} sessions`}
+              label={p.completedCount === 1 ? "session" : "sessions"}
             />
-            <Legend color={theme.accent} value={rated ? `${p.onTimePct}%` : "—"} label="on time" />
-            <Legend
-              color={theme.stand}
-              value={rated ? `${p.wouldJoinPct}%` : "—"}
-              label="would join again"
-            />
+            {/* A dash reads as broken. These two appear once there's something to say. */}
+            {rated && <Legend color={theme.accent} value={`${p.onTimePct}%`} label="on time" />}
+            {rated && (
+              <Legend color={theme.stand} value={`${p.wouldJoinPct}%`} label="would join again" />
+            )}
           </View>
         </View>
       </Appear>
 
       {!rated && (
         <T variant="caption" color="textSecondary">
-          Your rings fill as you show up. They’re the only thing other members see about you — no
-          photos, no bio.
+          Your rings fill as you show up. Other members see your first name, your level and this
+          record — nothing else.
         </T>
       )}
 
@@ -202,29 +202,15 @@ export default function You() {
         <Row style={styles.between}>
           <T variant="label">Membership</T>
           {p.freeSessionsLeft > 0 && (
-            <View
-              accessible
-              style={styles.dots}
-              accessibilityLabel={`${p.freeSessionsLeft} free sessions left`}
-            >
-              {[0, 1].map((i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.dot,
-                    {
-                      backgroundColor:
-                        i < 2 - p.freeSessionsLeft ? theme.accent : theme.backgroundSelected,
-                    },
-                  ]}
-                />
-              ))}
-            </View>
+            <Badge
+              tone="accent"
+              label={`${p.freeSessionsLeft} free session${p.freeSessionsLeft === 1 ? "" : "s"} left`}
+            />
           )}
         </Row>
         <T variant="caption" color="textSecondary">
           {p.freeSessionsLeft > 0
-            ? `Your first two sessions are free — ${p.freeSessionsLeft} to go. After that it’s $12 a month, and only once your area is busy enough to be worth it.`
+            ? "SamePace is free right now, and your first two sessions always will be. When paid membership starts in your area, we’ll tell you the price first."
             : "Open membership to see your current status and review any session fees."}
         </T>
         <Button variant="soft" label="Membership & fees" onPress={() => router.push("/billing")} />
@@ -250,7 +236,7 @@ export default function You() {
               key={activity}
               icon={icon}
               label={label}
-              value={mine ?? "Set"}
+              value={mine ?? "Add"}
               valueTone={mine ? "muted" : "accent"}
               expanded={open === activity}
               onPress={() => setOpen(open === activity ? null : activity)}
@@ -423,6 +409,4 @@ const styles = StyleSheet.create({
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   wrap: { flexWrap: "wrap", gap: Spacing.one },
   between: { justifyContent: "space-between" },
-  dots: { flexDirection: "row", gap: 6 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
 });

@@ -36,7 +36,7 @@ export function AssistantDiscovery({
   };
   return (
     <Card>
-      <T variant="heading">Meet a new workout partner</T>
+      <T variant="heading">Meet a new workout buddy</T>
       <T variant="caption" color="textSecondary">
         Opt in to find members whose entered workout preferences fit yours. Inviting someone opens a
         planning request; they choose whether to join.
@@ -105,7 +105,7 @@ export function AssistantDiscovery({
                     </>
                   )}
                   <Button
-                    label="Allow partner discovery for 7 days"
+                    label="Allow buddy discovery for 7 days"
                     disabled={action.busy || !preferences?.enabled || !value.eligible}
                     onPress={() =>
                       void action.run(
@@ -129,7 +129,7 @@ export function AssistantDiscovery({
           )}
           {value.enabled && value.candidates.length === 0 && (
             <Notice>
-              No compatible opted-in partners are available right now. You can change your entered
+              No compatible opted-in buddies are available right now. You can change your entered
               times or venues and enable discovery again.
             </Notice>
           )}
@@ -172,7 +172,7 @@ export function AssistantDiscovery({
       {(value?.enabled || discovery.error) && (
         <Button
           variant="ghost"
-          label="Turn off partner discovery"
+          label="Turn off buddy discovery"
           disabled={action.busy}
           onPress={() =>
             void action.run(

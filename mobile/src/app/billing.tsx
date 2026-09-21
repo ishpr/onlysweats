@@ -92,7 +92,7 @@ function Billing({ member, session }: PrivateMemberProps) {
         receive your card details.
       </T>
       {summary.error instanceof ApiError && summary.error.status === 404 ? (
-        <Notice>Billing is not open on this server yet.</Notice>
+        <Notice>Membership and fees aren’t open yet. Nothing can be charged.</Notice>
       ) : (
         (summary.isPending || summary.error) && (
           <StateView
