@@ -1,6 +1,6 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { type ReactNode, useState } from "react";
-import { ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 
 import { AbilityPicker } from "@/components/ability-picker";
 import {
@@ -142,279 +142,320 @@ export default function Post() {
     title.trim().length > 0 && !tooSoon(hour, minute) && !(asBlock && !blockId && !goalReady(goal));
   const venue = venues.find((v) => v.id === venueId);
 
+  // Anything typed or changed from its starting value counts as work worth keeping.
+  const dirty = titleEdit !== null || detail.trim().length > 0 || picked !== null;
+  const close = () => {
+    const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
+    if (!dirty) return leave();
+    Alert.alert("Discard this session?", "What you’ve entered won’t be saved.", [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: leave },
+    ]);
+  };
   return (
-    <Screen
-      edges={["bottom"]}
-      footer={
-        <>
-          {error && <Notice tone="danger">{error.message}</Notice>}
-          <Button
-            variant="accent"
-            label={blockId ? "Add weekly session" : asBlock ? "Post the goal" : "Post session"}
-            loading={busy}
-            disabled={!canPost}
-            onPress={publish}
-          />
-          <T variant="caption" color="textFaint" style={styles.center}>
-            {tooSoon(hour, minute)
-              ? "Pick a start time at least 30 minutes from now."
-              : asBlock && !blockId
-                ? `First one ${formatWhen(start.toISOString())}, then weekly until ${formatDate(goalDateOf(goal))}`
-                : `Starts ${formatWhen(start.toISOString())} · free to post`}
-          </T>
-        </>
-      }
-    >
-      {blockId && parent ? (
-        <Notice>
-          Adding a weekly session to {parent.goalLabel} (ends {formatDate(parent.goalDate)}).
-          Everyone in the group is in it too, and can skip any week for free with 12 hours’ notice.
-        </Notice>
-      ) : (
-        <View
-          style={styles.segment}
-          accessibilityRole="radiogroup"
-          accessibilityLabel="What to post"
-        >
-          <Chip label="One session" selected={!asBlock} onPress={() => setAsBlock(false)} />
-          <Chip label="Train for a goal" selected={asBlock} onPress={() => setAsBlock(true)} />
-        </View>
-      )}
-
-      {/* What you're making, as everyone else will see it. */}
-      <View accessible accessibilityLabel={`Preview: ${title}, ${formatWhen(start.toISOString())}`}>
-        <SessionCardFace
-          session={{
-            activity,
-            title,
-            abilityLabel: abilityLabel(ability),
-            abilityFlex: flexible ? "flexible" : "strict",
-            startAt: start.toISOString(),
-            durationMin,
-            womenOnly,
-            visibility: isUnlisted ? "unlisted" : "public",
-            seatsLeft: capacity - 1,
-            seriesId: asBlock || blockId ? "preview" : null,
-          }}
-          venue={venue}
-        />
-      </View>
-
-      {!blockId && (
-        <View style={styles.section}>
-          <SectionTitle>What</SectionTitle>
-          <View style={styles.wrap} accessibilityRole="radiogroup" accessibilityLabel="Activity">
-            {(Object.keys(ACTIVITIES) as Activity[]).map((a) => (
-              <Chip
-                key={a}
-                label={ACTIVITIES[a].label}
-                selected={activity === a}
-                onPress={() => {
-                  setActivity(a);
-                  setPicked(null);
-                  setDuration(null);
-                  // A marathon isn't a ride: the goal starts over with the activity.
-                  setGoal(DEFAULT_GOAL);
-                }}
-              />
-            ))}
+    <>
+      <Stack.Screen
+        options={{
+          headerLeft: () => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              hitSlop={12}
+              onPress={close}
+              style={styles.close}
+            >
+              <T variant="label">Close</T>
+            </Pressable>
+          ),
+        }}
+      />
+      <Screen
+        edges={["bottom"]}
+        footer={
+          <>
+            {error && <Notice tone="danger">{error.message}</Notice>}
+            <Button
+              variant="accent"
+              label={blockId ? "Add weekly session" : asBlock ? "Post the goal" : "Post session"}
+              loading={busy}
+              disabled={!canPost}
+              onPress={publish}
+            />
+            <T variant="caption" color="textFaint" style={styles.center}>
+              {tooSoon(hour, minute)
+                ? "Pick a start time at least 30 minutes from now."
+                : asBlock && !blockId
+                  ? `First one ${formatWhen(start.toISOString())}, then weekly until ${formatDate(goalDateOf(goal))}`
+                  : `Starts ${formatWhen(start.toISOString())} · free to post`}
+            </T>
+          </>
+        }
+      >
+        {blockId && parent ? (
+          <Notice>
+            Adding a weekly session to {parent.goalLabel} (ends {formatDate(parent.goalDate)}).
+            Everyone in the group is in it too, and can skip any week for free with 12 hours’
+            notice.
+          </Notice>
+        ) : (
+          <View
+            style={styles.segment}
+            accessibilityRole="radiogroup"
+            accessibilityLabel="What to post"
+          >
+            <Chip label="One session" selected={!asBlock} onPress={() => setAsBlock(false)} />
+            <Chip label="Train for a goal" selected={asBlock} onPress={() => setAsBlock(true)} />
           </View>
-        </View>
-      )}
+        )}
 
-      <View style={styles.section}>
-        <SectionTitle>How hard</SectionTitle>
-        <Card>
-          <AbilityPicker value={ability} onChange={setPicked} />
-          {ability.kind !== "open" && (
-            <Row>
-              <View style={styles.flex}>
-                <T>Any level welcome</T>
-                <T variant="caption" color="textSecondary">
-                  I’ll adjust to whoever joins.
-                </T>
-              </View>
-              <Switch
-                accessibilityLabel="Any level welcome"
-                value={flexible}
-                onValueChange={setFlexible}
-                trackColor={{ true: theme.accent, false: theme.backgroundSelected }}
-              />
-            </Row>
-          )}
-        </Card>
-      </View>
-
-      <View style={styles.section}>
-        <SectionTitle>{asBlock || blockId ? "When · the first one" : "When"}</SectionTitle>
-        <Card>
-          <Choice label="Day">
-            {Array.from({ length: 8 }, (_, i) => i + firstDay).map((i) => (
-              <Chip key={i} label={dayLabel(i)} selected={days === i} onPress={() => setDays(i)} />
-            ))}
-          </Choice>
-          <Choice label="Start time · Dallas">
-            {HOURS.filter((h) => !tooSoon(h, 45)).map((h) => (
-              <Chip key={h} label={hourLabel(h)} selected={hour === h} onPress={() => setHour(h)} />
-            ))}
-          </Choice>
-          <Choice label="Minutes past the hour">
-            {MINUTES.map((m) => (
-              <Chip
-                key={m}
-                label={`${hourLabel(hour).replace(/ (AM|PM)/, "")}:${String(m).padStart(2, "0")}`}
-                selected={minute === m}
-                onPress={() => setMinute(m)}
-              />
-            ))}
-          </Choice>
-          <Choice label="How long">
-            {DURATIONS.map((d) => (
-              <Chip
-                key={d}
-                label={formatDuration(d)}
-                selected={durationMin === d}
-                onPress={() => setDuration(d)}
-              />
-            ))}
-          </Choice>
-        </Card>
-      </View>
-
-      <View style={styles.section}>
-        <SectionTitle>Where</SectionTitle>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.venues}
-          accessibilityRole="radiogroup"
-          accessibilityLabel="Place"
+        {/* What you're making, as everyone else will see it. */}
+        <View
+          accessible
+          accessibilityLabel={`Preview: ${title}, ${formatWhen(start.toISOString())}`}
         >
-          {venues.map((v) => {
-            const on = v.id === venueId;
-            return (
-              <PressScale
-                key={v.id}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: on }}
-                accessibilityLabel={`${v.name}, ${v.neighborhood}`}
-                feedback="select"
-                onPress={() => setVenueId(v.id)}
-                style={[
-                  styles.venue,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: on ? theme.accent : theme.border,
-                  },
-                  on && styles.venueOn,
-                ]}
-              >
-                <PhotoCard venue={v} minHeight={120} photoHeight={72} style={styles.venueFill}>
-                  <T variant="label" numberOfLines={2}>
-                    {v.name}
-                  </T>
-                  <T variant="caption" color="textSecondary">
-                    {v.neighborhood}
-                  </T>
-                </PhotoCard>
-              </PressScale>
-            );
-          })}
-        </ScrollView>
-        <T variant="caption" color="textFaint">
-          We’re starting with these public spots in Dallas. You’ll see the exact meeting point once
-          it’s posted, and so will whoever joins.
-        </T>
-      </View>
-
-      {asBlock && !blockId && (
-        <View style={styles.section}>
-          <SectionTitle>The goal</SectionTitle>
-          <GoalPicker activity={activity} value={goal} onChange={setGoal} />
-          <T variant="caption" color="textFaint">
-            Whoever joins is in every week until the date. This is the first weekly session — you
-            can add up to three more afterwards. If nobody joins within two weeks, it’s cancelled.
-          </T>
+          <SessionCardFace
+            session={{
+              activity,
+              title,
+              abilityLabel: abilityLabel(ability),
+              abilityFlex: flexible ? "flexible" : "strict",
+              startAt: start.toISOString(),
+              durationMin,
+              womenOnly,
+              visibility: isUnlisted ? "unlisted" : "public",
+              seatsLeft: capacity - 1,
+              seriesId: asBlock || blockId ? "preview" : null,
+            }}
+            venue={venue}
+          />
         </View>
-      )}
 
-      {!blockId && (
-        <View style={styles.section}>
-          <SectionTitle>Who can join</SectionTitle>
-          <Card>
-            <Choice label="How many buddies?">
-              {[1, 2, 3].map((n) => (
+        {!blockId && (
+          <View style={styles.section}>
+            <SectionTitle>What</SectionTitle>
+            <View style={styles.wrap} accessibilityRole="radiogroup" accessibilityLabel="Activity">
+              {(Object.keys(ACTIVITIES) as Activity[]).map((a) => (
                 <Chip
-                  key={n}
-                  label={String(n)}
-                  selected={capacity === n + 1}
-                  onPress={() => setCapacity(n + 1)}
+                  key={a}
+                  label={ACTIVITIES[a].label}
+                  selected={activity === a}
+                  onPress={() => {
+                    setActivity(a);
+                    setPicked(null);
+                    setDuration(null);
+                    // A marathon isn't a ride: the goal starts over with the activity.
+                    setGoal(DEFAULT_GOAL);
+                  }}
                 />
               ))}
-            </Choice>
-            <Choice label="Who can see it">
-              <Chip
-                label="Anyone at this level"
-                selected={!isUnlisted}
-                onPress={() => setUnlisted(false)}
-              />
-              <Chip
-                label="Only people I send the link to"
-                selected={isUnlisted}
-                onPress={() => setUnlisted(true)}
-              />
-            </Choice>
-            <Choice label="Joining">
-              <Chip label="Join instantly" selected={instant} onPress={() => setInstant(true)} />
-              <Chip
-                label={asBlock ? "We approve each person" : "I approve each person"}
-                selected={!instant}
-                onPress={() => setInstant(false)}
-              />
-            </Choice>
-            {me?.gender === "woman" && (
+            </View>
+          </View>
+        )}
+
+        <View style={styles.section}>
+          <SectionTitle>How hard</SectionTitle>
+          <Card>
+            <AbilityPicker value={ability} onChange={setPicked} />
+            {ability.kind !== "open" && (
               <Row>
                 <View style={styles.flex}>
-                  <T>Women-only</T>
+                  <T>Any level welcome</T>
                   <T variant="caption" color="textSecondary">
-                    Only women can see and join.
+                    I’ll adjust to whoever joins.
                   </T>
                 </View>
                 <Switch
-                  accessibilityLabel="Women-only"
-                  value={womenOnly}
-                  onValueChange={setWomenOnly}
+                  accessibilityLabel="Any level welcome"
+                  value={flexible}
+                  onValueChange={setFlexible}
                   trackColor={{ true: theme.accent, false: theme.backgroundSelected }}
                 />
               </Row>
             )}
           </Card>
         </View>
-      )}
 
-      <View style={styles.section}>
-        <SectionTitle>Name and details</SectionTitle>
-        <Field
-          label="Session name"
-          value={title}
-          onChangeText={setTitle}
-          maxLength={120}
-          placeholder="e.g. Easy 5 miles on the Katy Trail"
-        />
-        <Field
-          label="Details (optional)"
-          value={detail}
-          onChangeText={setDetail}
-          multiline
-          maxLength={1000}
-          placeholder="Route, what to bring, anything a buddy should know"
-        />
-        <T variant="caption" color="textFaint">
-          If someone joins and you cancel within 12 hours it’s $5; not showing up is $10 and a
-          strike. The same applies to them.
-        </T>
-      </View>
-    </Screen>
+        <View style={styles.section}>
+          <SectionTitle>{asBlock || blockId ? "When · the first one" : "When"}</SectionTitle>
+          <Card>
+            <Choice label="Day">
+              {Array.from({ length: 8 }, (_, i) => i + firstDay).map((i) => (
+                <Chip
+                  key={i}
+                  label={dayLabel(i)}
+                  selected={days === i}
+                  onPress={() => setDays(i)}
+                />
+              ))}
+            </Choice>
+            <Choice label="Start time · Dallas">
+              {HOURS.filter((h) => !tooSoon(h, 45)).map((h) => (
+                <Chip
+                  key={h}
+                  label={hourLabel(h)}
+                  selected={hour === h}
+                  onPress={() => setHour(h)}
+                />
+              ))}
+            </Choice>
+            <Choice label="Minutes past the hour">
+              {MINUTES.map((m) => (
+                <Chip
+                  key={m}
+                  label={`${hourLabel(hour).replace(/ (AM|PM)/, "")}:${String(m).padStart(2, "0")}`}
+                  selected={minute === m}
+                  onPress={() => setMinute(m)}
+                />
+              ))}
+            </Choice>
+            <Choice label="How long">
+              {DURATIONS.map((d) => (
+                <Chip
+                  key={d}
+                  label={formatDuration(d)}
+                  selected={durationMin === d}
+                  onPress={() => setDuration(d)}
+                />
+              ))}
+            </Choice>
+          </Card>
+        </View>
+
+        <View style={styles.section}>
+          <SectionTitle>Where</SectionTitle>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.venues}
+            accessibilityRole="radiogroup"
+            accessibilityLabel="Place"
+          >
+            {venues.map((v) => {
+              const on = v.id === venueId;
+              return (
+                <PressScale
+                  key={v.id}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`${v.name}, ${v.neighborhood}`}
+                  feedback="select"
+                  onPress={() => setVenueId(v.id)}
+                  style={[
+                    styles.venue,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: on ? theme.accent : theme.border,
+                    },
+                    on && styles.venueOn,
+                  ]}
+                >
+                  <PhotoCard venue={v} minHeight={120} photoHeight={72} style={styles.venueFill}>
+                    <T variant="label" numberOfLines={2}>
+                      {v.name}
+                    </T>
+                    <T variant="caption" color="textSecondary">
+                      {v.neighborhood}
+                    </T>
+                  </PhotoCard>
+                </PressScale>
+              );
+            })}
+          </ScrollView>
+          <T variant="caption" color="textFaint">
+            We’re starting with these public spots in Dallas. You’ll see the exact meeting point
+            once it’s posted, and so will whoever joins.
+          </T>
+        </View>
+
+        {asBlock && !blockId && (
+          <View style={styles.section}>
+            <SectionTitle>The goal</SectionTitle>
+            <GoalPicker activity={activity} value={goal} onChange={setGoal} />
+            <T variant="caption" color="textFaint">
+              Whoever joins is in every week until the date. This is the first weekly session — you
+              can add up to three more afterwards. If nobody joins within two weeks, it’s cancelled.
+            </T>
+          </View>
+        )}
+
+        {!blockId && (
+          <View style={styles.section}>
+            <SectionTitle>Who can join</SectionTitle>
+            <Card>
+              <Choice label="How many buddies?">
+                {[1, 2, 3].map((n) => (
+                  <Chip
+                    key={n}
+                    label={String(n)}
+                    selected={capacity === n + 1}
+                    onPress={() => setCapacity(n + 1)}
+                  />
+                ))}
+              </Choice>
+              <Choice label="Who can see it">
+                <Chip
+                  label="Anyone at this level"
+                  selected={!isUnlisted}
+                  onPress={() => setUnlisted(false)}
+                />
+                <Chip
+                  label="Only people I send the link to"
+                  selected={isUnlisted}
+                  onPress={() => setUnlisted(true)}
+                />
+              </Choice>
+              <Choice label="Joining">
+                <Chip label="Join instantly" selected={instant} onPress={() => setInstant(true)} />
+                <Chip
+                  label={asBlock ? "We approve each person" : "I approve each person"}
+                  selected={!instant}
+                  onPress={() => setInstant(false)}
+                />
+              </Choice>
+              {me?.gender === "woman" && (
+                <Row>
+                  <View style={styles.flex}>
+                    <T>Women-only</T>
+                    <T variant="caption" color="textSecondary">
+                      Only women can see and join.
+                    </T>
+                  </View>
+                  <Switch
+                    accessibilityLabel="Women-only"
+                    value={womenOnly}
+                    onValueChange={setWomenOnly}
+                    trackColor={{ true: theme.accent, false: theme.backgroundSelected }}
+                  />
+                </Row>
+              )}
+            </Card>
+          </View>
+        )}
+
+        <View style={styles.section}>
+          <SectionTitle>Name and details</SectionTitle>
+          <Field
+            label="Session name"
+            value={title}
+            onChangeText={setTitle}
+            maxLength={120}
+            placeholder="e.g. Easy 5 miles on the Katy Trail"
+          />
+          <Field
+            label="Details (optional)"
+            value={detail}
+            onChangeText={setDetail}
+            multiline
+            maxLength={1000}
+            placeholder="Route, what to bring, anything a buddy should know"
+          />
+          <T variant="caption" color="textFaint">
+            If someone joins and you cancel within 12 hours it’s $5; not showing up is $10 and a
+            strike. The same applies to them.
+          </T>
+        </View>
+      </Screen>
+    </>
   );
 }
 
@@ -443,6 +484,7 @@ const partOfDay = (h: number) =>
 const DURATIONS = [30, 45, 60, 90, 120, 150, 180];
 
 const styles = StyleSheet.create({
+  close: { minHeight: 44, minWidth: 44, justifyContent: "center" },
   section: { gap: Spacing.two },
   segment: { flexDirection: "row", gap: Spacing.one },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.one },

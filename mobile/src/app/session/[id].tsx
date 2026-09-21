@@ -1,11 +1,13 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Clock, Ellipsis, MapPin, Repeat, UserCheck, Users } from "lucide-react-native";
+import { Clock, Flag, MapPin, Repeat, UserCheck, Users } from "lucide-react-native";
 import { type ReactNode, useState } from "react";
-import { Alert, Linking, Platform, Share, StyleSheet, View } from "react-native";
+import { Linking, Platform, Share, StyleSheet, View } from "react-native";
 
+import { ConfirmSheet } from "@/components/confirm-sheet";
 import { LeaveStandingSlot } from "@/components/leave-standing-slot";
-import { PressScale } from "@/components/motion";
+import { OverflowMenu } from "@/components/overflow-menu";
 import { PhotoCard, Tag } from "@/components/session-card";
+import { useToast } from "@/components/toast";
 import { Avatar, Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
@@ -61,6 +63,8 @@ export default function SessionDetail() {
   const [error, setError] = useState("");
   const toVerify = useVerifyGate();
   const [justJoined, setJustJoined] = useState(false);
+  const [confirm, setConfirm] = useState<"join" | "leave" | "cancel" | null>(null);
+  const toast = useToast();
 
   if (!q.data) {
     return (
@@ -104,85 +108,64 @@ export default function SessionDetail() {
   const hostName = firstName(host?.name) ?? "the host";
   const freeUntil = formatWhen(new Date(+new Date(session.startAt) - 12 * 3600_000).toISOString());
 
-  /** Joining is a commitment with a cost attached, so it's said before it's made. */
+  /**
+   * Joining is one tap. The cost is only said up front when it is real: inside the last
+   * 12 hours, leaving after you join costs $5, so that join asks first.
+   */
+  const asking = session.joinMode !== "instant" && !session.substituteSeat;
+  function commitJoin() {
+    book.mutate(
+      { sessionId: session.id, inviteCode: invite },
+      {
+        onError: (e) => {
+          setConfirm(null);
+          fail(e);
+        },
+        onSuccess: () => {
+          setConfirm(null);
+          setJustJoined(true);
+          toast.show({
+            message: asking
+              ? `Asked ${hostName}. You’ll hear back before it starts.`
+              : isLateCancel(session.startAt)
+                ? "You’re in."
+                : `You’re in. Free to leave until ${freeUntil}.`,
+          });
+        },
+      },
+    );
+  }
   function join() {
     setError("");
-    const late = isLateCancel(session.startAt);
-    const asking = session.joinMode !== "instant" && !session.substituteSeat;
-    Alert.alert(
-      asking ? `Ask to join ${session.title}?` : `Join ${session.title}?`,
-      [
-        `${formatWhen(session.startAt)} at ${venue?.name ?? "the meeting point"}.`,
-        asking ? `${hostName} approves each person — you’ll hear back before it starts.` : null,
-        late
-          ? "It’s less than 12 hours away, so leaving after you join costs $5 (waived if someone takes your spot)."
-          : `Free to leave until ${freeUntil}. After that it’s $5, waived if someone takes your spot.`,
-        "Not showing up is $10 and a strike.",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      [
-        { text: "Not now", style: "cancel" },
-        {
-          text: asking ? "Ask to join" : "Join",
-          onPress: () =>
-            book.mutate(
-              { sessionId: session.id, inviteCode: invite },
-              { onError: fail, onSuccess: () => setJustJoined(true) },
-            ),
-        },
-      ],
-    );
+    if (isLateCancel(session.startAt)) setConfirm("join");
+    else commitJoin();
   }
 
+  function commitRelease() {
+    if (!mySeat) return;
+    act.mutate(
+      { bookingId: mySeat.id, action: "cancel" },
+      {
+        onError: (e) => {
+          setConfirm(null);
+          fail(e);
+        },
+        onSuccess: () => setConfirm(null),
+      },
+    );
+  }
   function release() {
     if (!mySeat) return;
-    const late = mySeat.status === "confirmed" && isLateCancel(session.startAt);
-    Alert.alert(
-      session.seriesId
-        ? "Skip this week?"
-        : mySeat.status === "pending"
-          ? "Withdraw your request?"
-          : "Leave this session?",
-      mySeat.status === "pending"
-        ? "No cost."
-        : late
-          ? "It’s less than 12 hours away, so leaving costs $5. It’s waived if someone takes your spot."
-          : session.seriesId
-            ? "Free. Your spot opens to a fill-in for this week, and you stay in the group."
-            : "Free to leave this far ahead.",
-      [
-        { text: "Stay", style: "cancel" },
-        {
-          text: session.seriesId
-            ? "Skip this week"
-            : mySeat.status === "pending"
-              ? "Withdraw"
-              : "Leave",
-          style: "destructive",
-          onPress: () => act.mutate({ bookingId: mySeat.id, action: "cancel" }, { onError: fail }),
-        },
-      ],
-    );
+    // Withdrawing a request costs nothing and changes nothing for anyone: just do it.
+    if (mySeat.status === "pending") {
+      commitRelease();
+      toast.show({ message: "Request withdrawn." });
+    } else setConfirm("leave");
   }
 
-  function closeListing() {
-    Alert.alert(
-      "Cancel this session?",
-      isLateCancel(session.startAt) && seats.some((b) => b.status === "confirmed")
-        ? "It’s less than 12 hours away and someone has joined, so cancelling now costs $5 — the same fee a buddy would pay."
-        : "Free to cancel. Anyone who joined will be told.",
-      [
-        { text: "Keep it", style: "cancel" },
-        {
-          text: "Cancel session",
-          style: "destructive",
-          onPress: () =>
-            cancelListing.mutate(session.id, { onError: fail, onSuccess: () => router.back() }),
-        },
-      ],
-    );
-  }
+  const closeListing = () => setConfirm("cancel");
+  const lateLeave = mySeat?.status === "confirmed" && isLateCancel(session.startAt);
+  const lateCancel = isLateCancel(session.startAt) && seats.some((b) => b.status === "confirmed");
 
   const joined = seats.filter((b) => b.status === "confirmed");
   const checkin = checkinWindow(session.startAt);
@@ -216,25 +199,17 @@ export default function SessionDetail() {
         session.inviteCode ? `${SITE_URL}/invite/${session.inviteCode}` : SITE_URL
       }`,
     });
-  const more = () =>
+  const reportHost = () =>
     host &&
-    Alert.alert(hostName, undefined, [
-      {
-        text: `Report or block ${hostName}`,
-        style: "destructive",
-        onPress: () =>
-          router.push({
-            pathname: "/report",
-            params: {
-              memberId: host.id,
-              name: hostName,
-              sessionId: session.id,
-              bookingId: mySeat?.id ?? "",
-            },
-          }),
+    router.push({
+      pathname: "/report",
+      params: {
+        memberId: host.id,
+        name: hostName,
+        sessionId: session.id,
+        bookingId: mySeat?.id ?? "",
       },
-      { text: "Cancel", style: "cancel" },
-    ]);
+    });
 
   const joinLabel = session.substituteSeat
     ? "Fill in this week"
@@ -291,7 +266,9 @@ export default function SessionDetail() {
           onPress={join}
         />
         <T variant="caption" color="textFaint" style={styles.center}>
-          Free to join · free to leave until {freeUntil}
+          {isLateCancel(session.startAt)
+            ? "Free to join · starts in under 12 hours, so leaving costs $5"
+            : `Free to join · free to leave until ${freeUntil}`}
         </T>
       </>
     );
@@ -411,15 +388,17 @@ export default function SessionDetail() {
               </T>
             </View>
             {!isHost && (
-              <PressScale
-                accessibilityRole="button"
-                accessibilityLabel={`More about ${hostName}: report or block`}
-                onPress={more}
-                style={styles.more}
-                hitSlop={6}
-              >
-                <Ellipsis size={20} color={theme.textSecondary} />
-              </PressScale>
+              <OverflowMenu
+                accessibilityLabel={`More about ${hostName}`}
+                items={[
+                  {
+                    icon: Flag,
+                    label: `Report or block ${hostName}`,
+                    danger: true,
+                    onPress: reportHost,
+                  },
+                ]}
+              />
             )}
           </Row>
         </Card>
@@ -556,6 +535,58 @@ export default function SessionDetail() {
         ) : (
           <LeaveStandingSlot seriesId={standingSlot.id} />
         ))}
+      <ConfirmSheet
+        visible={confirm === "join"}
+        onClose={() => setConfirm(null)}
+        title={asking ? `Ask to join ${session.title}?` : `Join ${session.title}?`}
+        body="It starts in less than 12 hours, so leaving after you join costs $5 — waived if someone takes your spot. Not showing up is $10 and a strike."
+        confirm={{ label: asking ? "Ask to join" : "Join", onPress: commitJoin }}
+        cancelLabel="Not now"
+        busy={book.isPending}
+      />
+      <ConfirmSheet
+        visible={confirm === "leave"}
+        onClose={() => setConfirm(null)}
+        title={session.seriesId ? "Skip this week?" : "Leave this session?"}
+        body={
+          lateLeave
+            ? "It’s less than 12 hours away, so leaving costs $5. It’s waived if someone takes your spot."
+            : session.seriesId
+              ? "Free. Your spot opens to a fill-in for this week, and you stay in the group."
+              : "Free to leave this far ahead."
+        }
+        confirm={{
+          label: session.seriesId ? "Skip this week" : "Leave",
+          danger: true,
+          onPress: commitRelease,
+        }}
+        cancelLabel="Stay"
+        busy={act.isPending}
+      />
+      <ConfirmSheet
+        visible={confirm === "cancel"}
+        onClose={() => setConfirm(null)}
+        title="Cancel this session?"
+        body={
+          lateCancel
+            ? "It’s less than 12 hours away and someone has joined, so cancelling now costs $5 — the same fee a buddy would pay."
+            : "Free to cancel. Anyone who joined will be told."
+        }
+        confirm={{
+          label: "Cancel session",
+          danger: true,
+          onPress: () =>
+            cancelListing.mutate(session.id, {
+              onError: (e) => {
+                setConfirm(null);
+                fail(e);
+              },
+              onSuccess: () => router.back(),
+            }),
+        }}
+        cancelLabel="Keep it"
+        busy={cancelListing.isPending}
+      />
     </Screen>
   );
 }

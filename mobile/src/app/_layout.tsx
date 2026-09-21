@@ -26,6 +26,7 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import { AnimatedSplash } from "@/components/animated-splash";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AppTermsProvider, useAppTermsAccepted } from "@/components/app-terms-gate";
+import { routeSheetOptions } from "@/components/route-sheet";
 import { ToastProvider } from "@/components/toast";
 import { GlobalSheetsProvider } from "@/lib/global-sheets";
 import { loadAppearance } from "@/lib/appearance";
@@ -221,45 +222,36 @@ function ProtectedRoutes({ signedIn }: { signedIn: boolean }) {
         />
         <Stack.Screen
           name="post"
-          options={{
-            title: "New session",
-            presentation: "modal",
-            headerLeft: () => <CloseButton />,
-          }}
+          // A long form: full screen, and it can't be swiped away by accident. Its own
+          // Close asks before discarding (see post.tsx).
+          options={{ title: "New session", presentation: "fullScreenModal", gestureEnabled: false }}
         />
-        <Stack.Screen
-          name="verify"
-          options={{
-            title: "Verification",
-            presentation: "modal",
-            headerLeft: () => <CloseButton />,
-          }}
-        />
+        {/* A destination you can be sent to (a gate, a notification): a normal pushed screen. */}
+        <Stack.Screen name="verify" options={{ title: "Verification" }} />
         <Stack.Screen name="verified" options={{ headerShown: false }} />
         <Stack.Screen name="billing" options={{ title: "Membership & fees" }} />
         <Stack.Screen name="billing-return" options={{ headerShown: false }} />
         <Stack.Screen name="training-block/[id]" options={{ title: "Goal" }} />
-        <Stack.Screen
-          name="training-block/new"
-          options={{ title: "Train for a goal", presentation: "modal" }}
-        />
-        <Stack.Screen
-          name="report"
-          options={{
-            title: "Report or block",
-            presentation: "modal",
-            headerLeft: () => <CloseButton />,
-          }}
-        />
+        <Stack.Screen name="training-block/new" options={routeSheetOptions} />
+        <Stack.Screen name="report" options={routeSheetOptions} />
         <Stack.Screen name="blocked" options={{ title: "Blocked members" }} />
         <Stack.Screen name="activity" options={{ title: "Notifications" }} />
-        <Stack.Screen name="today" options={{ title: "Today", presentation: "modal" }} />
+        <Stack.Screen name="today" options={{ title: "Today" }} />
         <Stack.Screen name="health" options={{ title: "Apple Health" }} />
         <Stack.Screen name="fitness" options={{ title: "Fitness log" }} />
         <Stack.Screen name="workout-plans" options={{ title: "Workout plans" }} />
         <Stack.Screen name="workout-plan/new" options={{ title: "Create a workout" }} />
         <Stack.Screen name="workout-plan/[id]" options={{ title: "Workout plan" }} />
-        <Stack.Screen name="workout-run/[id]" options={{ title: "Your workout" }} />
+        {/* Live: full screen, no swipe-to-dismiss mid-set. */}
+        <Stack.Screen
+          name="workout-run/[id]"
+          options={{
+            title: "Your workout",
+            presentation: "fullScreenModal",
+            gestureEnabled: false,
+            headerLeft: () => <CloseButton />,
+          }}
+        />
         <Stack.Screen name="session-workout/[id]" options={{ title: "Our workout plan" }} />
         <Stack.Screen name="workout/[id]" options={{ title: "Workout details" }} />
         <Stack.Screen name="assistant" options={{ title: "Workout assistant" }} />

@@ -1,14 +1,15 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Ellipsis } from "lucide-react-native";
+import { Flag } from "lucide-react-native";
 import { HeaderHeightContext } from "expo-router/react-navigation";
 import { use, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
 import type { Booking, Session, Person, ChatMessage } from "@/lib/types";
-import { Alert, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { PressScale } from "@/components/motion";
+import { OverflowMenu } from "@/components/overflow-menu";
 import { Avatar, Backdrop, Button, EmptyState, Row, StateView, T } from "@/components/ui";
 import { HitTarget, Radius, Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
@@ -77,25 +78,17 @@ function SessionHistory({ member: me, session: apiSession }: PrivateMemberProps)
   // Back to the session if it's under us, rather than stacking a second copy of it.
   const toSession = () =>
     router.dismissTo({ pathname: "/session/[id]", params: { id: session.id } });
-  const more = () =>
+  const report = () =>
     other &&
-    Alert.alert(otherName, undefined, [
-      {
-        text: `Report or block ${otherName}`,
-        style: "destructive",
-        onPress: () =>
-          router.push({
-            pathname: "/report",
-            params: {
-              memberId: other.id,
-              name: otherName,
-              sessionId: session.id,
-              bookingId: booking.id,
-            },
-          }),
+    router.push({
+      pathname: "/report",
+      params: {
+        memberId: other.id,
+        name: otherName,
+        sessionId: session.id,
+        bookingId: booking.id,
       },
-      { text: "Cancel", style: "cancel" },
-    ]);
+    });
 
   return (
     <SafeAreaView
@@ -120,15 +113,12 @@ function SessionHistory({ member: me, session: apiSession }: PrivateMemberProps)
               </T>
             </View>
           </PressScale>
-          <PressScale
-            accessibilityRole="button"
-            accessibilityLabel={`More about ${otherName}: report or block`}
-            onPress={more}
-            style={styles.more}
-            hitSlop={6}
-          >
-            <Ellipsis size={20} color={theme.textSecondary} />
-          </PressScale>
+          <OverflowMenu
+            accessibilityLabel={`More about ${otherName}`}
+            items={[
+              { icon: Flag, label: `Report or block ${otherName}`, danger: true, onPress: report },
+            ]}
+          />
         </Row>
 
         {(live || booking.status === "completed") && (
