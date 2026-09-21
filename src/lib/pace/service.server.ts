@@ -24,7 +24,6 @@ import {
   canPost,
   canUseCode,
   cancelOutcome,
-  chatOpen,
   checkinWindow,
   clusterDate,
   feeChargeableAt,
@@ -977,8 +976,8 @@ export async function bookSeat(
             kind: "seat_taken",
             category: "sessions",
             title: `${joiner} is in`,
-            body: `${s.title} · ${dayAndTime(s.start_at)}. Say hi and sort out the details.`,
-            url: `/thread/${id}`,
+            body: `${s.title} · ${dayAndTime(s.start_at)}. Review the session details.`,
+            url: `/session/${sessionId}`,
             sessionId,
             bookingId: id,
           }
@@ -994,13 +993,6 @@ export async function bookSeat(
           },
       now,
     );
-    await tx`
-      insert into messages (id, booking_id, from_id, text)
-      values (${newId("m")}, ${id}, ${s.host_id}, ${
-        instant
-          ? "You’re in. The exact pin is on the session. See you there."
-          : "Request received. I’ll confirm if it still fits."
-      })`;
     return id;
   });
   return getBooking(sql, userId, bookingId, now);
@@ -1024,7 +1016,7 @@ const BOOKING_SELECT = `
         and l.kind <> 'show_up_credit') as my_fee_cents
   from bookings b join sessions s on s.id = b.session_id`;
 
-function toBooking(r: BookingJoinRow, now: number): BookingDTO {
+function toBooking(r: BookingJoinRow, _now: number): BookingDTO {
   return {
     id: r.id,
     sessionId: r.session_id,
@@ -1037,11 +1029,7 @@ function toBooking(r: BookingJoinRow, now: number): BookingDTO {
     participantCheckedInAt: iso(r.participant_checked_in_at),
     checkinMethod: r.checkin_method,
     ratedByMe: r.rated_by_me,
-    chatOpen: chatOpen(
-      { status: r.status },
-      { startAt: ms(r.start_at)!, durationMin: r.duration_min },
-      now,
-    ),
+    chatOpen: false,
     myFeeCents: Number(r.my_fee_cents ?? 0),
     seriesId: r.series_id,
   };
@@ -1669,9 +1657,6 @@ export async function ensureNextOccurrence(
     await tx`
       insert into bookings (id, session_id, participant_id, status)
       values (${bookingId}, ${id}, ${member}, 'confirmed')`;
-    await tx`
-      insert into messages (id, booking_id, from_id, text)
-      values (${newId("m")}, ${bookingId}, ${host}, 'Same time next week. See you there.')`;
   }
   for (const member of members) {
     await enqueue(
@@ -1958,38 +1943,15 @@ export async function sendMessage(
   sql: Sql,
   userId: string,
   bookingId: string,
-  text: string,
-  now = Date.now(),
+  _text: string,
+  _now = Date.now(),
 ): Promise<ChatMessage[]> {
-  const r = await threadAccess(sql, userId, bookingId);
-  const open = chatOpen(
-    { status: r.status },
-    { startAt: ms(r.start_at)!, durationMin: r.duration_min },
-    now,
+  await threadAccess(sql, userId, bookingId);
+  throw new PaceError(
+    409,
+    "Chats are handled by your agents. Review their conversation in Chats.",
+    "agent_chat_only",
   );
-  if (!open) throw new PaceError(409, "This thread expired.");
-  if (await blockedBetween(sql, userId, [r.host_id, r.participant_id])) {
-    throw new PaceError(409, "This thread is closed.");
-  }
-  const body = text.trim().slice(0, 2000);
-  if (!body) throw new PaceError(400, "Say something.");
-  await sql`
-    insert into messages (id, booking_id, from_id, text)
-    values (${newId("m")}, ${bookingId}, ${userId}, ${body})`;
-  await enqueue(
-    sql,
-    {
-      profileId: r.host_id === userId ? r.participant_id : r.host_id,
-      kind: "message",
-      category: "messages",
-      title: await firstName(sql, userId),
-      body: body.slice(0, 180),
-      url: `/thread/${bookingId}`,
-      bookingId,
-    },
-    now,
-  );
-  return listMessages(sql, userId, bookingId);
 }
 
 // ── Ratings ──────────────────────────────────────────────────────────────────

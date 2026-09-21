@@ -11,6 +11,7 @@ import {
 } from "../../../shared/conversation.ts";
 import {
   ChatError,
+  acceptAppTerms,
   chatResponse,
   clearHistory,
   getHistory,
@@ -19,6 +20,7 @@ import {
   pruneConversations,
   turnInput,
 } from "./service.server.ts";
+import { APP_TERMS_VERSION } from "../../../shared/app-terms.ts";
 import type { ChatProvider } from "./provider.server.ts";
 import * as health from "../health/service.server.ts";
 import type { HealthConnection, WorkoutRecord } from "../../../shared/health.ts";
@@ -106,6 +108,47 @@ const healthPage = (
 });
 
 describe("private assistant conversations", () => {
+  it("reads current agent matching status without sending contact or inventing a partner count", async () => {
+    const prior = process.env.A2A_ENABLED;
+    process.env.A2A_ENABLED = "true";
+    try {
+      const { id, settings } = await member();
+      await acceptAppTerms(sql, id, { version: APP_TERMS_VERSION });
+      let planning: Record<string, unknown> | undefined;
+      const result = await events(
+        await chatResponse(
+          sql,
+          id,
+          input(settings),
+          signal(),
+          options(async ({ tools, onText }) => {
+            planning = (await tools.planning()) as Record<string, unknown>;
+            await tools.review("discovery");
+            await onText("Review your times and meeting places for automatic matching.");
+          }),
+        ),
+      );
+      assert.deepEqual(planning?.matching, {
+        enabled: true,
+        ready: false,
+        reason:
+          "Save current workout preferences and available times so your agent can find a partner.",
+        needs: "preferences",
+        lastCheckedAt: null,
+      });
+      assert.ok(!Object.hasOwn(planning!, "compatiblePartnerCount"));
+      assert.ok(!Object.hasOwn(planning!, "discoveryEnabled"));
+      assert.equal(
+        (await sql`select 1 from agent_negotiations where host_id=${id} or participant_id=${id}`)
+          .length,
+        0,
+      );
+      assert.ok(JSON.stringify(result).includes("Review automatic matching status"));
+    } finally {
+      if (prior === undefined) delete process.env.A2A_ENABLED;
+      else process.env.A2A_ENABLED = prior;
+    }
+  });
   it("requires explicit current consent, rejects unknown fields, and never calls a disabled provider", async () => {
     const { id, settings } = await member(false);
     let called = false;

@@ -44,6 +44,24 @@ const post = (hostId: string, patch: Partial<svc.PostSessionInput> = {}) =>
 const kindsFor = async (profileId: string) =>
   (await notify.listNotifications(sql, profileId)).notifications.map((x) => x.kind);
 
+/** Previously queued member-message notifications remain deliverable after new DMs are disabled. */
+async function queuedLegacyMessageFixture(
+  recipientId: string,
+  fromId: string,
+  bookingId: string,
+  body: string,
+) {
+  await notify.enqueue(sql, {
+    profileId: recipientId,
+    kind: "message",
+    category: "messages",
+    title: await notify.firstName(sql, fromId),
+    body,
+    url: `/thread/${bookingId}`,
+    bookingId,
+  });
+}
+
 /** A stand-in for Expo's push API that records what it was asked to send. */
 function fakeExpo(reply?: (to: string) => object) {
   const sent: { to: string; title: string; body: string; data: { url: string | null } }[] = [];
@@ -73,15 +91,16 @@ describe("what gets queued", () => {
     await svc.approveBooking(sql, host, seat.id);
     assert.deepEqual(await kindsFor(joiner), ["seat_approved"]);
 
-    await svc.sendMessage(sql, joiner, seat.id, "See you at the trailhead");
+    await queuedLegacyMessageFixture(host, joiner, seat.id, "See you at the trailhead");
     const inbox = await notify.listNotifications(sql, host);
-    assert.equal(inbox.notifications[0].kind, "message");
-    assert.equal(inbox.notifications[0].title, "Ben", "first name only");
-    assert.equal(inbox.notifications[0].url, `/thread/${seat.id}`);
+    const legacyNotice = inbox.notifications.find((notice) => notice.kind === "message");
+    assert.ok(legacyNotice);
+    assert.equal(legacyNotice.title, "Ben", "first name only");
+    assert.equal(legacyNotice.url, `/thread/${seat.id}`);
     assert.equal(inbox.unread, 2);
 
     await svc.cancelBooking(sql, joiner, seat.id);
-    assert.equal((await kindsFor(host))[0], "seat_cancelled");
+    assert.ok((await kindsFor(host)).includes("seat_cancelled"));
 
     await notify.markAllRead(sql, host);
     assert.equal((await notify.listNotifications(sql, host)).unread, 0);
@@ -173,14 +192,14 @@ describe("delivery", () => {
     await svc.updateProfile(sql, host, { notify: { messages: false } });
     const s = await post(host);
     const seat = await svc.bookSeat(sql, joiner, s.id);
-    await svc.sendMessage(sql, joiner, seat.id, "hello");
+    await queuedLegacyMessageFixture(host, joiner, seat.id, "hello");
 
     const expo = fakeExpo();
     const first = await notify.deliverDue(sql, { fetch: expo.fetch });
     assert.equal(first.sent, 1);
     assert.equal(expo.sent[0].to, `ExponentPushToken[${host}]`);
     assert.equal(expo.sent[0].title, "Quin is in");
-    assert.equal(expo.sent[0].data.url, `/thread/${seat.id}`);
+    assert.equal(expo.sent[0].data.url, `/session/${s.id}`);
     // Muted for push, still in the activity list.
     assert.ok((await kindsFor(host)).includes("message"));
 
@@ -215,8 +234,8 @@ describe("delivery", () => {
     const dead = fakeExpo(() => ({ status: "error", details: { error: "DeviceNotRegistered" } }));
     assert.equal((await notify.deliverDue(sql, { fetch: dead.fetch })).failed, 1);
 
-    await svc.sendMessage(
-      sql,
+    await queuedLegacyMessageFixture(
+      host,
       joiner,
       (await svc.listMyBookings(sql, joiner)).bookings[0].id,
       "hi",
@@ -229,8 +248,8 @@ describe("delivery", () => {
       token: `ExponentPushToken[${host}]`,
       platform: "ios",
     });
-    await svc.sendMessage(
-      sql,
+    await queuedLegacyMessageFixture(
+      host,
       joiner,
       (await svc.listMyBookings(sql, joiner)).bookings[0].id,
       "again",

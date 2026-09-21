@@ -18,6 +18,7 @@ import * as agents from "../agents/service.server";
 import * as assistant from "../agents/assistant.server";
 import * as coordination from "../agents/coordination.server";
 import * as discovery from "../agents/discovery.server";
+import * as contacts from "../agents/contact.server";
 import { delegationInput } from "../agents/contracts";
 import * as health from "../health/service.server";
 import { today as healthToday } from "../health/today.server";
@@ -260,6 +261,8 @@ const OPEN_WHEN_SUSPENDED = new Set([
   "GET /agents/delegations",
   "GET /agents/preferences",
   "PUT /agents/preferences",
+  "GET /agents/matching",
+  "PUT /agents/matching",
   "GET /agents/discovery",
   "PUT /agents/discovery",
   "DELETE /agents/delegations/:id",
@@ -367,9 +370,13 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
   [
     "POST",
     "/agents/discovery/invitations",
-    async ({ sql, userId, body }) => ({
-      negotiation: agents.view(await discovery.inviteDiscovery(sql, userId, body)),
-    }),
+    async () => {
+      throw new svc.PaceError(
+        409,
+        "Your agent initiates contact using your saved planning preferences.",
+        "agent_chat_only",
+      );
+    },
   ],
   [
     "GET",
@@ -526,15 +533,43 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
   ],
   [
     "GET",
+    "/agents/matching",
+    async ({ sql, userId }) => ({ matching: await contacts.getAgentMatching(sql, userId) }),
+  ],
+  [
+    "PUT",
+    "/agents/matching",
+    async ({ sql, userId, body }) => ({
+      matching: await contacts.setAgentMatching(sql, userId, body),
+    }),
+  ],
+  [
+    "POST",
+    "/agents/matching/check",
+    async ({ sql, userId, body }) => {
+      z.strictObject({}).parse(body);
+      return { matching: await contacts.checkAgentMatching(sql, userId) };
+    },
+  ],
+  [
+    "GET",
     "/agents/preferences",
     async ({ sql, userId }) => ({ preferences: await assistant.getPreferences(sql, userId) }),
   ],
   [
     "PUT",
     "/agents/preferences",
-    async ({ sql, userId, body }) => ({
-      preferences: await assistant.setPreferences(sql, userId, body),
-    }),
+    async ({ sql, userId, body }) => {
+      const preferences = await assistant.setPreferences(sql, userId, body);
+      // A failed worker does not undo a saved preference. Its revision remains due
+      // for the durable cron scan; no payload or member identity is logged here.
+      try {
+        await contacts.checkAgentMatching(sql, userId);
+      } catch {
+        console.warn("Agent matching deferred to scheduled retry.");
+      }
+      return { preferences };
+    },
   ],
   [
     "GET",
@@ -551,11 +586,14 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
   [
     "POST",
     "/agents/negotiations/:id/proposal",
-    async ({ sql, userId, params, body }) => ({
-      negotiation: agents.view(
-        await agents.proposeForMember(sql, userId, agentId.parse(params.id), body),
-      ),
-    }),
+    async ({ sql, userId, params }) => {
+      await agents.getNegotiation(sql, userId, agentId.parse(params.id));
+      throw new svc.PaceError(
+        409,
+        "Update your planning preferences so your agent can propose a workout.",
+        "agent_chat_only",
+      );
+    },
   ],
   [
     "GET",

@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Clock,
   MapPin,
@@ -29,7 +29,6 @@ export const Route = createFileRoute("/sessions/$id")({
 
 function SessionDetail() {
   const { id } = Route.useParams();
-  const navigate = useNavigate();
   const session = usePaceStore((s) => s.sessions.find((x) => x.id === id));
   const bookings = usePaceStore((s) => s.bookings);
   const bookSeat = usePaceStore((s) => s.bookSeat);
@@ -111,9 +110,6 @@ function SessionDetail() {
     toast.success(
       listing.joinMode === "instant" ? "You’re in. Pin unlocked." : "Request sent. Pin unlocks when the poster approves.",
     );
-    if (listing.joinMode === "instant") {
-      void navigate({ to: "/inbox/$id", params: { id: res.bookingId } });
-    }
   }
 
   return (
@@ -258,13 +254,9 @@ function SessionDetail() {
             Open live session
           </Link>
         ) : mine ? (
-          <Link
-            to="/inbox/$id"
-            params={{ id: mine.id }}
-            className="press glass flex min-h-11 w-full items-center justify-center rounded-full text-[15px] font-medium"
-          >
-            {mine.status === "pending" ? "Request pending" : "Open thread"}
-          </Link>
+          <Button className="w-full" variant="glass" disabled>
+            {mine.status === "pending" ? "Request pending" : "You’re booked"}
+          </Button>
         ) : session.hostId === ME_ID ? (
           <Button className="w-full" variant="glass" disabled>
             You posted this

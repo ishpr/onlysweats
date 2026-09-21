@@ -17,7 +17,7 @@ const NAV: {
 }[] = [
   { to: "/prototype", label: "Today", icon: CalendarDays },
   { to: "/sessions", label: "Sessions", icon: MapPinned, match: "/sessions" },
-  { to: "/inbox", label: "Inbox", icon: MessageCircle, match: "/inbox" },
+  { to: "/inbox", label: "Chats", icon: MessageCircle, match: "/inbox" },
   { to: "/you", label: "You", icon: UserRound, match: "/you" },
 ];
 
@@ -34,9 +34,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [siri, setSiri] = useState(false);
   const bookings = usePaceStore((s) => s.bookings);
   const sessions = usePaceStore((s) => s.sessions);
-  const unread = bookings.filter(
-    (b) => b.participantId === ME_ID && (b.status === "pending" || b.status === "confirmed"),
-  ).length;
 
   const live = sessions.find((s) => {
     const mine = bookings.find(
@@ -79,11 +76,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <item.icon className="size-5" />
                 {item.label}
-                {item.to === "/inbox" && unread > 0 && (
-                  <span className="ml-auto rounded-full bg-move px-1.5 text-[11px] text-fg">
-                    {unread}
-                  </span>
-                )}
               </Link>
             );
           })}

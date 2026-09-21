@@ -43,7 +43,7 @@ function Report({ session }: PrivateMemberProps) {
   const blockOnly = () =>
     Alert.alert(
       `Block ${name}?`,
-      "You won’t see each other’s sessions or be able to message. Any sessions you have together are cancelled at no cost to you. They aren’t told.",
+      "You won’t see each other’s sessions, and your agents cannot contact each other. Any sessions you have together are cancelled at no cost to you. They aren’t told.",
       [
         { text: "Not now", style: "cancel" },
         {

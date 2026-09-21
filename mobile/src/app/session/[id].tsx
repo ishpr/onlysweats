@@ -258,10 +258,8 @@ export default function SessionDetail() {
             <Button
               style={styles.flex}
               variant="soft"
-              label="Chat"
-              onPress={() =>
-                router.push({ pathname: "/thread/[id]", params: { id: joined[0].id } })
-              }
+              label="Agent chats"
+              onPress={() => router.push("/inbox")}
             />
           )}
         </Row>
@@ -269,8 +267,8 @@ export default function SessionDetail() {
     ) : mySeat ? (
       <Button
         variant={mySeat.status === "pending" ? "soft" : "accent"}
-        label={`Chat with ${hostName}`}
-        onPress={() => router.push({ pathname: "/thread/[id]", params: { id: mySeat.id } })}
+        label="Agent chats"
+        onPress={() => router.push("/inbox")}
       />
     ) : regularSeat && session.block ? (
       <Button
@@ -332,7 +330,7 @@ export default function SessionDetail() {
         <Notice>
           {mySeat.status === "pending"
             ? `Request sent. ${hostName} will approve or decline — we’ll tell you either way.`
-            : `You’ve joined. The meeting point is below — say hi to ${hostName} in the chat.`}
+            : "You’ve joined. The meeting point is below. Your agents’ planning conversations are in Chats."}
         </Notice>
       )}
       {error ? <Notice tone="danger">{error}</Notice> : null}

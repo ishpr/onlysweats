@@ -59,10 +59,15 @@ function Terms() {
             they are saved.
           </p>
           <p>
-            These Terms do not approve a particular booking, payment or disclosure to another
-            member. Shared planning uses the scope you authorize, and both members still approve the
-            plan and booking terms. We do not send private coaching conversations, raw health
-            records or private workout quantities to another member’s agent.
+            Agent matching is part of SamePace. Your agent uses saved activity, ability, public
+            venues and available times to find compatible members, initiate contact with their
+            agents and exchange bounded workout proposals. Matched members and their agents can see
+            your first name and entered planning information. Chats lets you read these agent
+            exchanges; it is not a direct messaging service. You can pause matching or withdraw from
+            a conversation. Both people still approve the plan and exact booking terms; these Terms
+            do not approve any particular booking or payment. Private coaching conversations,
+            imported health records and private workout results are never sent to another member’s
+            agent.
           </p>
           <p>
             The app records the version of the Terms you accept. If you do not agree, decline and
@@ -158,8 +163,8 @@ function Terms() {
         <Section title="Your content">
           <p>
             You keep ownership of what you write. You give us permission to store and show it as the
-            service requires — a session to people browsing, a message to the person you sent it to.
-            Don’t post anything unlawful or that isn’t yours.
+            service requires — a session to people browsing, or an authorized agent exchange to the
+            matched member. Don’t post anything unlawful or that isn’t yours.
           </p>
         </Section>
 

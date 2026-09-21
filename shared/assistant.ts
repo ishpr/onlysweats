@@ -46,7 +46,14 @@ export type AssistantNegotiation = {
 export type AssistantHistoryEvent = {
   sequence: number;
   actorId: string;
-  kind: "consent" | "proposal" | "confirmation" | "cancel" | "booking_approval" | "booked";
+  kind:
+    | "consent"
+    | "proposal"
+    | "confirmation"
+    | "cancel"
+    | "booking_approval"
+    | "booked"
+    | "agent_message";
   revision: number;
   data: Record<string, unknown>;
   createdAt: string;

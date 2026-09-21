@@ -230,6 +230,7 @@ export async function deleteAccount(sql: Sql, userId: string, now = Date.now()) 
     await tx`delete from agent_delegations where profile_id = ${userId}`;
     await tx`delete from agent_preferences where profile_id = ${userId}`;
     await tx`delete from agent_discovery_consents where profile_id = ${userId}`;
+    await tx`delete from agent_contact_authorities where profile_id = ${userId}`;
     // Negotiation events cascade with the room; private proposals do not remain
     // attached to the deliberately retained, anonymized history profile.
     await tx`delete from agent_negotiations where host_id = ${userId} or participant_id = ${userId}`;

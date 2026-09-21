@@ -62,8 +62,8 @@ const POINTS: { icon: LucideIcon; title: string; body: string }[] = [
   },
   {
     icon: ShieldCheck,
-    title: "Nothing happens without you",
-    body: "Saving workouts, booking, sharing and payments always ask first. Your private records never go to buddies or their assistants.",
+    title: "Your agent finds workout partners",
+    body: "It uses your saved planning preferences to contact compatible members’ agents. Read their exchanges in Chats or pause matching. Both people still approve the plan and booking; private health records and coach chats stay private.",
   },
   {
     icon: TriangleAlert,

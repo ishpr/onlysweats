@@ -201,7 +201,8 @@ export function requestHandler(
   card: AgentCard,
   now = Date.now(),
 ): A2ARequestHandler {
-  const read = (id: string) => service.getNegotiation(sql, actor.profileId, roomId(id), true);
+  const read = (id: string) =>
+    service.getNegotiation(sql, actor.profileId, roomId(id), true, false, now);
   const noPush = async (): Promise<never> => {
     throw new PushNotificationNotSupportedError();
   };
