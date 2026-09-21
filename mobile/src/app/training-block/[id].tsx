@@ -1,7 +1,8 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Alert, Pressable, Share, StyleSheet, View } from "react-native";
+import { Pressable, Share, StyleSheet, View } from "react-native";
 
+import { ConfirmSheet } from "@/components/confirm-sheet";
 import { BlockEnding } from "@/components/block-ending";
 import { ProgressRing } from "@/components/progress-ring";
 import { ReportLink } from "@/components/report-link";
@@ -42,6 +43,7 @@ export default function TrainingBlockPage() {
   const clone = useCloneTrainingBlock();
   const answer = useResolveBlockRequest();
   const [error, setError] = useState("");
+  const [confirm, setConfirm] = useState<"join" | "leave" | null>(null);
   const toVerify = useVerifyGate();
   // "Verify first" isn't an error to show: it's somewhere to go.
   const fail = (err: Error) => {
@@ -62,44 +64,12 @@ export default function TrainingBlockPage() {
   const mine = block.createdBy === me?.id;
   const byName = new Map(people.map((p) => [p.id, p]));
 
-  function confirmJoin() {
-    const slots = block.slots.length;
-    Alert.alert(
-      block.joinMode === "approve" ? "Ask to join every week?" : "Join every week?",
-      `That’s ${slots === 1 ? "one session" : `${slots} sessions`} a week until ${formatDate(block.goalDate)}. Skip any week free with 12 hours’ notice. Inside that it’s $5, and a no-show is $10 and a strike — each week, the same as any session.`,
-      [
-        { text: "Not now", style: "cancel" },
-        {
-          text: block.joinMode === "approve" ? "Ask to join" : "I’m in",
-          onPress: () => {
-            setError("");
-            join.mutate({ blockId: block.id, inviteCode: invite }, { onError: fail });
-          },
-        },
-      ],
-    );
-  }
+  const confirmJoin = () => setConfirm("join");
   // A report always names a session: the next one these members share.
   const sessionId = block.slots.find((s) => s.nextSessionId)?.nextSessionId ?? undefined;
 
-  function confirmLeave() {
-    Alert.alert(
-      "Leave this goal?",
-      "You leave every weekly session in it. A session less than 12 hours away still costs $5 to leave. With one person left, the goal ends.",
-      [
-        { text: "Stay", style: "cancel" },
-        {
-          text: "Leave",
-          style: "destructive",
-          onPress: () =>
-            leave.mutate(block.id, {
-              onError: (err) => setError(err.message),
-              onSuccess: () => router.back(),
-            }),
-        },
-      ],
-    );
-  }
+  const confirmLeave = () => setConfirm("leave");
+  const slots = block.slots.length;
 
   return (
     <Screen edges={["bottom"]} onRefresh={() => void q.refetch()} refreshing={q.isRefetching}>
@@ -355,6 +325,44 @@ export default function TrainingBlockPage() {
           onPress={confirmLeave}
         />
       )}
+      <ConfirmSheet
+        visible={confirm === "join"}
+        onClose={() => setConfirm(null)}
+        title={block.joinMode === "approve" ? "Ask to join every week?" : "Join every week?"}
+        body={`That’s ${slots === 1 ? "one session" : `${slots} sessions`} a week until ${formatDate(block.goalDate)}. Skip any week free with 12 hours’ notice. Inside that it’s $5, and a no-show is $10 and a strike — each week, the same as any session.`}
+        confirm={{
+          label: block.joinMode === "approve" ? "Ask to join" : "I’m in",
+          onPress: () => {
+            setError("");
+            join.mutate(
+              { blockId: block.id, inviteCode: invite },
+              { onError: fail, onSettled: () => setConfirm(null) },
+            );
+          },
+        }}
+        cancelLabel="Not now"
+        busy={join.isPending}
+      />
+      <ConfirmSheet
+        visible={confirm === "leave"}
+        onClose={() => setConfirm(null)}
+        title="Leave this goal?"
+        body="You leave every weekly session in it. A session less than 12 hours away still costs $5 to leave. With one person left, the goal ends."
+        confirm={{
+          label: "Leave",
+          danger: true,
+          onPress: () =>
+            leave.mutate(block.id, {
+              onError: (err) => {
+                setConfirm(null);
+                setError(err.message);
+              },
+              onSuccess: () => router.back(),
+            }),
+        }}
+        cancelLabel="Stay"
+        busy={leave.isPending}
+      />
     </Screen>
   );
 }
