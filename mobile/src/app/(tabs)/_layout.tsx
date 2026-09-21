@@ -1,7 +1,7 @@
 import { BlurView } from "expo-blur";
 import * as SecureStore from "expo-secure-store";
 import { Tabs, useRouter } from "expo-router";
-import { House, MessageCircle, Plus, Search, UserRound } from "lucide-react-native";
+import { Bot, House, MessageCircle, Search, UserRound } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
@@ -25,10 +25,14 @@ import { haptic } from "@/lib/haptics";
 import { tabBarHidden } from "@/lib/tab-bar-visibility";
 import { Suspended } from "@/components/suspended";
 import { useMe, useMine } from "@/lib/queries";
+import { useAssistantStatus } from "@/components/assistant-hero";
+import { captureApiSession, type ApiSession } from "@/lib/api";
 
+// The assistant sits in the middle: it is what the rest of the app is arranged around.
 const TABS = {
   index: { label: "Home", icon: House },
   sessions: { label: "Find", icon: Search },
+  agent: { label: "Assistant", icon: Bot },
   inbox: { label: "Chats", icon: MessageCircle },
   you: { label: "You", icon: UserRound },
 } as const;
@@ -62,6 +66,7 @@ export default function TabsLayout() {
     <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <TabBar {...props} />}>
       <Tabs.Screen name="index" />
       <Tabs.Screen name="sessions" />
+      <Tabs.Screen name="agent" />
       <Tabs.Screen name="inbox" />
       <Tabs.Screen name="you" />
     </Tabs>
@@ -89,11 +94,27 @@ const Bar = Platform.OS === "ios" ? BlurView : (View as unknown as typeof BlurVi
 
 type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>["tabBar"]>>[0];
 
-/** The web's frosted bottom bar: four tabs, then the white Post button. */
+/** The assistant's needs-you state, for the centre tab. Quiet when it isn't available. */
+function useAssistantNeedsMe(ownerId: string | undefined) {
+  const [session] = useState(captureApiSession);
+  return session && ownerId ? <NeedsMe ownerId={ownerId} session={session} /> : null;
+}
+
+function NeedsMe({ ownerId, session }: { ownerId: string; session: ApiSession }) {
+  const theme = useTheme();
+  const status = useAssistantStatus(ownerId, session);
+  if (status.error || status.data?.state !== "needs_you") return null;
+  return (
+    <View
+      style={[styles.needsMe, { backgroundColor: theme.move, borderColor: theme.background }]}
+    />
+  );
+}
+
+/** The frosted bottom bar: Home, Find, the assistant in the middle, Chats, You. */
 function TabBar({ state, navigation }: TabBarProps) {
   const theme = useTheme();
   const scheme = useColorScheme();
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [barHeight, setBarHeight] = useState(0);
   // Slides out of the way while a long page scrolls down (see lib/tab-bar-visibility).
@@ -104,6 +125,7 @@ function TabBar({ state, navigation }: TabBarProps) {
   const meId = useMe().data?.id;
   const waiting =
     useMine().data?.bookings.filter((b) => b.status === "pending" && b.hostId === meId).length ?? 0;
+  const needsMe = useAssistantNeedsMe(meId);
 
   return (
     <Animated.View
@@ -137,7 +159,9 @@ function TabBar({ state, navigation }: TabBarProps) {
               accessibilityLabel={
                 route.name === "index" && waiting > 0
                   ? `${tab.label}, ${waiting} waiting on you`
-                  : tab.label
+                  : route.name === "agent" && needsMe
+                    ? `${tab.label}, may need you`
+                    : tab.label
               }
               accessibilityState={{ selected: active }}
               style={styles.item}
@@ -156,32 +180,35 @@ function TabBar({ state, navigation }: TabBarProps) {
             >
               <View>
                 <TabIcon active={active}>
-                  <tab.icon size={20} color={color} />
+                  {route.name === "agent" ? (
+                    <View
+                      style={[
+                        styles.centre,
+                        {
+                          backgroundColor: active ? theme.primary : theme.accentSoft,
+                          borderColor: withAlpha(theme.accent, active ? 0 : 0.35),
+                        },
+                      ]}
+                    >
+                      <tab.icon size={18} color={active ? theme.onPrimary : theme.accent} />
+                    </View>
+                  ) : (
+                    <tab.icon size={20} color={color} />
+                  )}
                 </TabIcon>
+                {route.name === "agent" ? needsMe : null}
                 {route.name === "index" && waiting > 0 && (
                   <View style={[styles.dot, { backgroundColor: theme.move }]}>
                     <T style={[styles.dotText, { color: theme.onDanger }]}>{waiting}</T>
                   </View>
                 )}
               </View>
-              <T style={[styles.label, { color }]}>{tab.label}</T>
+              <T style={[styles.label, { color: route.name === "agent" ? theme.accent : color }]}>
+                {tab.label}
+              </T>
             </Pressable>
           );
         })}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Post a session"
-          style={styles.item}
-          onPress={() => {
-            haptic.tap();
-            router.push("/post");
-          }}
-        >
-          <View style={[styles.post, { backgroundColor: theme.primary }]}>
-            <Plus size={16} color={theme.onPrimary} strokeWidth={2.5} />
-          </View>
-          <T style={[styles.label, { color: theme.accent }]}>Post</T>
-        </Pressable>
       </Bar>
     </Animated.View>
   );
@@ -204,12 +231,22 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   label: { fontFamily: Fonts.medium, fontSize: 10, lineHeight: 14 },
-  post: {
-    width: 32,
-    height: 32,
+  centre: {
+    width: 34,
+    height: 34,
     borderRadius: Radius.pill,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  needsMe: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
   },
   dot: {
     position: "absolute",

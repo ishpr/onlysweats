@@ -265,13 +265,13 @@ export function AssistantSpot({ ownerId }: { ownerId: string }) {
   return session ? <Spot ownerId={ownerId} session={session} /> : null;
 }
 
-function Spot({ ownerId, session }: { ownerId: string; session: ApiSession }) {
-  const router = useRouter();
-  const theme = useTheme();
-  const query = useQuery({
+/** What the assistant is doing right now. One cached read, shared by Home and the tab bar. */
+export function useAssistantStatus(ownerId: string, session: ApiSession) {
+  return useQuery({
     queryKey: ["private-assistant", ownerId, "home-status"],
     gcTime: 0,
     retry: false,
+    refetchInterval: 30_000,
     queryFn: async ({ signal }) => {
       const [preferences, discovery, rooms] = await Promise.all([
         session.request<{ preferences: AssistantPreferences }>("/agents/preferences", { signal }),
@@ -290,6 +290,12 @@ function Spot({ ownerId, session }: { ownerId: string; session: ApiSession }) {
       );
     },
   });
+}
+
+function Spot({ ownerId, session }: { ownerId: string; session: ApiSession }) {
+  const router = useRouter();
+  const theme = useTheme();
+  const query = useAssistantStatus(ownerId, session);
   // Buddy-planning availability is independent of the built-in coaching entry.
   const status = query.error ? null : query.data;
   const planning = status && status.state !== "off";
@@ -302,10 +308,10 @@ function Spot({ ownerId, session }: { ownerId: string; session: ApiSession }) {
       accessibilityRole="button"
       accessibilityLabel={`Your workout assistant. ${headline}. ${detail}`}
       onPress={() =>
-        router.push(
+        router.navigate(
           status?.negotiationId
-            ? { pathname: "/assistant", params: { negotiationId: status.negotiationId } }
-            : "/assistant",
+            ? { pathname: "/agent", params: { negotiationId: status.negotiationId } }
+            : "/agent",
         )
       }
       scaleTo={0.98}

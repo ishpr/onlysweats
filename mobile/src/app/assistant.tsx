@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { use, useState } from "react";
 import { View } from "react-native";
 import { ClipboardList, Link2, PauseCircle } from "lucide-react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -8,6 +8,8 @@ import { PrivateAssistantChat } from "@/components/assistant-chat";
 import type { ChatPreferenceDraft } from "../../../shared/conversation";
 import { ActionCard, Segmented } from "@/components/assistant-kit";
 import { AssistantDiscovery } from "@/components/assistant-discovery";
+import { AppHeader } from "@/components/brand";
+import { AssistantPlacement } from "@/lib/assistant-placement";
 import { AssistantHero, assistantStatus } from "@/components/assistant-hero";
 import { Approvals, PlanCard, PlanTrack, TimelineItem } from "@/components/assistant-plan";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
@@ -124,13 +126,16 @@ function Assistant({ member, session }: PrivateMemberProps) {
           `${current.availability.length} ${current.availability.length === 1 ? "time" : "times"}`,
         ]
       : [];
+  const inTab = use(AssistantPlacement) === "tab";
   return (
     <Screen
       key={showPlanning ? "planning" : "chat"}
+      header={inTab ? <AppHeader /> : undefined}
+      hidesTabBar={inTab}
       onRefresh={() => void refresh()}
       refreshing={list.isRefetching}
     >
-      <Stack.Screen options={{ title: "Workout assistant" }} />
+      {inTab ? null : <Stack.Screen options={{ title: "Assistant" }} />}
       {showPlanning && status && (
         <AssistantHero
           status={status}

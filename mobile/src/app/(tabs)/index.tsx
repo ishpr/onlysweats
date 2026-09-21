@@ -2,7 +2,8 @@ import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, MapPin, Repeat, Target } from "lucide-react-native";
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, LiveBanner } from "@/components/brand";
 import { LeaveStandingSlot } from "@/components/leave-standing-slot";
@@ -107,6 +108,17 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ["private-health", meId] }),
     ]);
 
+  // Window, less the status bar, the app header (64), the tab bar (56 + its tucked-in
+  // bottom inset — see (tabs)/_layout) and this screen's top padding.
+  const window = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const firstScreen =
+    window.height -
+    insets.top -
+    64 -
+    (56 + Math.max(Spacing.one, insets.bottom - 18)) -
+    Spacing.half;
+
   return (
     <Screen
       hidesTabBar
@@ -119,81 +131,88 @@ export default function Home() {
         </>
       }
     >
-      <T variant="heading" color="textSecondary">
-        {greeting()}
-        {name ? (
-          <T variant="heading">
-            {", "}
-            {name}
-          </T>
-        ) : null}
-      </T>
+      {/* The first screen: exactly one screenful, centred between the header and the tab
+          bar. What comes after it ("At your level", goals…) only appears on scroll. */}
+      <View style={[styles.first, { minHeight: firstScreen }]}>
+        <T variant="heading" color="textSecondary">
+          {greeting()}
+          {name ? (
+            <T variant="heading">
+              {", "}
+              {name}
+            </T>
+          ) : null}
+        </T>
 
-      {/* Today leads: how the day looks, then what's planned for it. */}
-      {meId && (
-        <TodayCard
-          key={meId}
-          ownerId={meId}
-          sessions={(open.data?.sessions ?? []).filter(
-            (s) => !mineIds.has(s.id) && s.seatsLeft > 0 && +new Date(s.startAt) > now,
-          )}
-        />
-      )}
+        {/* Today leads: how the day looks, then what's planned for it. */}
+        {meId && (
+          <TodayCard
+            key={meId}
+            ownerId={meId}
+            sessions={(open.data?.sessions ?? []).filter(
+              (s) => !mineIds.has(s.id) && s.seatsLeft > 0 && +new Date(s.startAt) > now,
+            )}
+          />
+        )}
 
-      {(!me.data || me.error || mine.error) && (
-        <Button
-          label="Saved workouts on this iPhone"
-          variant="soft"
-          onPress={() => router.push("/workout-plans")}
-        />
-      )}
+        {(!me.data || me.error || mine.error) && (
+          <Button
+            label="Saved workouts on this iPhone"
+            variant="soft"
+            onPress={() => router.push("/workout-plans")}
+          />
+        )}
 
-      {mine.isPending ? (
-        <StateView loading rows={2} />
-      ) : mine.error ? (
-        <StateView error={mine.error} onRetry={refresh} />
-      ) : (
+        {mine.isPending ? (
+          <StateView loading rows={2} />
+        ) : mine.error ? (
+          <StateView error={mine.error} onRetry={refresh} />
+        ) : (
+          <>
+            {/* No real name yet (an email handle, "Member", or all capitals): ask, once, here. */}
+            {nameNeedsFixing(me.data?.name) && <NamePrompt />}
+
+            {next ? (
+              <NextUp plan={next} now={now} withName={otherName(next, people, meId)} />
+            ) : (
+              // Compact, so both ways forward sit above the fold under Today.
+              <Card>
+                <Row style={styles.planRow}>
+                  <View style={[styles.planIcon, { backgroundColor: theme.accentSoft }]}>
+                    <CalendarDays size={20} color={theme.accent} />
+                  </View>
+                  <View style={styles.flex}>
+                    <T variant="label">Nothing planned yet</T>
+                    <T variant="caption" color="textSecondary">
+                      Find a buddy doing your workout at your level — or post yours.
+                    </T>
+                  </View>
+                </Row>
+                <Row>
+                  <Button
+                    style={styles.flex}
+                    variant="soft"
+                    label="Post a session"
+                    onPress={() => router.push("/post")}
+                  />
+                  <Button
+                    style={styles.flex}
+                    variant="accent"
+                    label="Find a session"
+                    onPress={() => router.push("/sessions")}
+                  />
+                </Row>
+              </Card>
+            )}
+
+            {/* The assistant gets its own row: alive when it is working for you. */}
+            {meId && <AssistantSpot key={`assistant-${meId}`} ownerId={meId} />}
+            <TrainingShortcuts />
+          </>
+        )}
+      </View>
+      {!mine.isPending && !mine.error && (
         <>
-          {/* No real name yet (an email handle, "Member", or all capitals): ask, once, here. */}
-          {nameNeedsFixing(me.data?.name) && <NamePrompt />}
-
-          {next ? (
-            <NextUp plan={next} now={now} withName={otherName(next, people, meId)} />
-          ) : (
-            // Compact, so both ways forward sit above the fold under Today.
-            <Card>
-              <Row style={styles.planRow}>
-                <View style={[styles.planIcon, { backgroundColor: theme.accentSoft }]}>
-                  <CalendarDays size={20} color={theme.accent} />
-                </View>
-                <View style={styles.flex}>
-                  <T variant="label">Nothing planned yet</T>
-                  <T variant="caption" color="textSecondary">
-                    Find a buddy doing your workout at your level — or post yours.
-                  </T>
-                </View>
-              </Row>
-              <Row>
-                <Button
-                  style={styles.flex}
-                  variant="soft"
-                  label="Post a session"
-                  onPress={() => router.push("/post")}
-                />
-                <Button
-                  style={styles.flex}
-                  variant="accent"
-                  label="Find a session"
-                  onPress={() => router.push("/sessions")}
-                />
-              </Row>
-            </Card>
-          )}
-
-          {/* The assistant gets its own row: alive when it is working for you. */}
-          {meId && <AssistantSpot key={`assistant-${meId}`} ownerId={meId} />}
-          <TrainingShortcuts />
-
           {!levelSet && (
             <Card>
               <T variant="label">Set your level</T>
@@ -549,6 +568,7 @@ function weeksToGo(goalDate: string) {
 
 const styles = StyleSheet.create({
   content: { paddingTop: Spacing.half, gap: Spacing.two },
+  first: { gap: Spacing.two, justifyContent: "center" },
   planRow: { alignItems: "center", gap: Spacing.two },
   planIcon: {
     width: 44,
