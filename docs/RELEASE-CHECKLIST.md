@@ -15,8 +15,8 @@ The normal `device` build profile includes Watch and requires registered, provis
 - Production has `HEALTH_SYNC_ENABLED`, `A2A_ENABLED` and `JEV_ENABLED` enabled. Environment changes take effect on a subsequent deployment.
 - TypeSafe credentials remain server-only Vercel secrets and protected, ignored local files. Never put them in mobile configuration or a `VITE_` / `EXPO_PUBLIC_` variable.
 - Preview has an isolated schema-only database and separate authentication secret. Rehearse migrations and synthetic member flows there; do not copy production accounts or health records.
-- Migrations serialize with a PostgreSQL advisory lock and run during deployment. Structured workouts require `0029_workout_plans.sql`.
-- Funded Gateway access now passes a synthetic probe. Cloud conversation remains disabled pending live evaluation. Its configured provider requires zero data retention and no prompt training; do not weaken those settings to make a probe pass.
+- Migrations serialize with a PostgreSQL advisory lock and run during deployment. Structured workouts require `0029_workout_plans.sql`; optional manual coaching context and retry receipts require `0030_manual_workout_context.sql` and `0031_workout_run_retry_receipt.sql`.
+- Funded Gateway access and live synthetic conversation/Preview checks pass. Cloud conversation is available with explicit member opt-in; imported summaries and manual-workout history each require their own grant. Its configured provider requires zero data retention and no prompt training; do not weaken those settings to make a probe pass.
 - Stripe collection and billing/Persona enforcement remain off in production. Sandbox setup and provider tests do not constitute a live launch decision.
 
 ## Release verification
@@ -42,4 +42,4 @@ Use disposable accounts and consenting participants. Record the installed build,
 
 ## Remaining launch work
 
-Actual model quality, iPhone/Watch behavior, cloud access, provider edge cases, store configuration and operating ownership remain in the [vision roadmap](VISION-ROADMAP.md). A synthetic cloud restore rehearsal passed; production-scale recovery, retention policy and responsibility still require acceptance. No fixture result establishes general accuracy, physiological suitability or public-launch readiness.
+Representative model quality, iPhone/Watch behavior, provider edge cases, store configuration and operating ownership remain in the [vision roadmap](VISION-ROADMAP.md). A synthetic cloud restore rehearsal passed; production-scale recovery, retention policy and responsibility still require acceptance. No fixture result establishes general accuracy, physiological suitability or public-launch readiness.

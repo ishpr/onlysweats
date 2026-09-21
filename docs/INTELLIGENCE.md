@@ -34,7 +34,7 @@ On September 21, 2026, deployment OIDC authentication and credit lookup worked, 
 
 A later same-day readiness check used one synthetic request with a 16-token maximum, no retries and both privacy flags. It still returned HTTP 403, `paid_credits_required`. The account reported a $5 balance and $0 used before and after; that displayed balance alone does not prove access to this provider configuration. No purchase or feature activation occurred during that check.
 
-After the owner added Gateway credits, a later September 21 probe succeeded with the configured `anthropic/claude-sonnet-5` model, deployment-project OIDC authentication, zero data retention and no prompt training. The synthetic request used 16 input tokens and four output tokens and returned the expected response. A virtual model is not required: the adapter already addresses the model directly through Gateway. Live conversation evaluation remains required before activation.
+After the owner added Gateway credits, a later September 21 probe succeeded with the configured `anthropic/claude-sonnet-5` model, deployment-project OIDC authentication, zero data retention and no prompt training. The synthetic request used 16 input tokens and four output tokens and returned the expected response. A virtual model is not required: the adapter already addresses the model directly through Gateway. The subsequent [live synthetic evaluation](evaluations/cloud-conversation-live-2026-09-21.md) and protected Preview streaming checks passed after correcting the observed instruction issues. Cloud chat is available in this release with explicit member opt-in; representative member and physical-device acceptance remain required.
 
 ## Private API and limits
 
