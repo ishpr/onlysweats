@@ -337,6 +337,21 @@ export default function SessionDetail() {
       )}
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
+      {(isHost || mySeat?.status === "confirmed" || mySeat?.status === "completed") && (
+        <Card>
+          <T variant="heading">Our workout plan</T>
+          <T color="textSecondary">
+            Follow the same exercises and instructions, with your own sets and progress.
+          </T>
+          <Button
+            label="Open workout plan"
+            variant="soft"
+            onPress={() =>
+              router.push({ pathname: "/session-workout/[id]", params: { id: session.id } })
+            }
+          />
+        </Card>
+      )}
       <Card>
         <Fact icon={Clock} label="Level" value={session.abilityLabel}>
           {session.abilityFlex === "flexible"

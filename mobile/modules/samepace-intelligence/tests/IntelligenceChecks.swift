@@ -35,12 +35,43 @@ struct IntelligenceChecks {
       averageHeartRateBpm: nil, activeEnergyKcal: nil, memberNote: nil)
     let facts = try WorkoutEvidenceParser.recapFacts(summary)
     check(facts.count == 2 && !facts.contains(where: { $0.contains("heart") }), "missing measures remain missing")
+    let prescription = LocalWorkoutPlanDraft(title: "Synthetic circuit", activity: "strength", instructions: "Review before saving.",
+      exercises: [LocalPlannedExercise(name: "Squat", instructions: "Controlled movement.", sets: 3, reps: 8, durationSeconds: nil, restSeconds: 60)])
+    _ = try prescription.validated()
+    let prescribedJSON = IntelligenceResult(status: "available", planDraft: prescription, requiresReview: true, modelUsed: true).json()
+    check(prescribedJSON.contains("\"durationSeconds\":null"), "planned missing duration encoded explicitly")
+    check(prescribedJSON.contains("\"requiresReview\":true"), "prescription review boundary")
+    check(!prescribedJSON.contains("startedAt") && !prescribedJSON.contains("weight"), "prescriptions do not invent observations or load")
+    if #available(macOS 26.0, iOS 26.0, *) {
+      let minutes = PlannedExerciseSuggestion(name: "Walk", instructions: "Walk for 25 minutes.", sets: 1,
+        targetUnit: .minutes, targetAmount: 25, restSeconds: 0).prescription()
+      check(minutes.durationSeconds == 1500 && minutes.reps == nil, "code converts planned minutes without labeling them seconds")
+      let seconds = PlannedExerciseSuggestion(name: "Plank", instructions: "Hold for 20 seconds.", sets: 3,
+        targetUnit: .seconds, targetAmount: 20, restSeconds: 60).prescription()
+      check(seconds.durationSeconds == 20 && seconds.reps == nil, "timed holds never become zero repetitions")
+      let repetitions = PlannedExerciseSuggestion(name: "Squat", instructions: "Eight repetitions.", sets: 3,
+        targetUnit: .repetitions, targetAmount: 8, restSeconds: 60).prescription()
+      check(repetitions.reps == 8 && repetitions.durationSeconds == nil, "rep target distinct from duration")
+    }
+    for invalid in [
+      LocalWorkoutPlanDraft(title: "Bad", activity: "strength", instructions: "", exercises: []),
+      LocalWorkoutPlanDraft(title: "Bad", activity: "strength", instructions: "", exercises: [
+        LocalPlannedExercise(name: "Squat", instructions: "", sets: 3, reps: nil, durationSeconds: nil, restSeconds: 60)]),
+      LocalWorkoutPlanDraft(title: "Bad", activity: "strength", instructions: "", exercises: Array(repeating:
+        LocalPlannedExercise(name: "Squat", instructions: "", sets: 20, reps: 8, durationSeconds: nil, restSeconds: 60), count: 7))
+    ] {
+      do { _ = try invalid.validated(); preconditionFailure("invalid prescription accepted") }
+      catch IntelligenceFailure.invalidInput { }
+    }
     let coordinator = IntelligenceCoordinator()
     let invalid = await coordinator.run("{}", onPartial: { _ in preconditionFailure("unexpected progress") })
     check(invalid.contains("invalid_input"), "invalid native request")
     await coordinator.cancel("cancel-before-dispatch")
     let cancelled = await coordinator.run("{\"requestId\":\"cancel-before-dispatch\",\"kind\":\"chat\",\"text\":\"Hi\"}", onPartial: { _ in preconditionFailure("cancelled request emitted text") })
     check(cancelled.contains("cancelled"), "bridge cancellation ordering")
+    await coordinator.cancel("cancel-plan")
+    let cancelledPlan = await coordinator.run("{\"requestId\":\"cancel-plan\",\"kind\":\"plan\",\"text\":\"A short bodyweight circuit\"}", onPartial: { _ in preconditionFailure("cancelled plan emitted text") })
+    check(cancelledPlan.contains("cancelled") && !cancelledPlan.contains("planDraft"), "plan cancellation before model dispatch")
     let pcc = PrivateCloudCoordinator()
     let denied = await pcc.run("{\"requestId\":\"pcc-denied\",\"text\":\"Hi\",\"history\":[],\"allowAppleCloud\":false}", onPartial: { _ in preconditionFailure("unauthorized cloud request") })
     check(denied.contains("cloud_consent_required"), "explicit PCC authorization required")
@@ -82,6 +113,6 @@ struct IntelligenceChecks {
     check(CGImageDestinationFinalize(destination), "synthetic image generation")
     let recognized = try await WorkoutPhotoReader.read(imageURL.absoluteString)
     check(recognized.lowercased().contains("bench press") && recognized.contains("40 kg"), "actual synthetic Vision recognition")
-    print("Intelligence checks passed: evidence bounds, missing facts, cancellation, disabled PCC, file access, and synthetic Vision OCR. No language-model inference performed.")
+    print("Intelligence checks passed: evidence and plan bounds, missing facts, cancellation, disabled PCC, file access, and synthetic Vision OCR. No language-model inference performed.")
   }
 }

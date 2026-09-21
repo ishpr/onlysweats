@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { View } from "react-native";
-import { Link2, PauseCircle } from "lucide-react-native";
+import { ClipboardList, Link2, PauseCircle } from "lucide-react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PrivateAssistantChat } from "@/components/assistant-chat";
 import type { ChatPreferenceDraft } from "../../../shared/conversation";
-import { Segmented } from "@/components/assistant-kit";
+import { ActionCard, Segmented } from "@/components/assistant-kit";
 import { AssistantDiscovery } from "@/components/assistant-discovery";
 import { AssistantHero, assistantStatus } from "@/components/assistant-hero";
 import { Approvals, PlanCard, PlanTrack, TimelineItem } from "@/components/assistant-plan";
@@ -40,6 +40,7 @@ export default function AssistantRoute() {
 
 function Assistant({ member, session }: PrivateMemberProps) {
   useRefreshOnFocus();
+  const router = useRouter();
   const params = useLocalSearchParams<{ negotiationId?: string; capture?: string }>();
   const routeId = typeof params.negotiationId === "string" ? params.negotiationId : null;
   const [selection, setSelection] = useState<{ routeId: string | null; id: string | null }>({
@@ -162,6 +163,12 @@ function Assistant({ member, session }: PrivateMemberProps) {
         ]}
         value={showPlanning ? "plans" : "chat"}
         onChange={(value) => setShowPlanning(value === "plans")}
+      />
+      <ActionCard
+        icon={ClipboardList}
+        title="Build a workout together"
+        note="Create a routine with AI or by hand, then share exercises, sets and instructions with your session."
+        primary={{ label: "Workout plans", onPress: () => router.push("/workout-plans") }}
       />
       {!showPlanning && (
         <PrivateAssistantChat

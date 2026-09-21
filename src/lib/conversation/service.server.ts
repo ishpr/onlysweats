@@ -5,6 +5,8 @@ import { listPublicSessions } from "../pace/service.server.ts";
 import { getPreferences } from "../agents/assistant.server.ts";
 import { getDiscovery } from "../agents/discovery.server.ts";
 import { listWorkouts } from "../health/service.server.ts";
+import { workoutPlanDraftInput } from "./plan-draft.ts";
+import { conversationContext } from "./context.ts";
 import {
   CHAT_NOTICE_VERSION,
   type ChatAction,
@@ -52,6 +54,7 @@ export const turnInput = z
     text: z.string().trim().min(1).max(2000),
     consentGeneration: z.uuid(),
     historyGeneration: z.uuid(),
+    workoutPlanDrafts: z.boolean().optional(),
   })
   .strict();
 export const preferenceDraftInput = z
@@ -93,6 +96,13 @@ const messageView = (r: MessageRow): ChatMessage => ({
   status: r.status,
   createdAt: new Date(r.created_at).toISOString(),
 });
+export const compatibleMessage = (message: ChatMessage, workoutPlanDrafts: boolean): ChatMessage =>
+  workoutPlanDrafts
+    ? message
+    : {
+        ...message,
+        actions: message.actions.filter((action) => action.kind !== "workout_plan"),
+      };
 const settingsView = (r: SettingsRow): ChatSettings => ({
   cloudEnabled: r.cloud_enabled,
   fitnessContextEnabled: r.fitness_context_enabled,
@@ -340,21 +350,16 @@ export async function chatResponse(
         emit({ type: "start", requestId: input.requestId });
         if (reserved.completed) {
           emit({ type: "delta", text: reserved.completed.text });
-          for (const action of reserved.completed.actions) emit({ type: "action", action });
-          emit({ type: "done", message: reserved.completed });
+          const compatible = compatibleMessage(
+            reserved.completed,
+            input.workoutPlanDrafts === true,
+          );
+          for (const action of compatible.actions) emit({ type: "action", action });
+          emit({ type: "done", message: compatible });
           return;
         }
         const history = await getHistory(sql, userId, startedAt);
-        const messages: Pick<ChatMessage, "role" | "text">[] = [];
-        let chars = input.text.length;
-        for (const m of history.messages
-          .filter((m) => m.requestId !== input.requestId && m.status === "complete")
-          .reverse()) {
-          if (chars + m.text.length > 16000 || messages.length >= 19) break;
-          messages.unshift({ role: m.role, text: m.text });
-          chars += m.text.length;
-        }
-        messages.push({ role: "user", text: input.text });
+        const messages = conversationContext(history.messages, input);
         await assertCurrent();
         await withAbort(
           provider({
@@ -368,6 +373,24 @@ export async function chatResponse(
               emit({ type: "delta", text: delta });
             },
             tools: {
+              ...(input.workoutPlanDrafts
+                ? {
+                    draftWorkoutPlan: async (draft: unknown) => {
+                      await toolGuard();
+                      if (actions.some((action) => action.kind === "workout_plan"))
+                        return { reviewOffered: true, saved: false, reason: "One plan per reply." };
+                      const workoutPlanDraft = workoutPlanDraftInput.parse(draft);
+                      await addAction({
+                        kind: "workout_plan",
+                        label: "Review workout plan",
+                        description:
+                          "Check the exercises, sets and instructions before saving your private plan.",
+                        workoutPlanDraft,
+                      });
+                      return { reviewOffered: true, saved: false, shared: false, completed: false };
+                    },
+                  }
+                : {}),
               draftPreferences: async (draft) => {
                 await toolGuard();
                 if (process.env.A2A_ENABLED !== "true") return { available: false };

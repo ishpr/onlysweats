@@ -2,6 +2,7 @@ import { requireOptionalNativeModule } from "expo-modules-core";
 import * as Crypto from "expo-crypto";
 import { Platform } from "react-native";
 import { parseLocalResult } from "../../src/lib/intelligence/validation";
+import { parseLocalWorkoutPlanResult } from "../../src/lib/intelligence/plan-draft";
 import type {
   IntelligenceCapability,
   IntelligenceHistory,
@@ -9,6 +10,7 @@ import type {
   LocalDraftResult,
   LocalFailure,
   LocalTextResult,
+  LocalWorkoutPlanResult,
   WorkoutRecapInput,
 } from "../../src/lib/intelligence/types";
 
@@ -37,6 +39,7 @@ export async function getIntelligenceCapability(): Promise<IntelligenceCapabilit
     available: false,
     reason: absent(),
     photoTextRecognition: false,
+    planDrafting: false,
     execution: "on_device",
   };
   if (!native) return fallback;
@@ -51,6 +54,7 @@ export async function getIntelligenceCapability(): Promise<IntelligenceCapabilit
     return {
       available: r.available,
       photoTextRecognition: r.photoTextRecognition,
+      planDrafting: r.planDrafting === true,
       reason: typeof r.reason === "string" ? r.reason : null,
       execution: "on_device",
     };
@@ -123,6 +127,21 @@ export async function draftPhoto(
   if (!uri.startsWith("file://") || uri.length > 4_096) return failed("error", "image_unavailable");
   const result = await run("photo", { imageUri: uri }, options);
   return typeof result === "string" ? parseLocalResult(result, "draft") : result;
+}
+/** Generates a prescription for review. It does not read health data or create a log. */
+export async function draftWorkoutPlan(
+  note: string,
+  options: IntelligenceOptions = {},
+): Promise<LocalWorkoutPlanResult> {
+  if (options.signal?.aborted) return failed("cancelled", "cancelled");
+  if (!note.trim() || note.length > 1000) return failed("error", "invalid_input");
+  if (!native) return failed("unavailable", absent());
+  const capability = await getIntelligenceCapability();
+  if (options.signal?.aborted) return failed("cancelled", "cancelled");
+  if (!capability.planDrafting) return failed("unavailable", "plan_build_required");
+  if (!capability.available) return failed("unavailable", capability.reason ?? "unavailable");
+  const result = await run("plan", { text: note }, options);
+  return typeof result === "string" ? parseLocalWorkoutPlanResult(result) : result;
 }
 export async function respond(
   text: string,

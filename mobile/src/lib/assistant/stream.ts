@@ -1,4 +1,5 @@
 import type { ChatAction, ChatMessage, ChatEvent } from "../../../../shared/conversation.ts";
+import { isAIWorkoutPlanDraft } from "../../../../shared/workout-plan-draft.ts";
 
 const actionKinds = new Set([
   "preferences",
@@ -7,6 +8,7 @@ const actionKinds = new Set([
   "session",
   "workout",
   "fitness",
+  "workout_plan",
 ]);
 const idPattern = /^[A-Za-z0-9_-]{1,100}$/;
 function record(value: unknown): value is Record<string, unknown> {
@@ -45,6 +47,9 @@ export function isChatAction(value: unknown): value is ChatAction {
     boundedText(value.description, 1000) &&
     (value.preferenceDraft === undefined ||
       (value.kind === "preferences" && isPreferenceDraft(value.preferenceDraft))) &&
+    (value.workoutPlanDraft === undefined ||
+      (value.kind === "workout_plan" && isAIWorkoutPlanDraft(value.workoutPlanDraft))) &&
+    (value.kind !== "workout_plan" || isAIWorkoutPlanDraft(value.workoutPlanDraft)) &&
     (value.targetId === undefined ||
       (typeof value.targetId === "string" && idPattern.test(value.targetId))) &&
     (!["negotiation", "session", "workout"].includes(value.kind) ||

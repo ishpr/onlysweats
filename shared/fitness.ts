@@ -5,6 +5,7 @@ import type {
   FitnessSaveMeasurement,
 } from "./fitness-outcomes.ts";
 import type { WorkoutRecord } from "./health.ts";
+import type { WorkoutPlan, WorkoutRun } from "./workout-plans.ts";
 
 /** Private member-entered fitness data, separate from source measurements. */
 export const EXERCISE_CATALOGUE = [
@@ -104,6 +105,8 @@ export const WORKOUT_INTERPRETATION_LABELS = {
   unclear: "There is not enough clear information to interpret this workout.",
 } as const;
 export type FitnessExportRecord =
+  | { kind: "workout_plan"; value: WorkoutPlan }
+  | { kind: "workout_run"; value: WorkoutRun }
   | { kind: "pilot_outcome"; value: FitnessPilotOutcome }
   | { kind: "strength_log"; value: StrengthLog }
   | { kind: "workout_correction"; value: WorkoutCorrection }

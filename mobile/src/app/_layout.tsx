@@ -225,6 +225,11 @@ function Routes() {
           <Stack.Screen name="today" options={{ title: "Today", presentation: "modal" }} />
           <Stack.Screen name="health" options={{ title: "Apple Health" }} />
           <Stack.Screen name="fitness" options={{ title: "Fitness log" }} />
+          <Stack.Screen name="workout-plans" options={{ title: "Workout plans" }} />
+          <Stack.Screen name="workout-plan/new" options={{ title: "Create a workout" }} />
+          <Stack.Screen name="workout-plan/[id]" options={{ title: "Workout plan" }} />
+          <Stack.Screen name="workout-run/[id]" options={{ title: "Your workout" }} />
+          <Stack.Screen name="session-workout/[id]" options={{ title: "Our workout plan" }} />
           <Stack.Screen name="workout/[id]" options={{ title: "Workout details" }} />
           <Stack.Screen name="assistant" options={{ title: "Workout assistant" }} />
           <Stack.Screen

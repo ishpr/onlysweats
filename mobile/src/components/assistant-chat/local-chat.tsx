@@ -38,6 +38,7 @@ export function useLocalCapability(session: ApiSession) {
             available: false,
             reason: null,
             photoTextRecognition: false,
+            planDrafting: false,
             execution: "on_device",
           });
       });

@@ -516,6 +516,31 @@ Discovery compares a bounded pool of 30 candidates, rotated hourly. Both members
 - Gym sessions matched on `gym_id`, `route_url` in the app.
 - Background checks — see _Verification_ for scope.
 
+## Structured workout plans
+
+All paths below are under `/api/v1`. Member authentication, owner isolation, bounded private JSON handling and no-store responses apply. Delegated A2A credentials confer no access.
+
+| Route | Contract |
+| --- | --- |
+| `GET /fitness/plans` | `limit`, `cursor` → `{plans,nextCursor}`; private templates. |
+| `POST /fitness/plans` | `CreateWorkoutPlanInput` with client UUID → `{plan}`; same-content retries are idempotent. |
+| `GET /fitness/plans/:id` | Owner-only `{plan}`. |
+| `PUT /fitness/plans/:id` | `UpdateWorkoutPlanInput`, including `expectedRevision` → `{plan}`. |
+| `DELETE /fitness/plans/:id` | Delete the private template; existing session/run copies remain. |
+| `GET /sessions/:id/workout-plan` | `SessionWorkoutPlanView`: frozen plan, own run, explicitly shared aggregate progress, `canAttach`. |
+| `PUT /sessions/:id/workout-plan` | Host review `{planId,expectedPlanRevision}` → updated view. First plan before start, including already booked meetups. No silent replacement. |
+| `DELETE /sessions/:id/workout-plan` | Host review `{expectedPlanId,expectedPlanRevision}` → updated view; only before other bookings/start. |
+| `POST /sessions/:id/workout-plan/copy` | `{id,expectedPlanId,expectedPlanRevision}` → a new private `{plan}`. |
+| `GET /fitness/runs` | `limit`, `cursor` → owner-only `{runs,nextCursor}`. |
+| `POST /fitness/runs` | `{id,sessionId,expectedPlanId,expectedPlanRevision}` or `{id,planId,expectedPlanRevision}` → `{run}` with no actual results. |
+| `GET /fitness/runs/:id` | Owner-only `{run}` including its fixed prescription. |
+| `PUT /fitness/runs/:id` | `UpdateWorkoutRunInput`: current revision, explicit actual `results`, note, sharing choice, finish choice → `{run}`. |
+| `DELETE /fitness/runs/:id` | Remove own results and shared progress summary. |
+
+Types and bounds are in `shared/workout-plans.ts` and `src/lib/workout-plans/contracts.ts`. `GET /fitness/export` includes paginated `workout_plan` and `workout_run` records. No run changes attendance, booking credits or HealthKit measurements.
+
+Cloud chat clients supporting structured plans send `workoutPlanDrafts:true` in a turn and `?workoutPlanDrafts=true` when reading history. The optional `draftWorkoutPlan` model tool only creates a private review card, never a saved or shared plan. Older clients do not receive this action kind.
+
 ## Local dev
 
 `npm run dev` with no `DATABASE_URL` runs an in-memory Postgres (PGLite): data

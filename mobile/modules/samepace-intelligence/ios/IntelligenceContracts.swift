@@ -4,6 +4,7 @@ struct IntelligenceCapability: Codable, Sendable {
   var available: Bool
   var reason: String?
   var photoTextRecognition = true
+  var planDrafting = true
   var execution = "on_device"
 }
 
@@ -57,6 +58,8 @@ struct IntelligenceResult: Encodable, Sendable {
   var reason: String?
   var text: String?
   var draft: LocalWorkoutDraft?
+  var planDraft: LocalWorkoutPlanDraft?
+  var requiresReview: Bool?
   var modelUsed = false
   let execution = "on_device"
 
@@ -65,6 +68,52 @@ struct IntelligenceResult: Encodable, Sendable {
       return "{\"status\":\"error\",\"reason\":\"unavailable\",\"execution\":\"on_device\"}"
     }
     return value
+  }
+}
+
+/// A future prescription, never a sensor fact, saved log, or executed action.
+struct LocalPlannedExercise: Codable, Sendable {
+  let name: String
+  let instructions: String
+  let sets: Int
+  let reps: Int?
+  let durationSeconds: Int?
+  let restSeconds: Int
+
+  // JavaScript requires explicit nulls to distinguish missing and malformed fields.
+  func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(name, forKey: .name)
+    try c.encode(instructions, forKey: .instructions)
+    try c.encode(sets, forKey: .sets)
+    try c.encode(reps, forKey: .reps)
+    try c.encode(durationSeconds, forKey: .durationSeconds)
+    try c.encode(restSeconds, forKey: .restSeconds)
+  }
+}
+
+struct LocalWorkoutPlanDraft: Codable, Sendable {
+  let title: String
+  let activity: String
+  let instructions: String
+  let exercises: [LocalPlannedExercise]
+
+  func validated() throws -> LocalWorkoutPlanDraft {
+    let nonempty = { (value: String) in !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    guard nonempty(title), title.utf16.count <= 120,
+          ["run", "walk", "hike", "ride", "strength", "mobility"].contains(activity),
+          instructions.utf16.count <= 1000, (1...12).contains(exercises.count),
+          exercises.allSatisfy({ exercise in
+            nonempty(exercise.name) && exercise.name.utf16.count <= 100 &&
+            exercise.instructions.utf16.count <= 500 && (1...20).contains(exercise.sets) &&
+            (exercise.reps == nil || (1...1000).contains(exercise.reps!)) &&
+            (exercise.durationSeconds == nil || (1...86400).contains(exercise.durationSeconds!)) &&
+            (0...3600).contains(exercise.restSeconds) &&
+            (exercise.reps != nil || exercise.durationSeconds != nil)
+          }), exercises.reduce(0, { $0 + $1.sets }) <= 120 else {
+      throw IntelligenceFailure.invalidInput
+    }
+    return self
   }
 }
 
