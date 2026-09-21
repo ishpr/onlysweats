@@ -1,6 +1,6 @@
 # Workout reliability — September 21, 2026
 
-This functional pass builds on `21a68a8` on `main`, including Claude's PR #39. It changes timer recovery and imported-health freshness without a design pass. All data used below is synthetic and confined to disposable test databases, unsaved native fixtures or a local acceptance service. No member health records, production workout results, live bookings, payments or provider calls were created by these checks.
+This functional pass builds on `21a68a8` on `main`, including Claude's PR #39. It changes timer recovery and imported-health freshness without a design pass. Claude’s subsequent PRs #42 and #43 were merged unchanged before release; mobile types and iOS export passed again, and a clean simulator launch reached the finished workout through the new Assistant tab. All data used below is synthetic and confined to disposable test databases, unsaved native fixtures or a local acceptance service. No member health records, production workout results, live bookings, payments or provider calls were created by these checks.
 
 ## Durable timer and offline store checks
 
@@ -57,6 +57,12 @@ This proves protocol/service composition with synthetic members. It is not a liv
 These rendered checks exercised native protected storage across JavaScript runtime reloads, not an OS process kill or physical-device data-protection behavior. They do not replace the remaining physical acceptance below.
 
 Full test, type and lint logs are retained locally under `.vercel/reliability-acceptance/`; they are not committed. The real-PostgreSQL runner records test-schema cleanup and removes its disposable container when finished.
+
+## Signed development client
+
+[Build 279cd6e8](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/279cd6e8-01eb-4f63-a1bd-2ca453555125) is the signed internal physical-iPhone client, built locally with Xcode 27 using `device-phone`, uploaded through the official EAS CLI and verified as finished. Its source tree matches merged PR #44 (`caeb0d7`). App/widget signatures, the existing registered-device set, HealthKit and iOS 27 capabilities were checked; the unprovisioned Watch target is excluded. SHA-256: `0d54598898b6c4918ce1a7ffce7b54c0346f11dc9057000ef323348cba6da7b8`.
+
+This is a development client without embedded JavaScript. The release checkout on main serves the application through Expo port 8098 with the live API and no synthetic development token. Simulator testing used a separate loopback-only API and temporary Expo server; both were stopped, its completed synthetic device copy was removed, and Device Hub was returned to the physical iPhone. The new native build still needs installation and physical acceptance; simulator results do not establish either.
 
 ## Remaining physical acceptance
 
