@@ -4,7 +4,14 @@
  * assistant looks like one thing: bubbles, a typing state, reviewable action cards,
  * a composer, and a two-way switch. See docs/audits/design-handoff-assistant.md.
  */
-import { ArrowUp, ChevronDown, ChevronRight, Square, type LucideIcon } from "lucide-react-native";
+import {
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  SlidersHorizontal,
+  Square,
+  type LucideIcon,
+} from "lucide-react-native";
 import { useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import Animated, {
@@ -289,6 +296,32 @@ export function ActionCard({
   );
 }
 
+/** The message box with its options button beside it — what the dock holds. */
+export function ComposerRow({
+  onOptions,
+  optionsLabel = "Chat options",
+  children,
+}: {
+  onOptions: () => void;
+  optionsLabel?: string;
+  children: ReactNode;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.composerRow}>
+      <PressScale
+        accessibilityRole="button"
+        accessibilityLabel={optionsLabel}
+        onPress={onOptions}
+        style={[styles.options, { backgroundColor: theme.field, borderColor: theme.border }]}
+      >
+        <SlidersHorizontal size={18} color={theme.textSecondary} />
+      </PressScale>
+      <View style={styles.flex}>{children}</View>
+    </View>
+  );
+}
+
 /** The message box: one glass pill, a round send button that turns into stop. */
 export function Composer({
   value,
@@ -405,6 +438,16 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 10,
     paddingVertical: 2,
+  },
+  composerRow: { flexDirection: "row", alignItems: "flex-end", gap: Spacing.one },
+  options: {
+    width: HitTarget,
+    height: HitTarget,
+    borderRadius: HitTarget / 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.one,
   },
   composer: {
     flexDirection: "row",

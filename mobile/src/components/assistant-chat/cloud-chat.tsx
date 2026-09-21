@@ -18,9 +18,12 @@ import {
   ChatBubble,
   CoachNotes,
   Composer,
+  ComposerRow,
   TypingDots,
 } from "@/components/assistant-kit";
-import { ListCard, ListRow, SectionTitle } from "@/components/list";
+import { ListCard, ListRow } from "@/components/list";
+import { Sheet } from "@/components/sheet";
+import { ComposerPortal } from "@/lib/composer-slot";
 import { Spacing } from "@/constants/theme";
 import { Button, Notice, Row, StateView, T } from "@/components/ui";
 import { usePrivateAction } from "@/hooks/use-private-action";
@@ -121,6 +124,7 @@ function CloudConversation({
   const control = usePrivateAction(session);
   const runner = useMemo(() => createAssistantRun(session.isCurrent), [session]);
   const [text, setText] = useState("");
+  const [showOptions, setShowOptions] = useState(false);
   const [busy, setBusy] = useState(false);
   const [partial, setPartial] = useState("");
   const [pendingUser, setPendingUser] = useState<ChatMessage | null>(null);
@@ -435,147 +439,162 @@ function CloudConversation({
         />
       )}
       {settings?.cloudEnabled && (
-        <Composer
-          value={text}
-          onChangeText={(value) => setText(value.slice(0, 2000))}
-          onSend={() => send()}
-          onStop={stop}
-          streaming={busy}
-          placeholder="Ask your coach"
-          disabled={busy || control.busy || !settings?.cloudEnabled || !settings.providerAvailable}
-        />
+        <ComposerPortal>
+          <ComposerRow onOptions={() => setShowOptions(true)}>
+            <Composer
+              value={text}
+              onChangeText={(value) => setText(value.slice(0, 2000))}
+              onSend={() => send()}
+              onStop={stop}
+              streaming={busy}
+              placeholder="Ask your coach"
+              disabled={
+                busy || control.busy || !settings?.cloudEnabled || !settings.providerAvailable
+              }
+            />
+          </ComposerRow>
+        </ComposerPortal>
       )}
-      <SectionTitle>Controls</SectionTitle>
-      <ListCard>
-        <ListRow
-          icon={ShieldCheck}
-          label="Privacy choices"
-          value={
-            permissionsUnconfirmed
-              ? control.busy
-                ? "Updating"
-                : "Needs refresh"
-              : settings?.cloudEnabled
-                ? "Coaching on"
-                : "Coaching off"
-          }
-          expanded={showPermissions}
-          onPress={() => setShowPermissions((value) => !value)}
-        >
-          {settings && (
-            <View style={{ gap: Spacing.two }}>
-              <T variant="caption" color="textSecondary">
-                {CHAT_CONSENT_NOTICE}
-              </T>
-              <Row style={{ justifyContent: "space-between" }}>
-                <T variant="label" style={{ flex: 1 }}>
-                  Enable coaching
+      <Sheet
+        visible={showOptions}
+        onClose={() => setShowOptions(false)}
+        title="Chat options"
+        subtitle="Privacy, clearing this chat, and switching to on-device help."
+      >
+        <ListCard>
+          <ListRow
+            icon={ShieldCheck}
+            label="Privacy choices"
+            value={
+              permissionsUnconfirmed
+                ? control.busy
+                  ? "Updating"
+                  : "Needs refresh"
+                : settings?.cloudEnabled
+                  ? "Coaching on"
+                  : "Coaching off"
+            }
+            expanded={showPermissions}
+            onPress={() => setShowPermissions((value) => !value)}
+          >
+            {settings && (
+              <View style={{ gap: Spacing.two }}>
+                <T variant="caption" color="textSecondary">
+                  {CHAT_CONSENT_NOTICE}
                 </T>
-                <Switch
-                  accessibilityLabel="Enable SamePace coaching"
-                  value={settings.cloudEnabled}
-                  disabled={control.busy}
-                  onValueChange={(enabled) => changePermissions("cloudEnabled", enabled)}
-                />
-              </Row>
-              <T variant="caption" color="textSecondary">
-                {settings.historyUse === "when_relevant"
-                  ? "Allow up to five recent imported workout summaries when relevant to coaching, including recorded duration, distance, energy and heart-rate summary when available. These are sent to Vercel AI Gateway and its AI providers. Raw samples, sleep and HRV history are excluded. Turning this off clears the conversation. Removing imported health data also clears conversations that used these summaries."
-                  : CHAT_FITNESS_NOTICE}
-              </T>
-              <Row style={{ justifyContent: "space-between" }}>
-                <T variant="label" style={{ flex: 1 }}>
-                  Include Apple Health workout summaries
+                <Row style={{ justifyContent: "space-between" }}>
+                  <T variant="label" style={{ flex: 1 }}>
+                    Enable coaching
+                  </T>
+                  <Switch
+                    accessibilityLabel="Enable SamePace coaching"
+                    value={settings.cloudEnabled}
+                    disabled={control.busy}
+                    onValueChange={(enabled) => changePermissions("cloudEnabled", enabled)}
+                  />
+                </Row>
+                <T variant="caption" color="textSecondary">
+                  {settings.historyUse === "when_relevant"
+                    ? "Allow up to five recent imported workout summaries when relevant to coaching, including recorded duration, distance, energy and heart-rate summary when available. These are sent to Vercel AI Gateway and its AI providers. Raw samples, sleep and HRV history are excluded. Turning this off clears the conversation. Removing imported health data also clears conversations that used these summaries."
+                    : CHAT_FITNESS_NOTICE}
                 </T>
-                <Switch
-                  accessibilityLabel="Share recent Apple Health summaries with cloud assistant"
-                  value={settings.fitnessContextEnabled}
-                  disabled={control.busy || !settings.cloudEnabled}
-                  onValueChange={(enabled) => changePermissions("fitnessContextEnabled", enabled)}
-                />
-              </Row>
-              <T variant="caption" color="textSecondary">
-                {settings.historyUse === "when_relevant"
-                  ? "Allow up to three recent saved plans, three workout records and five individual exercise logs when relevant to coaching. Titles, instructions, notes, targets and actual repetitions, time, distance and load are sent to Vercel AI Gateway and its AI providers. Long records are shortened. Plans are not completed exercise; missing results stay unknown. Other members' results and Apple Health are excluded. Turning this off clears the conversation; changes to these records clear replies that used them."
-                  : CHAT_MANUAL_WORKOUT_NOTICE}
-              </T>
-              <Row style={{ justifyContent: "space-between" }}>
-                <T variant="label" style={{ flex: 1 }}>
-                  Include saved plans and manual logs
+                <Row style={{ justifyContent: "space-between" }}>
+                  <T variant="label" style={{ flex: 1 }}>
+                    Include Apple Health workout summaries
+                  </T>
+                  <Switch
+                    accessibilityLabel="Share recent Apple Health summaries with cloud assistant"
+                    value={settings.fitnessContextEnabled}
+                    disabled={control.busy || !settings.cloudEnabled}
+                    onValueChange={(enabled) => changePermissions("fitnessContextEnabled", enabled)}
+                  />
+                </Row>
+                <T variant="caption" color="textSecondary">
+                  {settings.historyUse === "when_relevant"
+                    ? "Allow up to three recent saved plans, three workout records and five individual exercise logs when relevant to coaching. Titles, instructions, notes, targets and actual repetitions, time, distance and load are sent to Vercel AI Gateway and its AI providers. Long records are shortened. Plans are not completed exercise; missing results stay unknown. Other members' results and Apple Health are excluded. Turning this off clears the conversation; changes to these records clear replies that used them."
+                    : CHAT_MANUAL_WORKOUT_NOTICE}
                 </T>
-                <Switch
-                  accessibilityLabel="Share saved workout plans and manual logs with cloud assistant"
-                  value={settings.manualWorkoutContextEnabled}
-                  disabled={control.busy || !settings.cloudEnabled}
-                  onValueChange={(enabled) =>
-                    changePermissions("manualWorkoutContextEnabled", enabled)
-                  }
-                />
-              </Row>
-              <T variant="caption" color="textSecondary">
-                {CHAT_HISTORY_USE_NOTICE}
-              </T>
-              <Row style={{ justifyContent: "space-between" }}>
-                <T variant="label" style={{ flex: 1 }}>
-                  Use allowed history when relevant
+                <Row style={{ justifyContent: "space-between" }}>
+                  <T variant="label" style={{ flex: 1 }}>
+                    Include saved plans and manual logs
+                  </T>
+                  <Switch
+                    accessibilityLabel="Share saved workout plans and manual logs with cloud assistant"
+                    value={settings.manualWorkoutContextEnabled}
+                    disabled={control.busy || !settings.cloudEnabled}
+                    onValueChange={(enabled) =>
+                      changePermissions("manualWorkoutContextEnabled", enabled)
+                    }
+                  />
+                </Row>
+                <T variant="caption" color="textSecondary">
+                  {CHAT_HISTORY_USE_NOTICE}
                 </T>
-                <Switch
-                  accessibilityLabel="Use allowed workout history when relevant to coaching"
-                  value={settings.historyUse === "when_relevant"}
-                  disabled={control.busy || !settings.cloudEnabled}
-                  onValueChange={(enabled) =>
-                    updatePermissions(
-                      chatHistoryUseUpdate(settings, enabled ? "when_relevant" : "when_requested"),
-                    )
-                  }
-                />
-              </Row>
-            </View>
-          )}
-        </ListRow>
-        <ListRow
-          icon={Trash2}
-          label="Delete conversation"
-          expanded={clearReview}
-          onPress={() => {
-            if (control.busy) return;
-            if (runner.busy) stop();
-            setClearReview((value) => !value);
-          }}
-        >
-          <ActionCard
+                <Row style={{ justifyContent: "space-between" }}>
+                  <T variant="label" style={{ flex: 1 }}>
+                    Use allowed history when relevant
+                  </T>
+                  <Switch
+                    accessibilityLabel="Use allowed workout history when relevant to coaching"
+                    value={settings.historyUse === "when_relevant"}
+                    disabled={control.busy || !settings.cloudEnabled}
+                    onValueChange={(enabled) =>
+                      updatePermissions(
+                        chatHistoryUseUpdate(
+                          settings,
+                          enabled ? "when_relevant" : "when_requested",
+                        ),
+                      )
+                    }
+                  />
+                </Row>
+              </View>
+            )}
+          </ListRow>
+          <ListRow
             icon={Trash2}
-            title="Delete this conversation?"
-            note="Removes saved private chat. Your workout logs and plans remain available."
-            primary={{
-              label: "Delete conversation",
-              onPress: () => {
-                clearLocal();
-                void control.run(
-                  (signal) =>
-                    session.request<ChatHistory>("/assistant/chat", { method: "DELETE", signal }),
-                  async (result) => {
-                    await client.cancelQueries({ queryKey, exact: true });
-                    if (session.isCurrent())
-                      client.setQueryData<ChatHistory>(queryKey, {
-                        ...result,
-                        settings: readChatSettings(result.settings),
-                      });
-                  },
-                );
-              },
+            label="Delete conversation"
+            expanded={clearReview}
+            onPress={() => {
+              if (control.busy) return;
+              if (runner.busy) stop();
+              setClearReview((value) => !value);
             }}
-            secondary={{ label: "Keep", onPress: () => setClearReview(false) }}
-            busy={control.busy}
+          >
+            <ActionCard
+              icon={Trash2}
+              title="Delete this conversation?"
+              note="Removes saved private chat. Your workout logs and plans remain available."
+              primary={{
+                label: "Delete conversation",
+                onPress: () => {
+                  clearLocal();
+                  void control.run(
+                    (signal) =>
+                      session.request<ChatHistory>("/assistant/chat", { method: "DELETE", signal }),
+                    async (result) => {
+                      await client.cancelQueries({ queryKey, exact: true });
+                      if (session.isCurrent())
+                        client.setQueryData<ChatHistory>(queryKey, {
+                          ...result,
+                          settings: readChatSettings(result.settings),
+                        });
+                    },
+                  );
+                },
+              }}
+              secondary={{ label: "Keep", onPress: () => setClearReview(false) }}
+              busy={control.busy}
+            />
+          </ListRow>
+          <ListRow
+            icon={Smartphone}
+            label="Use on-device help"
+            value="Separate chat"
+            onPress={onDevice}
           />
-        </ListRow>
-        <ListRow
-          icon={Smartphone}
-          label="Use on-device help"
-          value="Separate chat"
-          onPress={onDevice}
-        />
-      </ListCard>
+        </ListCard>
+      </Sheet>
       {Boolean(control.error) && <Notice tone="danger">{control.error}</Notice>}
     </View>
   );

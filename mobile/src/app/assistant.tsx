@@ -9,6 +9,7 @@ import type { ChatPreferenceDraft } from "../../../shared/conversation";
 import { ActionCard, Segmented } from "@/components/assistant-kit";
 import { AssistantDiscovery } from "@/components/assistant-discovery";
 import { AppHeader } from "@/components/brand";
+import { ComposerDock } from "@/components/composer-dock";
 import { AssistantPlacement } from "@/lib/assistant-placement";
 import { AssistantHero, assistantStatus } from "@/components/assistant-hero";
 import { Approvals, PlanCard, PlanTrack, TimelineItem } from "@/components/assistant-plan";
@@ -127,265 +128,270 @@ function Assistant({ member, session }: PrivateMemberProps) {
         ]
       : [];
   const inTab = use(AssistantPlacement) === "tab";
+  // The message box is pinned by the dock; the thread pads itself clear of it.
+  const [dockHeight, setDockHeight] = useState(0);
   return (
-    <Screen
-      key={showPlanning ? "planning" : "chat"}
-      header={inTab ? <AppHeader /> : undefined}
-      hidesTabBar={inTab}
-      onRefresh={() => void refresh()}
-      refreshing={list.isRefetching}
-    >
-      {inTab ? null : <Stack.Screen options={{ title: "Assistant" }} />}
-      {showPlanning && status && (
-        <AssistantHero
-          status={status}
-          brief={brief}
-          primaryLabel={
-            status.negotiationId
-              ? "Review the plan"
-              : showPlanning && showPreferences
-                ? "Hide preferences"
-                : current?.enabled
-                  ? "Review preferences"
-                  : "Set up planning"
-          }
-          onPrimary={() => {
-            setShowPlanning(true);
-            if (status.negotiationId) setSelected(status.negotiationId);
-            else setShowPreferences(showPlanning ? !showPreferences : true);
-          }}
-          onEditBrief={() => {
-            setShowPlanning(true);
-            setShowPreferences(true);
-          }}
-        />
-      )}
-      <Segmented
-        label="Assistant view"
-        options={[
-          { value: "chat", label: "Chat" },
-          { value: "plans", label: "Plans" },
-        ]}
-        value={showPlanning ? "plans" : "chat"}
-        onChange={(value) => setShowPlanning(value === "plans")}
-      />
-      <ActionCard
-        icon={ClipboardList}
-        title="Build a workout together"
-        note="Create a routine with AI or by hand, then share exercises, sets and instructions with your session."
-        primary={{ label: "Workout plans", onPress: () => router.push("/workout-plans") }}
-      />
-      {!showPlanning && (
-        <PrivateAssistantChat
-          ownerId={member.id}
-          session={session}
-          capturePhoto={params.capture === "photo"}
-          onPlanning={(kind, targetId, draft) => {
-            setShowPlanning(true);
-            if (kind === "preferences") {
-              setShowPreferences(true);
-              setPreferenceDraft(draft);
-              setDraftRevision((value) => value + 1);
+    <>
+      <Screen
+        key={showPlanning ? "planning" : "chat"}
+        header={inTab ? <AppHeader /> : undefined}
+        contentStyle={dockHeight > 0 ? { paddingBottom: dockHeight + 120 } : undefined}
+        onRefresh={() => void refresh()}
+        refreshing={list.isRefetching}
+      >
+        {inTab ? null : <Stack.Screen options={{ title: "Assistant" }} />}
+        {showPlanning && status && (
+          <AssistantHero
+            status={status}
+            brief={brief}
+            primaryLabel={
+              status.negotiationId
+                ? "Review the plan"
+                : showPlanning && showPreferences
+                  ? "Hide preferences"
+                  : current?.enabled
+                    ? "Review preferences"
+                    : "Set up planning"
             }
-            if (kind === "negotiation" && targetId) setSelected(targetId);
-          }}
+            onPrimary={() => {
+              setShowPlanning(true);
+              if (status.negotiationId) setSelected(status.negotiationId);
+              else setShowPreferences(showPlanning ? !showPreferences : true);
+            }}
+            onEditBrief={() => {
+              setShowPlanning(true);
+              setShowPreferences(true);
+            }}
+          />
+        )}
+        <Segmented
+          label="Assistant view"
+          options={[
+            { value: "chat", label: "Chat" },
+            { value: "plans", label: "Plans" },
+          ]}
+          value={showPlanning ? "plans" : "chat"}
+          onChange={(value) => setShowPlanning(value === "plans")}
         />
-      )}
-      {showPlanning && (
-        <>
-          {unavailable ? (
-            <Notice>Workout planning isn’t available yet.</Notice>
-          ) : (
-            (preferences.isPending || preferences.error) && (
-              <StateView
-                loading={preferences.isPending}
-                error={preferences.error}
-                onRetry={() => void preferences.refetch()}
-              />
-            )
-          )}
-          {preferences.data && (
-            <>
-              {venues.error && (
-                <StateView error={venues.error} onRetry={() => void venues.refetch()} />
-              )}
-              {showPreferences && (
-                <>
-                  {venues.isPending && <StateView loading rows={2} />}
-                  {venues.data && (
-                    <AssistantPreferencesEditor
-                      key={`${preferences.data.preferences.revision}:${draftRevision}`}
-                      session={session}
-                      initial={preferences.data.preferences}
-                      venues={venues.data.venues}
-                      abilities={member.abilities}
-                      draft={preferenceDraft}
-                      onSaved={async () => {
-                        setPreferenceDraft(undefined);
-                        await refresh();
-                      }}
-                    />
-                  )}
-                </>
-              )}
-              {!list.error && (list.data?.negotiations.length ?? 0) > 0 && (
-                <SectionTitle>Plans in progress</SectionTitle>
-              )}
-              {list.error && <StateView error={list.error} onRetry={() => void list.refetch()} />}
-              {!list.error &&
-                list.data?.negotiations.map((room) => (
-                  <Card key={room.id}>
-                    <T variant="label">{partnerName(room.memberIds, room.memberNames)}</T>
-                    <T>{room.plan?.title ?? "A new workout plan"}</T>
-                    <T variant="caption" color="textSecondary">
-                      {room.booked
-                        ? "Booked"
-                        : room.state === "approved"
-                          ? "Plan approved · booking terms still to accept"
-                          : room.state === "open"
-                            ? "Working it out"
-                            : room.state === "cancelled"
-                              ? "Cancelled"
-                              : "Expired"}
-                    </T>
-                    <Button
-                      label={selected === room.id ? "Open below" : "Open"}
-                      variant="soft"
-                      disabled={selected === room.id}
-                      onPress={() => setSelected(room.id)}
-                    />
-                  </Card>
-                ))}
-              {selected && (
-                <Conversation
-                  key={selected}
-                  id={selected}
-                  session={session}
-                  ownerId={member.id}
-                  preferences={preferences.error ? null : preferences.data.preferences}
-                  venues={venues.error ? [] : (venues.data?.venues ?? [])}
-                  people={mine.data?.people ?? []}
-                  onChange={refresh}
-                />
-              )}
-              <SectionTitle>Find a new buddy</SectionTitle>
-              <AssistantDiscovery
-                ownerId={member.id}
-                session={session}
-                preferences={preferences.error ? null : preferences.data.preferences}
-                onInvited={async (room) => {
-                  setSelected(room.id);
-                  await refresh();
-                }}
-              />
-              <SectionTitle>Plan with a past buddy</SectionTitle>
-              {(mine.isPending || mine.error) && (
+        <ActionCard
+          icon={ClipboardList}
+          title="Build a workout together"
+          note="Create a routine with AI or by hand, then share exercises, sets and instructions with your session."
+          primary={{ label: "Workout plans", onPress: () => router.push("/workout-plans") }}
+        />
+        {!showPlanning && (
+          <PrivateAssistantChat
+            ownerId={member.id}
+            session={session}
+            capturePhoto={params.capture === "photo"}
+            onPlanning={(kind, targetId, draft) => {
+              setShowPlanning(true);
+              if (kind === "preferences") {
+                setShowPreferences(true);
+                setPreferenceDraft(draft);
+                setDraftRevision((value) => value + 1);
+              }
+              if (kind === "negotiation" && targetId) setSelected(targetId);
+            }}
+          />
+        )}
+        {showPlanning && (
+          <>
+            {unavailable ? (
+              <Notice>Workout planning isn’t available yet.</Notice>
+            ) : (
+              (preferences.isPending || preferences.error) && (
                 <StateView
-                  loading={mine.isPending}
-                  error={mine.error}
-                  onRetry={() => void mine.refetch()}
+                  loading={preferences.isPending}
+                  error={preferences.error}
+                  onRetry={() => void preferences.refetch()}
                 />
-              )}
-              {mine.data && completed.length === 0 && (
-                <Notice>
-                  Complete a SamePace workout together first. That shared booking opens planning
-                  with your buddy.
-                </Notice>
-              )}
-              {completed.map((booking) => {
-                const workout = mine.data?.sessions.find((item) => item.id === booking.sessionId);
-                return (
-                  <Card key={booking.id}>
-                    <T variant="label">{partnerName([booking.hostId, booking.participantId])}</T>
-                    <T variant="caption" color="textSecondary">
-                      {workout?.title ?? "Completed workout"}
-                      {workout ? ` · ${new Date(workout.startAt).toLocaleDateString()}` : ""}
-                    </T>
-                    <T variant="caption" color="textSecondary">
-                      Starting a conversation records your consent to plan with this buddy.
-                    </T>
-                    <Button
-                      label="Start planning together"
-                      variant="soft"
-                      disabled={action.busy}
+              )
+            )}
+            {preferences.data && (
+              <>
+                {venues.error && (
+                  <StateView error={venues.error} onRetry={() => void venues.refetch()} />
+                )}
+                {showPreferences && (
+                  <>
+                    {venues.isPending && <StateView loading rows={2} />}
+                    {venues.data && (
+                      <AssistantPreferencesEditor
+                        key={`${preferences.data.preferences.revision}:${draftRevision}`}
+                        session={session}
+                        initial={preferences.data.preferences}
+                        venues={venues.data.venues}
+                        abilities={member.abilities}
+                        draft={preferenceDraft}
+                        onSaved={async () => {
+                          setPreferenceDraft(undefined);
+                          await refresh();
+                        }}
+                      />
+                    )}
+                  </>
+                )}
+                {!list.error && (list.data?.negotiations.length ?? 0) > 0 && (
+                  <SectionTitle>Plans in progress</SectionTitle>
+                )}
+                {list.error && <StateView error={list.error} onRetry={() => void list.refetch()} />}
+                {!list.error &&
+                  list.data?.negotiations.map((room) => (
+                    <Card key={room.id}>
+                      <T variant="label">{partnerName(room.memberIds, room.memberNames)}</T>
+                      <T>{room.plan?.title ?? "A new workout plan"}</T>
+                      <T variant="caption" color="textSecondary">
+                        {room.booked
+                          ? "Booked"
+                          : room.state === "approved"
+                            ? "Plan approved · booking terms still to accept"
+                            : room.state === "open"
+                              ? "Working it out"
+                              : room.state === "cancelled"
+                                ? "Cancelled"
+                                : "Expired"}
+                      </T>
+                      <Button
+                        label={selected === room.id ? "Open below" : "Open"}
+                        variant="soft"
+                        disabled={selected === room.id}
+                        onPress={() => setSelected(room.id)}
+                      />
+                    </Card>
+                  ))}
+                {selected && (
+                  <Conversation
+                    key={selected}
+                    id={selected}
+                    session={session}
+                    ownerId={member.id}
+                    preferences={preferences.error ? null : preferences.data.preferences}
+                    venues={venues.error ? [] : (venues.data?.venues ?? [])}
+                    people={mine.data?.people ?? []}
+                    onChange={refresh}
+                  />
+                )}
+                <SectionTitle>Find a new buddy</SectionTitle>
+                <AssistantDiscovery
+                  ownerId={member.id}
+                  session={session}
+                  preferences={preferences.error ? null : preferences.data.preferences}
+                  onInvited={async (room) => {
+                    setSelected(room.id);
+                    await refresh();
+                  }}
+                />
+                <SectionTitle>Plan with a past buddy</SectionTitle>
+                {(mine.isPending || mine.error) && (
+                  <StateView
+                    loading={mine.isPending}
+                    error={mine.error}
+                    onRetry={() => void mine.refetch()}
+                  />
+                )}
+                {mine.data && completed.length === 0 && (
+                  <Notice>
+                    Complete a SamePace workout together first. That shared booking opens planning
+                    with your buddy.
+                  </Notice>
+                )}
+                {completed.map((booking) => {
+                  const workout = mine.data?.sessions.find((item) => item.id === booking.sessionId);
+                  return (
+                    <Card key={booking.id}>
+                      <T variant="label">{partnerName([booking.hostId, booking.participantId])}</T>
+                      <T variant="caption" color="textSecondary">
+                        {workout?.title ?? "Completed workout"}
+                        {workout ? ` · ${new Date(workout.startAt).toLocaleDateString()}` : ""}
+                      </T>
+                      <T variant="caption" color="textSecondary">
+                        Starting a conversation records your consent to plan with this buddy.
+                      </T>
+                      <Button
+                        label="Start planning together"
+                        variant="soft"
+                        disabled={action.busy}
+                        onPress={() =>
+                          void action.run(
+                            (signal) =>
+                              session.request<{ negotiation: AssistantNegotiation }>(
+                                "/agents/negotiations",
+                                { method: "POST", json: { bookingId: booking.id }, signal },
+                              ),
+                            async ({ negotiation }) => {
+                              setSelected(negotiation.id);
+                              await refresh();
+                            },
+                          )
+                        }
+                      />
+                    </Card>
+                  );
+                })}
+                {action.error && <Notice tone="danger">{action.error}</Notice>}
+              </>
+            )}
+            {preferences.data && (
+              <>
+                <SectionTitle>Controls</SectionTitle>
+                <ListCard>
+                  {current?.enabled ? (
+                    <ListRow
+                      icon={PauseCircle}
+                      label="Pause my assistant"
                       onPress={() =>
                         void action.run(
                           (signal) =>
-                            session.request<{ negotiation: AssistantNegotiation }>(
-                              "/agents/negotiations",
-                              { method: "POST", json: { bookingId: booking.id }, signal },
-                            ),
-                          async ({ negotiation }) => {
-                            setSelected(negotiation.id);
-                            await refresh();
-                          },
+                            session.request("/agents/preferences", {
+                              method: "PUT",
+                              signal,
+                              json: {
+                                enabled: false,
+                                activity: current.activity,
+                                ability: current.ability,
+                                durationMin: current.durationMin,
+                                venueIds: current.venueIds,
+                                availability: current.availability,
+                                approvedIntent: current.approvedIntent,
+                              },
+                            }),
+                          refresh,
                         )
                       }
                     />
-                  </Card>
-                );
-              })}
-              {action.error && <Notice tone="danger">{action.error}</Notice>}
-            </>
-          )}
-          {preferences.data && (
-            <>
-              <SectionTitle>Controls</SectionTitle>
-              <ListCard>
-                {current?.enabled ? (
+                  ) : null}
                   <ListRow
-                    icon={PauseCircle}
-                    label="Pause my assistant"
-                    onPress={() =>
-                      void action.run(
-                        (signal) =>
-                          session.request("/agents/preferences", {
-                            method: "PUT",
-                            signal,
-                            json: {
-                              enabled: false,
-                              activity: current.activity,
-                              ability: current.ability,
-                              durationMin: current.durationMin,
-                              venueIds: current.venueIds,
-                              availability: current.availability,
-                              approvedIntent: current.approvedIntent,
-                            },
-                          }),
-                        refresh,
-                      )
-                    }
-                  />
-                ) : null}
-                <ListRow
-                  icon={Link2}
-                  label="Connect an outside assistant"
-                  expanded={showConnected}
-                  onPress={() => setShowConnected((value) => !value)}
-                >
-                  <AssistantCredentials session={session} ownerId={member.id} />
-                </ListRow>
-              </ListCard>
-              <T variant="caption" color="textFaint">
-                Pausing stops it sharing what you’re after. Plans already agreed stay as they are.
-              </T>
-            </>
-          )}
-          {!preferences.data && !unavailable && selected && (
-            <Conversation
-              key={selected}
-              id={selected}
-              session={session}
-              ownerId={member.id}
-              preferences={null}
-              venues={venues.error ? [] : (venues.data?.venues ?? [])}
-              people={mine.data?.people ?? []}
-              onChange={refresh}
-            />
-          )}
-        </>
-      )}
-    </Screen>
+                    icon={Link2}
+                    label="Connect an outside assistant"
+                    expanded={showConnected}
+                    onPress={() => setShowConnected((value) => !value)}
+                  >
+                    <AssistantCredentials session={session} ownerId={member.id} />
+                  </ListRow>
+                </ListCard>
+                <T variant="caption" color="textFaint">
+                  Pausing stops it sharing what you’re after. Plans already agreed stay as they are.
+                </T>
+              </>
+            )}
+            {!preferences.data && !unavailable && selected && (
+              <Conversation
+                key={selected}
+                id={selected}
+                session={session}
+                ownerId={member.id}
+                preferences={null}
+                venues={venues.error ? [] : (venues.data?.venues ?? [])}
+                people={mine.data?.people ?? []}
+                onChange={refresh}
+              />
+            )}
+          </>
+        )}
+      </Screen>
+      <ComposerDock aboveTabBar={inTab} onHeight={setDockHeight} />
+    </>
   );
 }
 

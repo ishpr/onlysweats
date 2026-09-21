@@ -3,8 +3,10 @@ import { View } from "react-native";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { Camera, ShieldCheck, Trash2 } from "lucide-react-native";
-import { ChatBubble, Composer, TypingDots } from "@/components/assistant-kit";
-import { ListCard, ListRow, SectionTitle } from "@/components/list";
+import { ChatBubble, Composer, ComposerRow, TypingDots } from "@/components/assistant-kit";
+import { ListCard, ListRow } from "@/components/list";
+import { Sheet } from "@/components/sheet";
+import { ComposerPortal } from "@/lib/composer-slot";
 import { Spacing } from "@/constants/theme";
 import { Button, Card, Field, Notice, Row, T } from "@/components/ui";
 import type { ApiSession } from "@/lib/api";
@@ -54,6 +56,7 @@ export function LocalChat({ session, onCloud }: { session: ApiSession; onCloud: 
   const { capability, refresh } = useLocalCapability(session);
   const [history, setHistory] = useState<IntelligenceHistory[]>([]);
   const [text, setText] = useState("");
+  const [showOptions, setShowOptions] = useState(false);
   const [partial, setPartial] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,48 +155,58 @@ export function LocalChat({ session, onCloud }: { session: ApiSession; onCloud: 
       {Boolean(error) && lastText !== null && lastText.length > 0 && !busy && (
         <Button label="Retry on this iPhone" variant="soft" onPress={() => send(lastText)} />
       )}
-      <Composer
-        value={text}
-        onChangeText={(value) => setText(value.slice(0, 1000))}
-        onSend={() => send()}
-        onStop={stop}
-        streaming={busy}
-        placeholder="Ask on this iPhone"
-        disabled={busy || !capability?.available}
-      />
-      <SectionTitle>Controls</SectionTitle>
-      <ListCard>
-        <ListRow
-          icon={ShieldCheck}
-          label="On-device privacy"
-          value="Private"
-          expanded={showPrivacy}
-          onPress={() => setShowPrivacy((value) => !value)}
-        >
-          <View style={{ gap: Spacing.one }}>
-            <T variant="caption" color="textSecondary">
-              {LOCAL_AI_NOTICE}
-            </T>
-            <T variant="caption" color="textSecondary">
-              This conversation is kept only while this view is open. It cannot see saved workouts,
-              contact members or make bookings.
-            </T>
-          </View>
-        </ListRow>
-        <ListRow
-          icon={Trash2}
-          label="Clear on-device conversation"
-          onPress={() => {
-            runner.cancel();
-            setBusy(false);
-            setHistory([]);
-            setPartial("");
-            setText("");
-            setError(null);
-            setLastText(null);
-          }}
-        />
-      </ListCard>
+      <ComposerPortal>
+        <ComposerRow onOptions={() => setShowOptions(true)}>
+          <Composer
+            value={text}
+            onChangeText={(value) => setText(value.slice(0, 1000))}
+            onSend={() => send()}
+            onStop={stop}
+            streaming={busy}
+            placeholder="Ask on this iPhone"
+            disabled={busy || !capability?.available}
+          />
+        </ComposerRow>
+      </ComposerPortal>
+      <Sheet
+        visible={showOptions}
+        onClose={() => setShowOptions(false)}
+        title="Chat options"
+        subtitle="Privacy and clearing this on-device chat."
+      >
+        <ListCard>
+          <ListRow
+            icon={ShieldCheck}
+            label="On-device privacy"
+            value="Private"
+            expanded={showPrivacy}
+            onPress={() => setShowPrivacy((value) => !value)}
+          >
+            <View style={{ gap: Spacing.one }}>
+              <T variant="caption" color="textSecondary">
+                {LOCAL_AI_NOTICE}
+              </T>
+              <T variant="caption" color="textSecondary">
+                This conversation is kept only while this view is open. It cannot see saved
+                workouts, contact members or make bookings.
+              </T>
+            </View>
+          </ListRow>
+          <ListRow
+            icon={Trash2}
+            label="Clear on-device conversation"
+            onPress={() => {
+              runner.cancel();
+              setBusy(false);
+              setHistory([]);
+              setPartial("");
+              setText("");
+              setError(null);
+              setLastText(null);
+            }}
+          />
+        </ListCard>
+      </Sheet>
     </View>
   );
 }
