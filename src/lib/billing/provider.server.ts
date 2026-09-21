@@ -304,11 +304,16 @@ export function stripeProvider(
           s.items.data[0].quantity !== 1)
       )
         throw new Error("Membership price changed unexpectedly.");
+      const periodEnd = s?.items.data[0]?.current_period_end ?? null;
+      const cancelAt = s?.cancel_at ?? null;
+      // The portal can schedule cancellation with cancel_at while leaving
+      // cancel_at_period_end false. Never extend access beyond the paid period.
+      const endsThisPeriod = cancelAt !== null && periodEnd !== null && cancelAt <= periodEnd;
       return {
         status: s?.status ?? "none",
         subscriptionId: s?.id ?? null,
-        periodEnd: s?.items.data[0]?.current_period_end ?? null,
-        cancelAtPeriodEnd: s?.cancel_at_period_end ?? false,
+        periodEnd: endsThisPeriod ? cancelAt : periodEnd,
+        cancelAtPeriodEnd: (s?.cancel_at_period_end ?? false) || endsThisPeriod,
         creditCents: Math.max(0, -customer.balance),
       };
     },
