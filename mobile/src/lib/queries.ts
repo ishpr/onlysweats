@@ -511,20 +511,6 @@ export function useRevealCode() {
   });
 }
 
-export function useSendMessage(bookingId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (text: string) =>
-      (
-        await api<{ messages: ChatMessage[] }>(`/bookings/${bookingId}/messages`, {
-          method: "POST",
-          json: { text },
-        })
-      ).messages,
-    onSuccess: (messages) => qc.setQueryData(keys.messages(bookingId), messages),
-  });
-}
-
 export function useSubmitRating() {
   const refresh = useRefreshAll();
   return useMutation({

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Sql } from "../db.ts";
 import { listPublicSessions } from "../pace/service.server.ts";
 import { getPreferences } from "../agents/assistant.server.ts";
-import { getDiscovery } from "../agents/discovery.server.ts";
+import { getAgentMatching } from "../agents/contact.server.ts";
 import { listWorkouts } from "../health/service.server.ts";
 import { workoutPlanDraftInput } from "./plan-draft.ts";
 import { conversationContext } from "./context.ts";
@@ -302,6 +302,8 @@ export async function acceptAppTerms(
     await tx`insert into app_terms_acceptances
       (user_id, version, accepted_at, assistant_consent_generation, fitness_consent_generation)
       values (${userId}, ${APP_TERMS_VERSION}, ${iso(now)}, ${current.consentGeneration}, ${fitness.generation})`;
+    const { initializeAgentContactsFromTerms } = await import("../agents/contact.server.ts");
+    await initializeAgentContactsFromTerms(tx, userId, now);
     return getAppTerms(tx, userId);
   });
 }
@@ -535,7 +537,7 @@ export async function chatResponse(
                 await toolGuard();
                 if (process.env.A2A_ENABLED !== "true") return { available: false };
                 const p = await getPreferences(sql, userId);
-                const discovery = await getDiscovery(sql, userId);
+                const matching = await getAgentMatching(sql, userId);
                 await assertCurrent();
                 await addAction({
                   kind: "preferences",
@@ -551,9 +553,13 @@ export async function chatResponse(
                     availability: p.availability,
                     approvedIntent: p.approvedIntent,
                   },
-                  compatiblePartnerCount: discovery.candidates.length,
-                  discoveryEnabled: discovery.enabled,
-                  reason: discovery.reason,
+                  matching: {
+                    enabled: matching.enabled,
+                    ready: matching.ready,
+                    reason: matching.reason,
+                    needs: matching.needs,
+                    lastCheckedAt: matching.lastCheckedAt,
+                  },
                 };
               },
               sessions: async () => {
@@ -643,7 +649,7 @@ export async function chatResponse(
                   ],
                   discovery: [
                     "Find workout partners",
-                    "Review opted-in matches and decide whether to invite someone.",
+                    "Review automatic matching status and your saved planning preferences.",
                   ],
                   fitness: [
                     "Review an exercise log",

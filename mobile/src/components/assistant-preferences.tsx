@@ -26,7 +26,7 @@ export function AssistantPreferencesEditor({
   onSaved: () => Promise<unknown>;
 }) {
   const action = usePrivateAction(session);
-  const [enabled, setEnabled] = useState(initial.enabled);
+  const [enabled, setEnabled] = useState(initial.revision === 0 ? true : initial.enabled);
   const [activity, setActivity] = useState(draft?.activity ?? initial.activity);
   const [ability, setAbility] = useState(
     draft?.activity && draft.activity !== initial.activity
@@ -92,8 +92,8 @@ export function AssistantPreferencesEditor({
         </Notice>
       )}
       <T variant="caption" color="textSecondary">
-        Share these entered preferences with buddies and their assistants in conversations you both
-        join. Your Apple Health data and exercise log stay private.
+        Your agent uses these entered preferences to find compatible partners and work out proposals
+        with their agents. Your Apple Health data and exercise log stay private.
       </T>
       <Row>
         <T style={{ flex: 1 }}>Allow preference sharing</T>
@@ -105,9 +105,11 @@ export function AssistantPreferencesEditor({
         />
       </Row>
       <T variant="caption" color="textSecondary">
-        {initial.enabled
-          ? "Currently shared. Save to apply your changes."
-          : "Currently private. Save with sharing on to enable planning."}
+        {initial.revision === 0
+          ? "Save your times and places so your agent can begin matching. You approve every booking."
+          : initial.enabled
+            ? "Currently shared. Save to apply your changes."
+            : "Planning is paused. Keep it paused or resume sharing when you save."}
       </T>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {(Object.keys(ACTIVITIES) as Activity[]).map((type) => (
@@ -203,7 +205,7 @@ export function AssistantPreferencesEditor({
       />
       {action.error && <Notice tone="danger">{action.error}</Notice>}
       <Button
-        label="Save sharing choices"
+        label="Save planning preferences"
         loading={action.busy}
         disabled={action.busy}
         onPress={() => void save()}

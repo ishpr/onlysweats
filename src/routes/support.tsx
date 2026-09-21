@@ -17,7 +17,7 @@ function Support() {
         </Section>
 
         <Section title="Report someone">
-          <p>If someone made you feel unsafe, asked for payment, or treated a session as something other than a workout, report them in the app: open the session or your thread with them and choose <strong>Report or block</strong>. You can block them in the same step — you won’t see each other’s sessions again, any seat you share is released at no charge, and they aren’t told.</p>
+          <p>If someone made you feel unsafe, asked for payment, or treated a session as something other than a workout, report them in the app: open their session and choose <strong>Report or block</strong>. You can block them in the same step — you won’t see each other’s sessions again, any seat you share is released at no charge, and they aren’t told.</p>
           <p>A person reads every report, usually within a day, and confirmed reports lead to removal. You can see and undo your blocks under <strong>You → Blocked members</strong>. If you can’t get into the app, email us with their first name and the session.</p>
         </Section>
 

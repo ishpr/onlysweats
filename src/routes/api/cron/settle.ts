@@ -25,6 +25,15 @@ async function handle({ request }: { request: Request }) {
   // Reminders an hour out and when check-in opens, then push whatever is owed and
   // retire device tokens Apple or Google reported dead.
   const reminders = await notify.enqueueReminders(sql);
+  // Contact and planning events are delivered in the same tick that creates them.
+  let contacts = null;
+  let coordination = null;
+  if (process.env.A2A_ENABLED === "true") {
+    const { sweepAgentContacts } = await import("@/lib/agents/contact.server");
+    const { sweepCoordination } = await import("@/lib/agents/coordination.server");
+    contacts = await sweepAgentContacts(sql);
+    coordination = await sweepCoordination(sql);
+  }
   const pushed = await notify.deliverDue(sql);
   const retired = await notify.checkReceipts(sql);
   const { retryAppleRevocations } = await import("@/lib/auth/apple-revoke.server");
@@ -33,8 +42,6 @@ async function handle({ request }: { request: Request }) {
     await import("@/lib/pace/verification.server");
   const personaCreations = await recoverPersonaCreations(sql);
   const personaRedactions = await retryPersonaRedactions(sql);
-  const { sweepCoordination } = await import("@/lib/agents/coordination.server");
-  const coordination = await sweepCoordination(sql);
   const { sweepBilling } = await import("@/lib/billing/worker.server");
   const billing = await sweepBilling(sql);
   const { pruneOperations } = await import("@/lib/operations/service.server");
@@ -51,6 +58,7 @@ async function handle({ request }: { request: Request }) {
     appleRevocations,
     personaCreations,
     personaRedactions,
+    contacts,
     coordination,
     billing,
   });

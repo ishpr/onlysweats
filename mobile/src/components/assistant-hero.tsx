@@ -33,7 +33,7 @@ import { captureApiSession, type ApiSession } from "@/lib/api";
 import { ACTIVITIES } from "@/lib/types";
 
 import type { AssistantNegotiation, AssistantPreferences } from "../../../shared/assistant";
-import type { MemberDiscovery } from "../../../shared/discovery";
+import type { AgentMatching } from "../../../shared/agent-matching";
 
 export type AssistantState = "off" | "ready" | "looking" | "needs_you" | "booked";
 
@@ -53,7 +53,7 @@ const otherName = (room: AssistantNegotiation, meId: string) =>
 export function assistantStatus(
   meId: string,
   preferences: AssistantPreferences | null,
-  discovery: MemberDiscovery | null,
+  discovery: AgentMatching | null,
   negotiations: AssistantNegotiation[],
 ): AssistantStatus {
   const live = negotiations.filter((room) => room.state === "open" || room.state === "approved");
@@ -82,16 +82,13 @@ export function assistantStatus(
     };
   }
   const activity = preferences ? ACTIVITIES[preferences.activity].label.toLowerCase() : "workout";
-  if (discovery?.enabled) {
-    const found = discovery.candidates.length;
+  if (discovery?.enabled && discovery.ready) {
     return {
       state: "looking",
       eyebrow: "Looking",
       headline: `Looking for your ${activity} buddy`,
       detail:
-        found > 0
-          ? `${found} ${found === 1 ? "person fits" : "people fit"} your times and places so far.`
-          : "Matching your level, times and places. You’ll hear when someone fits.",
+        "Your agent contacts compatible partners’ agents and works out a proposal. You’ll hear when a plan needs your review.",
       negotiationId: null,
     };
   }
@@ -108,8 +105,11 @@ export function assistantStatus(
     return {
       state: "ready",
       eyebrow: "Ready",
-      headline: "Ready when you are",
-      detail: "It knows what you’re after. Let it look for a new buddy, or plan with a past one.",
+      headline:
+        discovery?.enabled === false ? "Matching paused" : "Review your planning preferences",
+      detail:
+        discovery?.reason ??
+        "Keep your times and places up to date so your agent can find a compatible partner.",
       negotiationId: null,
     };
   }
@@ -276,7 +276,7 @@ export function useAssistantStatus(ownerId: string, session: ApiSession) {
       const [preferences, discovery, rooms] = await Promise.all([
         session.request<{ preferences: AssistantPreferences }>("/agents/preferences", { signal }),
         session
-          .request<{ discovery: MemberDiscovery }>("/agents/discovery", { signal })
+          .request<{ matching: AgentMatching }>("/agents/matching", { signal })
           .catch(() => null),
         session.request<{ negotiations: AssistantNegotiation[] }>("/agents/negotiations", {
           signal,
@@ -285,7 +285,7 @@ export function useAssistantStatus(ownerId: string, session: ApiSession) {
       return assistantStatus(
         ownerId,
         preferences.preferences,
-        discovery?.discovery ?? null,
+        discovery?.matching ?? null,
         rooms.negotiations,
       );
     },

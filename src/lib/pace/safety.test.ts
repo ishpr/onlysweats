@@ -52,6 +52,12 @@ const rejects = (p: Promise<unknown>, status: number, re?: RegExp) =>
 const visibleTo = async (viewer: string) =>
   (await svc.listPublicSessions(sql, viewer)).sessions.map((s) => s.id);
 
+/** Historical human messages still participate in reports and retention; this creates no sender API. */
+async function legacyMessageFixture(fromId: string, bookingId: string, text: string) {
+  await sql`insert into messages (id, booking_id, from_id, text, created_at)
+    values (${`legacy-${crypto.randomUUID()}`}, ${bookingId}, ${fromId}, ${text}, now() - interval '1 hour')`;
+}
+
 before(async () => {
   sql = await makeDb();
 });
@@ -166,6 +172,8 @@ describe("report", () => {
     const s = await post(a.id);
     const seat = await svc.bookSeat(sql, b.id, s.id);
 
+    await legacyMessageFixture(a.id, seat.id, "Historical message retained for this report.");
+
     const first = await safety.reportMember(sql, b.id, {
       reportedId: a.id,
       reason: "date_framing",
@@ -249,7 +257,7 @@ describe("delete my account", () => {
     const seatOnHosted = await svc.bookSeat(sql, b.id, hosted.id);
     const theirs = await post(b.id);
     const seat = await svc.bookSeat(sql, a.id, theirs.id);
-    await svc.sendMessage(sql, a.id, seat.id, "See you at the trailhead");
+    await legacyMessageFixture(a.id, seat.id, "See you at the trailhead");
     await sql`
       insert into agent_delegations (id, profile_id, label, token_hash, expires_at) values
         ('delete-delegate', ${a.id}, 'Private assistant', 'delete-hash', now() + interval '1 day'),
@@ -293,7 +301,7 @@ describe("delete my account", () => {
     const [a, b] = [await member("Rex"), await member("Sol")];
     const s = await post(b.id);
     const seat = await svc.bookSeat(sql, a.id, s.id);
-    await svc.sendMessage(sql, a.id, seat.id, "so is this a date");
+    await legacyMessageFixture(a.id, seat.id, "so is this a date");
     const report = await safety.reportMember(sql, b.id, {
       reportedId: a.id,
       reason: "date_framing",

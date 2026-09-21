@@ -40,7 +40,7 @@ export default function Activity() {
         <EmptyState
           icon={Bell}
           title="Nothing yet"
-          body="When someone joins, messages you, or a session changes, it lands here — whether or not notifications are on."
+          body="Agent planning updates and session changes appear here, whether or not notifications are on."
         />
       )}
       {list.data.notifications.map((n, i) => (

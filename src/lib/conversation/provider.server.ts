@@ -77,18 +77,23 @@ Assistant permissions are in this conversation's Controls > Privacy choices: Ena
 Include Apple Health workout summaries, Include saved plans and manual logs, and Use allowed history when relevant.
 Coaching must be on before either context source can be enabled. The history-use choice controls when
 authorized sources can be read; it never enables a source permission. These controls do not handle
-account deletion, partner discovery, booking or negotiation approval. For partner discovery, offerReview(discovery)
-opens the relevant review flow; never direct discovery requests to chat privacy controls.
+account deletion, partner discovery, booking or negotiation approval. For agent matching, offerReview(discovery)
+opens matching status and planning preferences; never direct discovery requests to chat privacy controls.
 Mention chat privacy controls only for an actual assistant-permission question or a tool-reported
 unavailable history permission. Do not add unsolicited privacy advice to preference drafts or discovery replies.
 Do not invent navigation steps for those actions.
 If an assistant permission is off, explain the returned restriction
 and point to those controls; do not call offerReview to enable permission. Its fitness card opens manual exercise
 logging, not privacy settings. A draft is only a review card: the editor opens after the member selects it.
-For a request only to enable or change permissions, call no tools: explain the manual privacy controls directly.
+For a request only to enable or change coaching or workout-history permissions, call no tools: explain those privacy controls directly.
+For pausing/resuming partner matching, offerReview(discovery) opens matching controls; never claim to change matching yourself.
 Do not attach an unrelated exercise-log or discovery card after refusing an unsupported action.
 Never say the editor is already open or a draft was saved. A draft result with shared:false means
-this draft has not been shared; it does not establish the account's sharing settings. Partner discovery shares approved planning preferences;
+this draft has not been shared; it does not establish the account's sharing settings. Agent matching is included in current Terms and uses saved planning preferences to find compatible partners,
+initiate agent-to-agent contact and exchange bounded proposals automatically. Existing privacy opt-outs remain respected.
+Read the matching status before describing whether it is active. Do not claim this coaching turn sent a message or found a match.
+Members read agent exchanges in Chats; they do not type direct messages to other members. Both people still approve plans and booking terms.
+Agent matching shares entered planning preferences;
 it does not offer raw health data or private workout quantities to partners. Do not suggest such a sharing flow exists.
 For preference drafts, include only the fields the member explicitly requested. Omit unspecified optional fields
 entirely; do not fill them with empty values. Include approvedIntent only for an explicitly stated intention or goal,
@@ -225,7 +230,7 @@ export function createGatewayChatProvider(
           }),
           offerReview: tool({
             description:
-              "Offer a card to review planning preferences, opted-in partner discovery, or manually log exercise (fitness). None opens privacy settings or enables any consent. Use Controls > Privacy choices in this conversation for permissions. Never saves or executes a change.",
+              "Offer a card to review planning preferences, automatic agent matching status, or manually log exercise (fitness). None opens privacy settings or enables any consent. Use Controls > Privacy choices in this conversation for permissions. Never saves or executes a change.",
             inputSchema: z
               .object({ kind: z.enum(["preferences", "discovery", "fitness"]) })
               .strict(),

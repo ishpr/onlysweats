@@ -523,8 +523,8 @@ function NextUp({ plan, now, withName }: { plan: Plan; now: number; withName: st
             <Button
               style={styles.flex}
               variant="soft"
-              label="Chat"
-              onPress={() => router.push({ pathname: "/thread/[id]", params: { id: booking.id } })}
+              label="Agent chats"
+              onPress={() => router.push("/inbox")}
             />
           )}
         </Row>

@@ -5,6 +5,7 @@ import type { Sql } from "../db.ts";
 import type { Ability, MemberAbilities } from "../pace/types.ts";
 import { bookSeat, PaceError, postSession } from "../pace/service.server.ts";
 import { requireIntroduction } from "./introductions.server.ts";
+import { agentContactRoomReason, agentContactWomenOnly } from "./contact.server.ts";
 import { enqueue } from "../pace/notify.server.ts";
 import {
   abilityFits,
@@ -98,7 +99,7 @@ export async function sharedPreferences(
   roomId: string,
   now = Date.now(),
 ) {
-  const room = await getNegotiation(sql, userId, roomId, true);
+  const room = await getNegotiation(sql, userId, roomId, true, false, now);
   if (room.state === "cancelled" || room.result_booking_id || +new Date(room.expires_at) <= now)
     return [];
   const preferences: { memberId: string; preferences: AssistantPreferences }[] = [];
@@ -151,7 +152,9 @@ export async function setPreferences(
     await tx`insert into agent_preferences (profile_id, preferences, updated_at)
       values (${userId}, ${JSON.stringify(input)}::jsonb, ${iso(now)})
       on conflict (profile_id) do update set preferences = excluded.preferences,
-        revision = agent_preferences.revision + 1, updated_at = excluded.updated_at`;
+        revision = case when agent_preferences.preferences = excluded.preferences
+          then agent_preferences.revision else agent_preferences.revision + 1 end,
+        updated_at = excluded.updated_at`;
     return getPreferences(tx, userId);
   });
 }
@@ -257,7 +260,7 @@ export async function suggestPlans(
   roomId: string,
   now = Date.now(),
 ): Promise<AssistantCandidates> {
-  const r = await getNegotiation(sql, userId, roomId, true);
+  const r = await getNegotiation(sql, userId, roomId, true, false, now);
   assertPlanning(r, now);
   const own = await getPreferences(sql, userId);
   const other = await getPreferences(sql, r.host_id === userId ? r.participant_id : r.host_id);
@@ -458,6 +461,8 @@ export async function approveBookingTerms(
     }
     if (r.state !== "approved" || r.confirmations.length !== 2 || input.revision !== r.revision)
       throw new PaceError(409, "Both people must first confirm this exact proposal revision.");
+    const contactReason = await agentContactRoomReason(tx, r, now);
+    if (contactReason) throw new PaceError(409, contactReason);
     const terms = await termsFor(tx, r, now);
     if (input.termsHash !== terms.termsHash)
       throw new PaceError(409, "Booking terms changed. Review and approve them again.");
@@ -468,7 +473,10 @@ export async function approveBookingTerms(
         select coalesce(bool_or(women_only), false) as women_only from agent_discovery_consents
         where profile_id in (${r.host_id}, ${r.participant_id})`;
       await requireIntroduction(tx, userId, [r.host_id, r.participant_id], now, {
-        womenOnly: Boolean(pair?.women_only),
+        womenOnly:
+          r.host_contact_revision == null
+            ? Boolean(pair?.women_only)
+            : await agentContactWomenOnly(tx, r, now),
       });
     }
     const old = r.booking_terms_hash === terms.termsHash ? (r.booking_approvals ?? []) : [];
@@ -530,7 +538,7 @@ export async function approveBookingTerms(
           category: "sessions",
           title: "Your workout is booked",
           body: "Both of you approved this plan and its terms. Your workout is ready.",
-          url: `/thread/${booking.id}`,
+          url: `/agent-chat/${roomId}`,
           sessionId: s.id,
           bookingId: booking.id,
           dedupeKey: `assistant:${roomId}:booked`,
@@ -546,7 +554,7 @@ export async function approveBookingTerms(
           category: "sessions",
           title: "Ready for your booking review",
           body: "Your partner accepted the booking terms. Review and accept them to book your workout.",
-          url: `/assistant?negotiationId=${roomId}`,
+          url: `/agent-chat/${roomId}`,
           dedupeKey: `assistant:${roomId}:${terms.termsHash}:${userId}:terms`,
         },
         now,
