@@ -12,6 +12,7 @@ import { StyleSheet, View } from "react-native";
 
 import { LevelPicker } from "@/components/ability-picker";
 import { Lockup } from "@/components/brand";
+import { HealthStep } from "@/components/health-onboarding";
 import { Appear } from "@/components/motion";
 import { Button, Card, Chip, Field, Notice, Row, Screen, StateView, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
@@ -48,6 +49,8 @@ export default function Welcome() {
     );
   }
   const p = me.data;
+  const meId = p.id;
+  const toDeal = () => setStep(3);
   const askName = nameNeedsFixing(p.name);
   // Coming back later: start from what's already on the profile.
   const chosen = picked ?? (Object.keys(p.abilities) as Does[]);
@@ -71,7 +74,7 @@ export default function Welcome() {
   return (
     <Screen edges={["top", "bottom"]} contentStyle={styles.content}>
       {/* Agreeing to the terms was step one. */}
-      <StepDots step={step + 1} total={4} />
+      <StepDots step={step + 1} total={5} />
 
       {step === 0 && (
         <Appear style={styles.step}>
@@ -139,7 +142,14 @@ export default function Welcome() {
         </Appear>
       )}
 
-      {step === 2 && (
+      {step === 2 &&
+        (meId ? (
+          <HealthStep ownerId={meId} onDone={toDeal} onBack={() => setStep(1)} />
+        ) : (
+          <StateView loading />
+        ))}
+
+      {step === 3 && (
         <Appear style={styles.step}>
           <T variant="title">How SamePace keeps people showing up</T>
           <Deal icon={MapPin} title="You both check in when you arrive">
@@ -159,7 +169,7 @@ export default function Welcome() {
           </T>
           <View style={styles.spacer} />
           <Button variant="accent" label="Got it — find a buddy" onPress={finish} />
-          <Button variant="ghost" label="Back" onPress={() => setStep(1)} />
+          <Button variant="ghost" label="Back" onPress={() => setStep(2)} />
         </Appear>
       )}
     </Screen>
