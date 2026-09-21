@@ -77,6 +77,14 @@
             }
           ]
         }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "SamePace reads your workouts, sleep, steps and resting heart rate on this phone to describe your day and suggest a session that fits. It never leaves your phone.",
+          "NSHealthUpdateUsageDescription": "SamePace does not write to Apple Health.",
+          "background": false
+        }
       ]
     ],
     "experiments": {

@@ -134,6 +134,19 @@ One to four standing slots aimed at a goal and a date — see *Training blocks* 
 
 There is no weight goal and no workout logging, by design.
 
+## Apple Health and the "Today" card
+
+Optional, iOS only, and **on the phone only**: `src/lib/health.ts` reads workouts,
+sleep, steps, resting heart rate and HRV through `@kingstinct/react-native-healthkit`
+(read access only); `src/lib/today.ts` — pure, tested with `npm test` — turns them into
+a headline, up to three factual lines, and the one open session that suits the day
+(something gentle after short sleep or a hard morning; otherwise the soonest one at my
+level). Nothing is sent to the API, which is what lets the privacy page keep saying we
+don't collect health data. HealthKit never reveals whether read access was granted, so
+"connected" is our own flag. Needs a build with the HealthKit entitlement; on Android
+and older builds the card simply isn't there. If health data is ever synced to the
+server, that is a separate product and privacy decision.
+
 ## Not done
 
 Membership billing and fee collection (the server only keeps a ledger), gym

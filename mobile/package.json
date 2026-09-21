@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo-google-fonts/outfit": "^0.4.3",
     "@expo/ui": "~57.0.19",
+    "@kingstinct/react-native-healthkit": "^16.0.0",
     "@react-native-google-signin/google-signin": "^16.1.5",
     "@tanstack/react-query": "^5.103.1",
     "eslint-config-expo": "~57.0.2",
@@ -36,6 +37,7 @@
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
+    "react-native-nitro-modules": "^0.37.1",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
@@ -54,7 +56,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test": "node --experimental-strip-types --test \"src/lib/*.test.ts\""
   },
   "private": true
 }

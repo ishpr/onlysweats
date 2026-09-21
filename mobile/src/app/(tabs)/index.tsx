@@ -8,6 +8,7 @@ import { LeaveStandingSlot } from "@/components/leave-standing-slot";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
 import { Enter, PressScale } from "@/components/motion";
 import { PushPrompt } from "@/components/push-cards";
+import { TodayCard } from "@/components/today-card";
 import { PhotoCard, SessionCard, Tag, type MineTag } from "@/components/session-card";
 import { Button, Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
@@ -83,9 +84,11 @@ export default function Home() {
   const weekly = (mine.data?.series ?? []).filter((s) => !s.trainingBlockId);
 
   const mineIds = new Set(plans.map((p) => p.session.id));
-  const picks = (open.data?.sessions ?? [])
+  // Open, not already mine, in the next two days: what Home may point at.
+  const candidates = (open.data?.sessions ?? [])
     .filter((s) => !mineIds.has(s.id) && s.seatsLeft > 0 && +new Date(s.startAt) > now)
-    .filter((s) => +new Date(s.startAt) - now < SOON_MS)
+    .filter((s) => +new Date(s.startAt) - now < SOON_MS);
+  const picks = candidates
     // At my level first; anything I can't judge after; never what doesn't fit.
     .filter((s) => s.fitsMe !== false)
     .sort((a, b) => Number(b.fitsMe === true) - Number(a.fitsMe === true))
@@ -133,6 +136,9 @@ export default function Home() {
               secondary={{ label: "Post a session", onPress: () => router.push("/post") }}
             />
           )}
+
+          {/* What kind of day it is, and the session that suits it — from Apple Health. */}
+          <TodayCard sessions={candidates} />
 
           {!levelSet && (
             <Card>

@@ -34,6 +34,7 @@ function Privacy() {
             <li><strong>Location, once.</strong> When you tap Check in, your phone sends its position so our server can measure the distance to the meeting pin. We record that you checked in and when — not where you were. The app never reads location in the background.</li>
           </ul>
           <p>We don’t collect your contacts, photos, health data, date of birth, height, weight or relationship status. A training block has no weight goal, and nothing about your workout is logged: the miles it shows are the planned distance of the sessions you checked in to.</p>
+          <p><strong>Apple Health (optional).</strong> If you connect Apple Health, the app reads your workouts, sleep, steps, resting heart rate and heart-rate variability to describe your day and suggest a session that suits it. That happens on your phone: those numbers are not sent to us, not stored on our servers, not shown to other members and never used for advertising. {SITE.name} never writes to Apple Health. You can stop it under You in the app, or withdraw access in the Health app under Sharing.</p>
         </Section>
 
         <Section title="Who sees what">

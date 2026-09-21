@@ -34,6 +34,7 @@ import {
   T,
 } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
+import { useHealth } from "@/hooks/use-health";
 import { useTheme } from "@/hooks/use-theme";
 import { myLevelLabel } from "@/lib/ability";
 import { type AppearancePref, loadAppearance, saveAppearance } from "@/lib/appearance";
@@ -77,6 +78,7 @@ export default function You() {
   const me = useMe();
   const update = useUpdateMe();
   const [name, setName] = useState<string | null>(null);
+  const health = useHealth();
   const [open, setOpen] = useState<string | null>(null);
   const [appearance, setAppearance] = useState<AppearancePref>("system");
   useEffect(() => {
@@ -287,6 +289,37 @@ export default function You() {
 
       <SectionTitle>Notifications</SectionTitle>
       <NotificationSettings me={p} />
+
+      {health.available && (
+        <>
+          <SectionTitle>Apple Health</SectionTitle>
+          <Card>
+            <T variant="caption" color="textSecondary">
+              {health.connected
+                ? "Connected. SamePace reads your workouts, sleep, steps, resting heart rate and heart-rate variability to describe your day on Home. It’s read on this phone and never sent to us or shown to anyone."
+                : "Connect it and Home will tell you what kind of day it is and which session suits it. Read on this phone only — never sent to us, never shown to anyone."}
+            </T>
+            {health.connected ? (
+              <>
+                <Button
+                  variant="soft"
+                  label="Stop reading Apple Health"
+                  onPress={() => void health.disconnect()}
+                />
+                <T variant="caption" color="textFaint">
+                  To withdraw access completely: Health app → Sharing → Apps → SamePace.
+                </T>
+              </>
+            ) : (
+              <Button
+                variant="soft"
+                label="Connect Apple Health"
+                onPress={() => void health.connect()}
+              />
+            )}
+          </Card>
+        </>
+      )}
 
       <SectionTitle>Appearance</SectionTitle>
       <Card>
