@@ -3,6 +3,7 @@
  * at your level, so level is asked before the feed, not buried in settings. Three
  * short steps: what you do, how hard, and the deal everyone here agrees to.
  */
+import { StepDots } from "@/components/step-dots";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { CalendarCheck, Clock, MapPin } from "lucide-react-native";
@@ -69,11 +70,8 @@ export default function Welcome() {
 
   return (
     <Screen edges={["top", "bottom"]} contentStyle={styles.content}>
-      <View accessible style={styles.progress} accessibilityLabel={`Step ${step + 1} of 3`}>
-        {[0, 1, 2].map((i) => (
-          <Dot key={i} on={i <= step} />
-        ))}
-      </View>
+      {/* Agreeing to the terms was step one. */}
+      <StepDots step={step + 1} total={4} />
 
       {step === 0 && (
         <Appear style={styles.step}>
@@ -168,13 +166,6 @@ export default function Welcome() {
   );
 }
 
-function Dot({ on }: { on: boolean }) {
-  const theme = useTheme();
-  return (
-    <View style={[styles.dot, { backgroundColor: on ? theme.accent : theme.backgroundSelected }]} />
-  );
-}
-
 function Deal({
   icon: Icon,
   title,
@@ -206,8 +197,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   spacer: { flex: 1, minHeight: Spacing.three },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.one },
-  progress: { flexDirection: "row", gap: 6, justifyContent: "center" },
-  dot: { width: 28, height: 4, borderRadius: 2 },
   deal: { alignItems: "flex-start", gap: Spacing.two },
   dealIcon: {
     width: 36,
