@@ -4,6 +4,8 @@ import { SiteShell } from "@/components/site/site-shell";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth/client";
 import { SITE } from "@/lib/site";
+import type { FitnessPilotOverview } from "../../shared/fitness-outcomes";
+import type { BillingDispute } from "../../shared/billing";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -34,6 +36,8 @@ type Overview = {
 };
 type ReportStatus = "open" | "actioned" | "dismissed";
 type Operations = {
+  fitnessPilot: FitnessPilotOverview;
+  communityOutcomes: Record<string, number>;
   metrics: {
     component: string;
     requests: number;
@@ -296,6 +300,7 @@ function SignIn({ onDone }: { onDone: () => Promise<void> }) {
 function Console() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [operations, setOperations] = useState<Operations | null>(null);
+  const [disputes, setDisputes] = useState<BillingDispute[]>([]);
   const [status, setStatus] = useState<ReportStatus>("open");
   const [queue, setQueue] = useState<{ reports: Report[]; people: Person[] } | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
@@ -303,16 +308,18 @@ function Console() {
 
   const load = useCallback(async () => {
     try {
-      const [o, q, a, reliability] = await Promise.all([
+      const [o, q, a, reliability, billing] = await Promise.all([
         api<Overview>("/admin/overview"),
         api<{ reports: Report[]; people: Person[] }>(`/admin/reports?status=${status}`),
         api<{ actions: Action[] }>("/admin/actions"),
         api<Operations>("/admin/operations"),
+        api<{ disputes: BillingDispute[] }>("/admin/billing/disputes"),
       ]);
       setOverview(o);
       setQueue(q);
       setActions(a.actions);
       setOperations(reliability);
+      setDisputes(billing.disputes);
       setError("");
     } catch (err) {
       setError((err as Error).message);
@@ -362,6 +369,24 @@ function Console() {
               label="Failed Apple revocations"
               value={operations.counts.failed_apple_revocations}
             />
+            <Stat
+              label="Pending Persona deletions"
+              value={operations.counts.pending_persona_redactions}
+            />
+            <Stat
+              label="Failed Persona deletions"
+              value={operations.counts.failed_persona_redactions}
+            />
+            <Stat label="Open fee disputes" value={operations.counts.open_fee_disputes} />
+            <Stat label="Pending fee refunds" value={operations.counts.pending_fee_refunds} />
+            <Stat
+              label="Payments needing review"
+              value={operations.counts.billing_review_required}
+            />
+            <Stat
+              label="Pending billing deletions"
+              value={operations.counts.pending_billing_deletions}
+            />
           </dl>
           {operations.metrics.length === 0 ? (
             <p className="text-sm text-muted">No recorded requests in this window.</p>
@@ -409,6 +434,143 @@ function Console() {
           </Button>
         </Panel>
       )}
+
+      {operations?.communityOutcomes && (
+        <Panel title="Community outcomes">
+          <p className="text-sm text-muted">
+            Last 30 days. Completed check-ins describe attendance in SamePace; they are not exercise
+            measurements. Repeat pairs completed at least two shared sessions during this window.
+          </p>
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat
+              label="Sessions with completed check-ins"
+              value={operations.communityOutcomes.sessions_with_completed_checkins}
+            />
+            <Stat
+              label="Members with completed check-ins"
+              value={operations.communityOutcomes.members_with_completed_checkins}
+            />
+            <Stat label="Workout pairs" value={operations.communityOutcomes.pairs} />
+            <Stat label="Repeat workout pairs" value={operations.communityOutcomes.repeat_pairs} />
+            <Stat
+              label="First-time invitations"
+              value={operations.communityOutcomes.introductions}
+            />
+            <Stat
+              label="Conversations with both opted in"
+              value={operations.communityOutcomes.joined_introductions}
+            />
+            <Stat
+              label="Introductions with completed check-ins"
+              value={operations.communityOutcomes.introductions_with_completed_checkins}
+            />
+          </dl>
+        </Panel>
+      )}
+
+      {operations?.fitnessPilot && (
+        <Panel title="Optional exercise feedback pilot">
+          <p className="text-sm text-muted">
+            Last 30 days, from members who separately opted in. Changed fields describe editing, not
+            model accuracy. Screen timings include pauses; reported time saved is member feedback.
+          </p>
+          {operations.fitnessPilot.suppressed || !operations.fitnessPilot.summary ? (
+            <p className="text-sm text-muted">
+              Results appear after at least five participating members.
+            </p>
+          ) : (
+            <>
+              <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Stat
+                  label="Participating members"
+                  value={operations.fitnessPilot.summary.members}
+                />
+                <Stat label="Logs saved" value={operations.fitnessPilot.summary.savedLogs} />
+                <Stat
+                  label="Drafts available"
+                  value={operations.fitnessPilot.summary.draftAvailable}
+                />
+                <Stat
+                  label="Drafts abstained"
+                  value={operations.fitnessPilot.summary.draftAbstained}
+                />
+                <Stat
+                  label="Provider unavailable"
+                  value={operations.fitnessPilot.summary.providerUnavailable}
+                />
+                <Stat label="Helpful responses" value={operations.fitnessPilot.summary.helpful} />
+                <Stat
+                  label="Reported time saved"
+                  value={operations.fitnessPilot.summary.reportsTimeSaved}
+                />
+                <Stat
+                  label="Feedback responses"
+                  value={operations.fitnessPilot.summary.feedbackResponses}
+                />
+              </dl>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <caption className="sr-only">
+                    Saved exercise logs grouped by observed draft use
+                  </caption>
+                  <thead>
+                    <tr>
+                      {[
+                        "Draft use",
+                        "Members",
+                        "Logs",
+                        "Unchanged fields",
+                        "Changed fields",
+                        "Median screen time",
+                      ].map((label) => (
+                        <th key={label} className="p-2" scope="col">
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {operations.fitnessPilot.groups.map((group) => (
+                      <tr key={group.mode}>
+                        <th scope="row" className="p-2">
+                          {
+                            {
+                              linked_draft: "Linked draft",
+                              no_linked_draft: "No linked draft",
+                              unobserved_draft_use: "Draft use unknown",
+                            }[group.mode]
+                          }
+                        </th>
+                        <td>{group.members}</td>
+                        <td>{group.savedLogs}</td>
+                        <td>{group.unchangedSuggestedFields ?? "Unknown"}</td>
+                        <td>{group.changedSuggestedFields ?? "Unknown"}</td>
+                        <td>{Math.round(group.medianElapsedMs / 1000)} sec</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-sm text-muted">
+                Each group also requires five members. These comparisons do not establish causal
+                time savings.
+              </p>
+            </>
+          )}
+        </Panel>
+      )}
+
+      <Panel title="Session fee disputes">
+        <p className="text-sm text-muted">
+          Members can dispute assessed fees before payment collection is enabled. Waiving a paid fee
+          queues its Stripe refund; a provider retry may be needed before it completes.
+        </p>
+        {disputes.length === 0 ? (
+          <p className="text-sm text-muted">No fee disputes.</p>
+        ) : (
+          disputes.map((dispute) => <FeeDispute key={dispute.id} dispute={dispute} onDone={load} />)
+        )}
+      </Panel>
 
       <Panel title="Reports">
         <div role="tablist" aria-label="Report status" className="flex flex-wrap gap-2">
@@ -736,6 +898,77 @@ function Members({ onChanged }: { onChanged: () => Promise<void> }) {
         ))}
       </ul>
     </Panel>
+  );
+}
+
+function FeeDispute({ dispute, onDone }: { dispute: BillingDispute; onDone: () => Promise<void> }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const resolve = async (resolution: "waive" | "uphold") => {
+    if (busy || note.trim().length < 10) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/admin/billing/disputes/${dispute.id}/resolve`, {
+        method: "POST",
+        json: { resolution, note: note.trim() },
+      });
+      await onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <article className="space-y-3 rounded-2xl border border-fg/10 p-4">
+      <p className="font-medium text-fg">
+        {usd(dispute.amountCents)} · {dispute.status} · {when(dispute.createdAt)}
+      </p>
+      <p className="whitespace-pre-wrap text-sm text-muted">{dispute.reason}</p>
+      {dispute.resolutionNote && (
+        <p className="text-sm text-muted">Resolution: {dispute.resolutionNote}</p>
+      )}
+      {dispute.status === "open" && (
+        <>
+          <label className="block text-sm text-muted" htmlFor={`resolution-${dispute.id}`}>
+            Resolution note visible to the member
+          </label>
+          <textarea
+            id={`resolution-${dispute.id}`}
+            className={inputClass}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            minLength={10}
+            maxLength={1000}
+            rows={3}
+            disabled={busy}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="soft"
+              disabled={busy || note.trim().length < 10}
+              onClick={() => void resolve("waive")}
+            >
+              Waive fee
+            </Button>
+            <Button
+              variant="soft"
+              disabled={busy || note.trim().length < 10}
+              onClick={() => void resolve("uphold")}
+            >
+              Uphold fee
+            </Button>
+          </div>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      )}
+    </article>
   );
 }
 

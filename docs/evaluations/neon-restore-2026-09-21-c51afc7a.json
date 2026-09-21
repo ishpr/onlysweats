@@ -1,0 +1,113 @@
+{
+  "startedAt": "2026-09-21T03:22:12.697Z",
+  "projectId": "broad-tree-20089008",
+  "sourceBranchId": "br-red-frost-aukxyhk8",
+  "cliVersion": "5.0.0",
+  "computeUnits": 0.25,
+  "expiresAt": "2026-09-22T03:22:12Z",
+  "scope": "Schema-only copy; synthetic canary only; no writes or restore to existing branches.",
+  "status": "failed",
+  "steps": {
+    "schemaBranch": {
+      "id": "br-snowy-moon-aumyey8e",
+      "name": "samepace-restore-drill-2026-09-21-c51afc7a-empty",
+      "durationMs": 1433,
+      "schemaOnly": true,
+      "creationMethod": "CLI branches create --schema-only",
+      "parentTimestamp": null,
+      "parentLsn": null
+    },
+    "emptyTableCounts": {
+      "_migrations": 0,
+      "account": 0,
+      "admin_actions": 0,
+      "agent_delegations": 0,
+      "agent_negotiation_events": 0,
+      "agent_negotiations": 0,
+      "agent_preferences": 0,
+      "apple_revocation_jobs": 0,
+      "apple_tokens": 0,
+      "banned_identities": 0,
+      "blocks": 0,
+      "bookings": 0,
+      "fitness_consents": 0,
+      "fitness_strength_logs": 0,
+      "fitness_workout_assessments": 0,
+      "fitness_workout_corrections": 0,
+      "goal_credits": 0,
+      "health_connections": 0,
+      "health_cursors": 0,
+      "health_records": 0,
+      "ledger_events": 0,
+      "messages": 0,
+      "notifications": 0,
+      "operation_events": 0,
+      "profiles": 0,
+      "push_deliveries": 0,
+      "push_devices": 0,
+      "push_tickets": 0,
+      "ratings": 0,
+      "reports": 0,
+      "series": 0,
+      "series_members": 0,
+      "session": 0,
+      "sessions": 0,
+      "strikes": 0,
+      "training_block_members": 0,
+      "training_block_requests": 0,
+      "training_blocks": 0,
+      "user": 0,
+      "venues": 0,
+      "verification": 0,
+      "verification_events": 0,
+      "verifications": 0
+    },
+    "recoveryPoint": {
+      "timestamp": "2026-09-21T03:22:23.170841Z",
+      "lsn": "0/1AC5138"
+    },
+    "currentCanary": [
+      {
+        "id": 1,
+        "marker": "after-change"
+      }
+    ],
+    "seedExpiryTemporarilyRemoved": true
+  },
+  "cleanup": [
+    {
+      "id": "br-snowy-moon-aumyey8e",
+      "name": "samepace-restore-drill-2026-09-21-c51afc7a-empty",
+      "deleted": true
+    }
+  ],
+  "limits": [
+    "Synthetic logical recovery on temporary branches; no application traffic failover or production-size restore.",
+    "Does not validate recovery beyond the project's existing history window, or set RPO/RTO commitments.",
+    "Does not change history retention, plan, main/preview endpoints, or environment variables."
+  ],
+  "sources": [
+    "https://neon.com/docs/reference/cli-branches",
+    "https://neon.com/docs/guides/branching-schema-only",
+    "https://neon.com/docs/reference/cli-connection-string",
+    "https://api-docs.neon.tech/reference/createprojectbranch",
+    "https://neon.com/docs/guides/branch-expiration"
+  ],
+  "attemptedBranchNames": [
+    "samepace-restore-drill-2026-09-21-c51afc7a-empty",
+    "samepace-restore-drill-2026-09-21-c51afc7a-restored"
+  ],
+  "sourceBranchName": "preview",
+  "existingBranchesCount": 2,
+  "failure": {
+    "stage": "create_point_in_time_branch",
+    "diagnosticWords": [],
+    "reason": "Operation failed; raw database/CLI/provider details were intentionally suppressed.",
+    "diagnosis": "A later identical request captured the concrete provider error: modifying the suspend interval is not permitted on this account. Remove the optional suspend_timeout_seconds endpoint field and use the account default. No plan or retention change is required."
+  },
+  "cleanupVerified": true,
+  "sourceStillPresent": true,
+  "preExistingBranchIdsStillPresent": true,
+  "finishedAt": "2026-09-21T03:22:30.105Z",
+  "totalDurationMs": 17408
+}

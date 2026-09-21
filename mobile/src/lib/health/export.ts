@@ -57,6 +57,7 @@ export async function prepareHealthExport(
 
 export async function prepareFitnessExport(session: ApiSession, signal: AbortSignal) {
   let consent: FitnessExportPage["consent"] | null = null;
+  let pilotConsent: FitnessExportPage["pilotConsent"] | null = null;
   const records = await collectExportPages<FitnessExportRecord>({
     read: async (cursor) => {
       const page = await session.request<FitnessExportPage>(
@@ -64,12 +65,19 @@ export async function prepareFitnessExport(session: ApiSession, signal: AbortSig
         { signal },
       );
       consent = page.consent;
+      pilotConsent = page.pilotConsent;
       return page;
     },
     isCurrent: () => session.isCurrent() && !signal.aborted,
   });
   return JSON.stringify(
-    { format: "samepace.fitness.v1", exportedAt: new Date().toISOString(), consent, records },
+    {
+      format: "samepace.fitness.v1",
+      exportedAt: new Date().toISOString(),
+      consent,
+      pilotConsent,
+      records,
+    },
     null,
     2,
   );

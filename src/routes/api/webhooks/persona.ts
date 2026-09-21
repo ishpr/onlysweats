@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { boundedText } from "@/lib/bounded-body.server";
 
 /**
  * Persona's webhook: how an identity check came out. Authenticated by its
@@ -7,7 +8,8 @@ import { createFileRoute } from "@tanstack/react-router";
  * re-serialised. Without a secret configured every call is refused.
  */
 async function handle({ request }: { request: Request }) {
-  const rawBody = await request.text();
+  const rawBody = await boundedText(request);
+  if (rawBody === null) return Response.json({ error: "Request too large" }, { status: 413 });
   const { getSql } = await import("@/lib/db");
   const { handlePersonaWebhook } = await import("@/lib/pace/verification.server");
   const result = await handlePersonaWebhook(

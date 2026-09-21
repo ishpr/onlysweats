@@ -14,7 +14,10 @@
         "NSLocationWhenInUseUsageDescription": "SamePace checks that you are within 150 m of the meeting pin, only while the Live Session screen is open.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true,
+      "associatedDomains": [
+        "applinks:samepace.app"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -24,7 +27,44 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "app.samepace"
+      "package": "app.samepace",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "samepace.app",
+              "pathPrefix": "/invite/"
+            },
+            {
+              "scheme": "https",
+              "host": "samepace.app",
+              "pathPrefix": "/session/"
+            },
+            {
+              "scheme": "https",
+              "host": "samepace.app",
+              "pathPrefix": "/training-block/"
+            },
+            {
+              "scheme": "https",
+              "host": "samepace.app",
+              "path": "/verified"
+            },
+            {
+              "scheme": "https",
+              "host": "samepace.app",
+              "path": "/billing-return"
+            }
+          ]
+        }
+      ]
     },
     "web": {
       "output": "static",

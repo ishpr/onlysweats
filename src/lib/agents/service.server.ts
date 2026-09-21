@@ -16,9 +16,10 @@ const parseJson = <T>(v: T | string): T => (typeof v === "string" ? (JSON.parse(
 export type Delegate = { id: string; profileId: string; label: string };
 export type Negotiation = {
   id: string;
-  booking_id: string;
+  booking_id: string | null;
   host_id: string;
   participant_id: string;
+  member_names?: Record<string, string>;
   host_consented: boolean;
   participant_consented: boolean;
   state: "open" | "approved" | "cancelled";
@@ -179,6 +180,20 @@ export async function getNegotiation(
   }
   return {
     ...r,
+    // Human invitations need recognizable names before consent. A delegated
+    // agent receives no added profile data through this path.
+    ...(!agent
+      ? {
+          member_names: Object.fromEntries(
+            (
+              await sql<{
+                id: string;
+                name: string;
+              }>`select id, name from profiles where id in (${r.host_id}, ${r.participant_id})`
+            ).map((p) => [p.id, p.name]),
+          ),
+        }
+      : {}),
     plan: parseJson(r.plan),
     confirmations: parseJson(r.confirmations),
     booking_terms: parseJson(r.booking_terms ?? null),
@@ -408,13 +423,40 @@ export async function proposeForMember(
   );
 }
 
+/** Internal runner only: its caller holds the room and both versioned permissions.
+ * Uses the delegated proposal boundary, and cannot reopen human approvals. */
+export async function proposeForCoordinator(
+  sql: Sql,
+  userId: string,
+  roomId: string,
+  messageId: string,
+  expectedRevision: number,
+  plan: WorkoutPlan,
+  now: number,
+) {
+  return proposeAs(
+    sql,
+    userId,
+    roomId,
+    messageId,
+    {
+      schema: "samepace.workout-proposal.v1",
+      action: "propose",
+      expectedRevision,
+      plan,
+    },
+    "coordinator",
+    now,
+  );
+}
+
 async function proposeAs(
   sql: Sql,
   userId: string,
   roomId: string,
   messageId: string,
   input: unknown,
-  actor: Delegate | false,
+  actor: Delegate | false | "coordinator",
   now: number,
 ) {
   const command = proposalCommand.parse(input);
@@ -422,7 +464,7 @@ async function proposeAs(
   const digest = hash(JSON.stringify(command));
   return sql.transaction(async (tx) => {
     const r = await getNegotiation(tx, userId, roomId, true, true);
-    if (actor) await assertActiveDelegate(tx, actor, now);
+    if (actor && actor !== "coordinator") await assertActiveDelegate(tx, actor, now);
     const [prior] = await tx<{
       command_hash: string;
     }>`select command_hash from agent_negotiation_events
@@ -454,7 +496,7 @@ async function proposeAs(
       "proposal",
       {
         plan: command.plan,
-        agentLabel: actor ? actor.label : "Member",
+        agentLabel: actor === "coordinator" ? "SamePace assistant" : actor ? actor.label : "Member",
         requiresHumanConfirmation: true,
       },
       now,
@@ -563,6 +605,7 @@ export function view(r: Negotiation, now = Date.now()) {
   return {
     id: r.id,
     bookingId: r.booking_id,
+    ...(r.member_names ? { memberNames: r.member_names } : {}),
     memberIds: [r.host_id, r.participant_id],
     consentedIds: [
       r.host_consented ? r.host_id : null,

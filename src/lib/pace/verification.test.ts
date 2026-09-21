@@ -49,8 +49,15 @@ const inquiryOf = (url: string | null) => new URL(url!).searchParams.get("inquir
 
 /** A Persona that remembers what it was asked. */
 function fakePersona() {
-  const calls: { method: string; path: string; body: unknown; auth: string | null }[] = [];
+  const calls: {
+    method: string;
+    path: string;
+    body: unknown;
+    auth: string | null;
+    idempotency: string | null;
+  }[] = [];
   const statuses = new Map<string, string>();
+  const references = new Map<string, string>();
   const doFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     const path = url.pathname.replace("/api/v1", "");
@@ -61,11 +68,19 @@ function fakePersona() {
       path,
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
       auth: headers.get("authorization"),
+      idempotency: headers.get("idempotency-key"),
     });
     const reply = (id: string, token?: string) =>
       new Response(
         JSON.stringify({
-          data: { id, attributes: { status: statuses.get(id) ?? "created" } },
+          data: {
+            id,
+            attributes: {
+              status: statuses.get(id) ?? "created",
+              "reference-id": references.get(id),
+              "updated-at": new Date(Date.now() + calls.length).toISOString(),
+            },
+          },
           meta: token ? { "session-token": token } : {},
         }),
         { status: 200, headers: { "content-type": "application/json" } },
@@ -74,6 +89,7 @@ function fakePersona() {
       made += 1;
       const id = `inq_${made}`;
       statuses.set(id, "created");
+      references.set(id, JSON.parse(String(init?.body)).data.attributes["reference-id"]);
       return reply(id, `sess_${made}`);
     }
     const [, , id, action] = path.split("/");
@@ -95,7 +111,13 @@ const sign = (body: string, at: number, secret = SECRET) =>
     .digest("hex")}`;
 
 let eventN = 0;
-function event(inquiryId: string, referenceId: string, status: string, id?: string) {
+function event(
+  inquiryId: string,
+  referenceId: string,
+  status: string,
+  id?: string,
+  createdAt?: number,
+) {
   eventN += 1;
   return JSON.stringify({
     data: {
@@ -103,6 +125,7 @@ function event(inquiryId: string, referenceId: string, status: string, id?: stri
       id: id ?? `evt_${eventN}`,
       attributes: {
         name: `inquiry.${status}`,
+        "created-at": new Date(createdAt ?? Date.now() + eventN * 10).toISOString(),
         payload: {
           data: {
             type: "inquiry",
@@ -273,7 +296,7 @@ describe("Persona", () => {
     assert.equal(await state(dan), "none");
 
     // Late and out of order: a stray "pending" doesn't undo a decision…
-    await deliver(event(inquiry, cat, "pending"));
+    await deliver(event(inquiry, cat, "pending", undefined, Date.now() - 1000));
     assert.equal(await state(cat), "approved");
     // …but a reviewer reversing it does.
     await deliver(event(inquiry, cat, "declined"));
@@ -343,6 +366,63 @@ describe("Persona", () => {
       0,
       "nothing to ask without a key",
     );
+  });
+});
+
+describe("verification delivery reliability", () => {
+  it("serializes concurrent starts and sends an idempotent provider create", async () => {
+    const id = await member("Concurrent");
+    const p = fakePersona();
+    const started = await Promise.all(
+      Array.from({ length: 4 }, () => v.startVerification(sql, id, "member", Date.now(), p.deps)),
+    );
+    assert.equal(new Set(started.map((x) => x.id)).size, 1);
+    const creates = p.calls.filter((x) => x.path === "/inquiries");
+    assert.equal(creates.length, 1);
+    assert.equal(creates[0].idempotency, `samepace:${id}:member:1`);
+  });
+
+  it("an older approval cannot undo a newer decline or alter a newer inquiry", async () => {
+    const id = await member("Ordering");
+    const p = fakePersona();
+    const first = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(first.url);
+    const now = Date.now();
+    await deliver(event(inquiry, id, "declined", undefined, now));
+    await deliver(event(inquiry, id, "approved", undefined, now - 1000));
+    assert.equal((await v.getVerification(sql, id, p.deps)).member, "declined");
+    const next = await v.startVerification(sql, id, "member", now + 1, p.deps);
+    await deliver(event(inquiry, id, "approved", undefined, now + 2));
+    assert.equal((await v.getVerification(sql, id, p.deps)).member, "pending");
+    assert.notEqual(first.id, next.id);
+  });
+
+  it("atomically retains redaction obligations through account deletion and retries failures", async () => {
+    const id = await member("DeleteRetry");
+    const p = fakePersona();
+    const started = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(started.url);
+    await safety.deleteAccount(sql, id);
+    assert.equal((await sql`select id from verifications where profile_id = ${id}`).length, 0);
+    const [job] = await sql`select * from persona_redaction_jobs where provider_ref = ${inquiry}`;
+    assert.ok(job);
+    assert.ok(!Object.values(job).includes(id), "the queue contains no member identity");
+    const bad = {
+      ...p.deps,
+      fetch: (async () => new Response(null, { status: 503 })) as typeof fetch,
+    };
+    const now = Date.now();
+    assert.equal((await v.retryPersonaRedactions(sql, now, bad, [inquiry])).failed, 1);
+    assert.equal(
+      (await v.retryPersonaRedactions(sql, now + 300_000, p.deps, [inquiry])).redacted,
+      1,
+    );
+    assert.equal(
+      (await sql`select * from persona_redaction_jobs where provider_ref = ${inquiry}`).length,
+      0,
+    );
+    await rejects(v.startVerification(sql, id, "member", Date.now(), p.deps), 403);
+    assert.equal((await deliver(event(inquiry, id, "approved"))).outcome, "unknown_inquiry");
   });
 });
 

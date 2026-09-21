@@ -91,25 +91,28 @@ export function T({
 export function Backdrop() {
   const theme = useTheme();
   const light = useColorScheme() === "light";
+  // Every wash covers the whole screen and fades to its OWN colour at zero alpha. A
+  // fixed-height box clips a diagonal fade into a hard edge, and fading to
+  // "transparent" (transparent black) leaves a grey band.
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <LinearGradient
-        colors={[withAlpha(theme.stand, light ? 0.16 : 0.14), "transparent"]}
+        colors={[withAlpha(theme.stand, light ? 0.16 : 0.14), withAlpha(theme.stand, 0)]}
         start={{ x: 0, y: 0 }}
-        end={{ x: 0.7, y: 0.75 }}
-        style={styles.glowTop}
+        end={{ x: 0.85, y: 0.5 }}
+        style={StyleSheet.absoluteFill}
       />
       <LinearGradient
-        colors={[withAlpha(theme.accent, light ? 0.14 : 0.1), "transparent"]}
+        colors={[withAlpha(theme.accent, light ? 0.14 : 0.1), withAlpha(theme.accent, 0)]}
         start={{ x: 1, y: 0 }}
-        end={{ x: 0.25, y: 0.7 }}
-        style={styles.glowTop}
+        end={{ x: 0.15, y: 0.5 }}
+        style={StyleSheet.absoluteFill}
       />
       <LinearGradient
-        colors={["transparent", withAlpha(theme.stand, light ? 0.08 : 0.06)]}
-        start={{ x: 0.2, y: 0 }}
+        colors={[withAlpha(theme.stand, 0), withAlpha(theme.stand, light ? 0.08 : 0.06)]}
+        start={{ x: 0.3, y: 0.55 }}
         end={{ x: 1, y: 1 }}
-        style={styles.glowBottom}
+        style={StyleSheet.absoluteFill}
       />
     </View>
   );
@@ -163,8 +166,9 @@ export function Screen({
     const max = e.contentSize.height - e.layoutMeasurement.height;
     lastY.value = y;
     if (y <= 0) tabBarHidden.value = withTiming(0, { duration: 180 });
-    // Ignore the rubber-band at the bottom: bouncing back isn't "scrolling up".
-    else if (y >= max) return;
+    // The end of the page: nothing left to read, so give the bar back. (Also keeps the
+    // rubber-band bounce here from reading as "scrolling up".)
+    else if (y >= max - 4) tabBarHidden.value = withTiming(0, { duration: 180 });
     else if (dy > 4 && y > 80) tabBarHidden.value = withTiming(1, { duration: 220 });
     else if (dy < -4) tabBarHidden.value = withTiming(0, { duration: 180 });
   });
@@ -572,8 +576,6 @@ export function StateView({
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  glowTop: { position: "absolute", top: 0, left: 0, right: 0, height: 520 },
-  glowBottom: { position: "absolute", bottom: 0, left: 0, right: 0, height: 360 },
   content: {
     width: "100%",
     maxWidth: MaxContentWidth,

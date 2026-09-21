@@ -30,8 +30,9 @@ export type AssistantCandidates = {
 };
 export type AssistantNegotiation = {
   id: string;
-  bookingId: string;
+  bookingId: string | null;
   memberIds: string[];
+  memberNames?: Record<string, string>;
   consentedIds: string[];
   state: "open" | "approved" | "cancelled" | "expired";
   revision: number;
@@ -71,4 +72,40 @@ export type AssistantBookingReview = {
   booked: boolean;
   sessionId: string | null;
   bookingId: string | null;
+};
+
+/** Permission to propose only. It never authorizes confirmation or booking. */
+export type AssistantCoordinationPermission = {
+  memberId: string;
+  enabled: boolean;
+  valid: boolean;
+  preferenceRevision: number;
+  negotiationRevision: number;
+  expiresAt: string;
+};
+export type AssistantCoordinationRun = {
+  id: string;
+  status: "queued" | "negotiating" | "awaiting_review" | "no_match" | "cancelled" | "expired";
+  reason: string | null;
+  baseRevision: number;
+  proposalRevision: number;
+  stepsUsed: number;
+  maxSteps: number;
+  deadlineAt: string;
+  createdAt: string;
+  updatedAt: string;
+  steps: {
+    number: number;
+    memberId: string;
+    action: "proposed" | "counterproposed" | "checked_preferences" | "ready_for_review";
+    proposalRevision: number;
+    createdAt: string;
+  }[];
+};
+export type AssistantCoordination = {
+  negotiationId: string;
+  permissions: AssistantCoordinationPermission[];
+  latestRun: AssistantCoordinationRun | null;
+  ready: boolean;
+  reason: string | null;
 };

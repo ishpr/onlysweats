@@ -1,7 +1,7 @@
 /**
  * Identity verification (server-only, PRD v0.3 §8). Persona runs the checks — the
  * phone number, the selfie, the ID — and SamePace learns one thing per check: how
- * it came out. No image, number or document passes through or is stored here.
+ * it came out. No image, number or document is stored or returned to the app.
  *
  * The flow: the server creates a Persona inquiry and hands the app a hosted-flow
  * URL; the member finishes it in a browser sheet; Persona's signed webhook moves
@@ -76,6 +76,7 @@ type Row = {
   provider_ref: string | null;
   status: VerificationStatus;
   created_at: Date;
+  provider_updated_at: Date | null;
 };
 
 export async function verifiedOf(sql: Sql, profileId: string): Promise<Verified> {
@@ -139,28 +140,59 @@ async function persona<T>(
   method: "GET" | "POST" | "DELETE",
   path: string,
   body?: unknown,
+  idempotencyKey?: string,
 ): Promise<T> {
-  const res = await doFetch(`${PERSONA_API}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${cfg.apiKey}`,
-      accept: "application/json",
-      "content-type": "application/json",
-      "persona-version": PERSONA_VERSION,
-      "key-inflection": "kebab",
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) {
-    // Persona's error text can echo what was sent; log the status, show nothing of it.
-    console.error("[verification] persona", method, path.split("/")[1], res.status);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await doFetch(`${PERSONA_API}${path}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${cfg.apiKey}`,
+        accept: "application/json",
+        "content-type": "application/json",
+        "persona-version": PERSONA_VERSION,
+        "key-inflection": "kebab",
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+      redirect: "error",
+    });
+    if (method === "DELETE" && res.status === 404) return null as T;
+    if (!res.ok) {
+      // Persona's error text can echo what was sent; log the status, show nothing of it.
+      console.error("[verification] persona", method, path.split("/")[1], res.status);
+      throw new PaceError(409, "Verification isn’t available right now. Try again in a minute.");
+    }
+    if (res.status === 204) return null as T;
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("Missing provider response");
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      length += part.value.length;
+      if (length > 512 * 1024) {
+        await reader.cancel();
+        throw new Error("Provider response too large");
+      }
+      chunks.push(part.value);
+    }
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as T;
+  } catch {
     throw new PaceError(409, "Verification isn’t available right now. Try again in a minute.");
+  } finally {
+    clearTimeout(timer);
   }
-  return (res.status === 204 ? null : await res.json()) as T;
 }
 
 type InquiryResponse = {
-  data: { id: string; attributes: { status: string; "reference-id"?: string | null } };
+  data: {
+    id: string;
+    attributes: { status: string; "reference-id"?: string | null; "updated-at"?: string };
+  };
   meta?: { "session-token"?: string };
 };
 
@@ -196,6 +228,22 @@ export async function startVerification(
   tier: VerificationTier,
   now = Date.now(),
   { env = process.env, fetch: doFetch = fetch }: Deps = {},
+): Promise<StartedDTO> {
+  return sql.transaction(async (tx) => {
+    const [owner] = await tx<{ deleted_at: Date | null; suspended_at: Date | null }>`
+      select deleted_at, suspended_at from profiles where id = ${userId} for no key update`;
+    if (!owner || owner.deleted_at || owner.suspended_at)
+      throw new PaceError(403, "Your account cannot start a check.");
+    return startLocked(tx, userId, tier, now, { env, fetch: doFetch });
+  });
+}
+
+async function startLocked(
+  sql: Sql,
+  userId: string,
+  tier: VerificationTier,
+  now: number,
+  { env = process.env, fetch: doFetch = fetch }: Deps,
 ): Promise<StartedDTO> {
   const provider = providerFor(env);
   if (!provider) throw new PaceError(409, "Verification isn’t open yet.");
@@ -245,6 +293,12 @@ export async function startVerification(
       "POST",
       `/inquiries/${encodeURIComponent(open.provider_ref!)}/resume`,
     );
+    if (
+      res?.data?.id !== open.provider_ref ||
+      (res.data.attributes?.["reference-id"] != null &&
+        res.data.attributes["reference-id"] !== userId)
+    )
+      throw new PaceError(409, "Verification returned an invalid response.");
     await sql`
       update verifications set status = 'pending', updated_at = ${at(now)} where id = ${open.id}`;
     return {
@@ -258,10 +312,27 @@ export async function startVerification(
   const template = cfg.templates[tier];
   if (!template) throw new PaceError(409, "Verification isn’t open yet.");
   // The member's id is the only thing we send. Persona collects the rest itself.
-  const res = await persona<InquiryResponse>(cfg, doFetch, "POST", "/inquiries", {
-    data: { attributes: { "inquiry-template-id": template, "reference-id": userId } },
-    meta: { "auto-create-inquiry-session": true },
-  });
+  const [{ attempt }] = await sql<{
+    attempt: number;
+  }>`select count(*)::int + 1 as attempt from verifications where profile_id = ${userId} and tier = ${tier}`;
+  const res = await persona<InquiryResponse>(
+    cfg,
+    doFetch,
+    "POST",
+    "/inquiries",
+    {
+      data: { attributes: { "inquiry-template-id": template, "reference-id": userId } },
+      meta: { "auto-create-inquiry-session": true },
+    },
+    `samepace:${userId}:${tier}:${attempt}`,
+  );
+  if (
+    typeof res?.data?.id !== "string" ||
+    !/^inq_[a-zA-Z0-9_-]{1,200}$/.test(res.data.id) ||
+    (res.data.attributes?.["reference-id"] != null &&
+      res.data.attributes["reference-id"] !== userId)
+  )
+    throw new PaceError(409, "Verification returned an invalid response.");
   const id = newId("ver");
   await sql`
     insert into verifications (id, profile_id, tier, provider, provider_ref, status, created_at, updated_at)
@@ -299,9 +370,26 @@ const DECIDED = new Set<VerificationStatus>(["approved", "declined", "failed"]);
  * a stray "pending" after "approved" changes nothing. A later decline does undo
  * an approval: a reviewer at Persona can reverse one.
  */
-async function applyStatus(tx: Sql, row: Row, next: VerificationStatus, now: number) {
+async function applyStatus(
+  tx: Sql,
+  row: Row,
+  next: VerificationStatus,
+  now: number,
+  providerAt?: number,
+) {
+  if (providerAt !== undefined) {
+    const prior = row.provider_updated_at ? +new Date(row.provider_updated_at) : -Infinity;
+    if (providerAt < prior || (providerAt === prior && next !== "declined" && next !== "failed"))
+      return;
+    await tx`update verifications set provider_updated_at = ${at(providerAt)} where id = ${row.id}`;
+  }
+  if ((await latest(tx, row.profile_id, row.tier as VerificationTier))?.id !== row.id) return;
+  const [owner] = await tx<{
+    deleted_at: Date | null;
+  }>`select deleted_at from profiles where id = ${row.profile_id}`;
+  if (!owner || owner.deleted_at) return;
   if (row.status === next) return;
-  if (DECIDED.has(row.status) && !DECIDED.has(next)) return;
+  if (providerAt === undefined && DECIDED.has(row.status) && !DECIDED.has(next)) return;
   await tx`
     update verifications
     set status = ${next}, updated_at = ${at(now)},
@@ -377,11 +465,17 @@ export async function refreshVerification(
       "GET",
       `/inquiries/${encodeURIComponent(row.provider_ref)}`,
     );
+    if (res.data.id !== row.provider_ref || res.data.attributes["reference-id"] !== userId)
+      throw new PaceError(409, "Verification returned an invalid response.");
     const next = fromPersona(res.data.attributes.status);
+    const providerAt = Date.parse(res.data.attributes["updated-at"] ?? "");
+    if (!Number.isFinite(providerAt) || providerAt > now + WEBHOOK_TOLERANCE_MS)
+      throw new PaceError(409, "Verification returned an invalid response.");
     if (next) {
       await sql.transaction(async (tx) => {
+        await tx`select id from profiles where id = ${userId} for no key update`;
         const [locked] = await tx<Row>`select * from verifications where id = ${row.id} for update`;
-        if (locked) await applyStatus(tx, locked, next, now);
+        if (locked) await applyStatus(tx, locked, next, now, providerAt);
       });
     }
   }
@@ -399,6 +493,7 @@ export async function devComplete(
 ): Promise<VerificationDTO> {
   if (providerFor(env) !== "dev") throw new PaceError(404, "Not found");
   await sql.transaction(async (tx) => {
+    await tx`select id from profiles where id = ${userId} for no key update`;
     const [row] = await tx<Row>`
       select * from verifications
       where id = ${verificationId} and profile_id = ${userId} and provider = 'dev' for update`;
@@ -463,6 +558,7 @@ type PersonaEvent = {
     id?: string;
     attributes?: {
       name?: string;
+      "created-at"?: string;
       payload?: {
         data?: { id?: string; attributes?: { status?: string; "reference-id"?: string | null } };
       };
@@ -495,15 +591,33 @@ export async function handlePersonaWebhook(
   } catch {
     return { status: 200, outcome: "ignored" };
   }
+  if (!event || typeof event !== "object") return { status: 200, outcome: "ignored" };
   const eventId = event.data?.id;
   const name = event.data?.attributes?.name ?? "";
   const inquiry = event.data?.attributes?.payload?.data;
   const next = fromPersona(inquiry?.attributes?.status ?? "");
-  if (!eventId || !name.startsWith("inquiry.") || !inquiry?.id || !next) {
+  const providerAt = Date.parse(event.data?.attributes?.["created-at"] ?? "");
+  if (
+    !eventId ||
+    typeof eventId !== "string" ||
+    eventId.length > 255 ||
+    typeof name !== "string" ||
+    !name.startsWith("inquiry.") ||
+    typeof inquiry?.id !== "string" ||
+    !/^inq_[a-zA-Z0-9_-]{1,200}$/.test(inquiry.id) ||
+    !next ||
+    !Number.isFinite(providerAt) ||
+    providerAt > now + WEBHOOK_TOLERANCE_MS
+  ) {
     return { status: 200, outcome: "ignored" };
   }
 
   return sql.transaction(async (tx) => {
+    const [reference] = await tx<{
+      profile_id: string;
+    }>`select profile_id from verifications where provider = 'persona' and provider_ref = ${inquiry.id}`;
+    if (!reference) return { status: 200 as const, outcome: "unknown_inquiry" };
+    await tx`select id from profiles where id = ${reference.profile_id} for no key update`;
     const fresh = await tx`
       insert into verification_events (id, received_at) values (${eventId}, ${at(now)})
       on conflict (id) do nothing returning id`;
@@ -514,35 +628,68 @@ export async function handlePersonaWebhook(
     if (!row || inquiry.attributes?.["reference-id"] !== row.profile_id) {
       return { status: 200 as const, outcome: "unknown_inquiry" };
     }
-    await applyStatus(tx, row, next, now);
+    await applyStatus(tx, row, next, now, providerAt);
     return { status: 200 as const, outcome: next };
   });
 }
 
 // ── Leaving ──────────────────────────────────────────────────────────────────
 
-/**
- * Deleting an account asks Persona to delete what it holds too. Best effort, and
- * before the profile is scrubbed: a failure here must never block the deletion.
- */
-export async function redactVerifications(
+/** Called inside account deletion, while its profile lock is held. */
+export async function queueVerificationRedactions(sql: Sql, userId: string, now = Date.now()) {
+  await sql`insert into persona_redaction_jobs (provider_ref, next_attempt_at, created_at)
+    select provider_ref, ${at(now)}, ${at(now)} from verifications
+    where profile_id = ${userId} and provider = 'persona' and provider_ref is not null
+    on conflict (provider_ref) do nothing`;
+}
+
+/** Bounded, leased retries; absent credentials preserve the deletion obligation. */
+export async function retryPersonaRedactions(
   sql: Sql,
-  userId: string,
+  now = Date.now(),
   { env = process.env, fetch: doFetch = fetch }: Deps = {},
-): Promise<number> {
+  refs?: string[],
+) {
   const cfg = personaConfig(env);
-  if (!cfg) return 0;
-  const rows = await sql<{ provider_ref: string }>`
-    select provider_ref from verifications
-    where profile_id = ${userId} and provider = 'persona' and provider_ref is not null`;
-  let redacted = 0;
-  for (const { provider_ref } of rows) {
+  const result = { redacted: 0, failed: 0 };
+  if (!cfg) return result;
+  for (let n = 0; n < 5; n++) {
+    const [job] = await sql<{ provider_ref: string; attempts: number }>`
+      update persona_redaction_jobs set state = 'processing', attempts = attempts + 1,
+        next_attempt_at = ${at(now + 60_000)}
+      where provider_ref in (select provider_ref from persona_redaction_jobs
+        where next_attempt_at <= ${at(now)} and (${refs ?? null}::text[] is null or provider_ref = any(${refs ?? null}))
+        order by next_attempt_at, provider_ref for update skip locked limit 1)
+      returning provider_ref, attempts`;
+    if (!job) break;
     try {
-      await persona(cfg, doFetch, "DELETE", `/inquiries/${encodeURIComponent(provider_ref)}`);
-      redacted += 1;
+      await persona(cfg, doFetch, "DELETE", `/inquiries/${encodeURIComponent(job.provider_ref)}`);
+      const removed =
+        await sql`delete from persona_redaction_jobs where provider_ref = ${job.provider_ref}
+        and attempts = ${job.attempts} returning provider_ref`;
+      result.redacted += removed.length;
     } catch {
-      /* logged in persona(); carry on */
+      const delay = Math.min(24 * 3600_000, 60_000 * 2 ** Math.min(job.attempts, 10));
+      await sql`update persona_redaction_jobs set state = 'failed', next_attempt_at = ${at(now + delay)}
+        where provider_ref = ${job.provider_ref} and attempts = ${job.attempts}`;
+      result.failed++;
     }
   }
-  return redacted;
+  await sql`delete from verification_events where received_at < ${at(now - 30 * 86400_000)}`;
+  return result;
+}
+
+/** Compatibility helper for an immediate attempt; failures remain durable. */
+export async function redactVerifications(sql: Sql, userId: string, deps: Deps = {}) {
+  await queueVerificationRedactions(sql, userId);
+  const refs = await sql<{ provider_ref: string }>`select provider_ref from verifications
+    where profile_id = ${userId} and provider = 'persona' and provider_ref is not null`;
+  return (
+    await retryPersonaRedactions(
+      sql,
+      Date.now(),
+      deps,
+      refs.map((r) => r.provider_ref),
+    )
+  ).redacted;
 }

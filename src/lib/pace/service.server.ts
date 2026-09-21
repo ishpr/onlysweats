@@ -5,6 +5,7 @@
  * client-supplied identity.
  */
 import type { Sql } from "../db.ts";
+import { assertMembershipEntitled } from "../billing/service.server.ts";
 import {
   dayAndTime,
   DEFAULT_PREFS,
@@ -689,6 +690,7 @@ export async function postSession(
     const poster = await profileRow(tx, userId);
     if (poster.deleted_at || poster.suspended_at)
       throw new PaceError(403, "Your account cannot post a session.");
+    await assertMembershipEntitled(tx, userId, now);
     const [venue] = await tx<Venue>`select * from venues where id = ${input.venueId}`;
     if (!venue) throw new PaceError(400, "Pick a venue in the cluster.");
     const startAt = new Date(input.startAt).getTime();
@@ -937,6 +939,7 @@ export async function bookSeat(
     );
     if (!verdict.ok) throw new PaceError(409, verdict.error);
     await requireVerified(tx, userId, { visibility: s.visibility, womenOnly: s.women_only });
+    await assertMembershipEntitled(tx, userId, now);
     await assertNoAssistantOverlap(tx, userId, iso(s.start_at)!, s.duration_min, sessionId);
 
     // Not a regular on this standing slot? Then this is a substitute seat: one
@@ -1600,6 +1603,27 @@ export async function ensureNextOccurrence(
   }
 
   for (const member of members) {
+    try {
+      await assertMembershipEntitled(tx, member, now);
+    } catch (err) {
+      if (!(err instanceof PaceError && err.status === 403)) throw err;
+      // Preserve existing commitments. Only the uncreated occurrence waits for
+      // this member to manage billing; other members do not see billing details.
+      await enqueue(
+        tx,
+        {
+          profileId: member,
+          kind: "standing_slot_membership",
+          category: "account",
+          title: "Review membership for your next workout",
+          body: "Your next standing-slot occurrence is waiting for an active membership. Existing sessions are unchanged.",
+          url: "/billing",
+          dedupeKey: `series:${seriesId}:${at(startAt)}:${member}:membership`,
+        },
+        now,
+      );
+      return null;
+    }
     try {
       await assertNoAssistantOverlap(tx, member, at(startAt), last.duration_min);
     } catch (err) {

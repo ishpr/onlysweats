@@ -29,9 +29,26 @@ async function handle({ request }: { request: Request }) {
   const retired = await notify.checkReceipts(sql);
   const { retryAppleRevocations } = await import("@/lib/auth/apple-revoke.server");
   const appleRevocations = await retryAppleRevocations(sql);
+  const { retryPersonaRedactions } = await import("@/lib/pace/verification.server");
+  const personaRedactions = await retryPersonaRedactions(sql);
+  const { sweepCoordination } = await import("@/lib/agents/coordination.server");
+  const coordination = await sweepCoordination(sql);
+  const { sweepBilling } = await import("@/lib/billing/worker.server");
+  const billing = await sweepBilling(sql);
   const { pruneOperations } = await import("@/lib/operations/service.server");
   await pruneOperations(sql);
-  return Response.json({ ok: true, settled, closed, reminders, pushed, retired, appleRevocations });
+  return Response.json({
+    ok: true,
+    settled,
+    closed,
+    reminders,
+    pushed,
+    retired,
+    appleRevocations,
+    personaRedactions,
+    coordination,
+    billing,
+  });
 }
 
 export const Route = createFileRoute("/api/cron/settle")({

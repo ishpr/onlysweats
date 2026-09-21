@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Sql } from "../db.ts";
+import { fitnessPilotOverview, pruneFitnessOutcomes } from "../fitness/outcomes.server.ts";
 
 export type OperationComponent = "health" | "fitness" | "agents";
 export async function recordOperation(
@@ -19,6 +20,7 @@ export async function recordOperation(
 }
 
 export async function pruneOperations(sql: Sql, now = Date.now()) {
+  await pruneFitnessOutcomes(sql, now);
   await sql`delete from operation_events where created_at < ${new Date(now - 7 * 86400_000).toISOString()}`;
 }
 
@@ -48,6 +50,36 @@ export async function operationalOverview(sql: Sql, now = Date.now()) {
     (select count(*)::int from agent_negotiations where state = 'open' and expires_at > now()) as open_negotiations,
     (select count(*)::int from push_deliveries where state = 'failed') as failed_push_deliveries,
     (select count(*)::int from apple_revocation_jobs where state = 'failed') as failed_apple_revocations,
+    (select count(*)::int from persona_redaction_jobs where state = 'failed') as failed_persona_redactions,
+    (select count(*)::int from persona_redaction_jobs where state in ('queued', 'processing')) as pending_persona_redactions,
+    (select count(*)::int from billing_disputes where status = 'open') as open_fee_disputes,
+    (select count(*)::int from billing_checkouts where status = 'refund_pending') as pending_fee_refunds,
+    (select count(*)::int from billing_checkouts where status = 'review_required') as billing_review_required,
+    (select count(*)::int from billing_deletion_queue where status = 'pending') as pending_billing_deletions,
     (select count(*)::int from reports where status = 'open') as open_reports`;
-  return { since, metrics, counts, manualSync: true, retentionDays: 7 };
+  const [communityOutcomes] = await sql<Record<string, number>>`with attended as (
+      select b.id, s.id as session_id, s.host_id, b.participant_id,
+        least(s.host_id, b.participant_id) as member_a,
+        greatest(s.host_id, b.participant_id) as member_b
+      from bookings b join sessions s on s.id = b.session_id
+      where b.status = 'completed' and s.start_at >= ${new Date(now - 30 * 86400_000)} and s.start_at <= ${new Date(now)}
+    ), pair_counts as (select member_a, member_b, count(*) as n from attended group by member_a, member_b)
+    select (select count(*)::int from attended) as completed_seats,
+      (select count(distinct session_id)::int from attended) as sessions_with_completed_checkins,
+      (select count(*)::int from (select host_id as id from attended union select participant_id from attended) members) as members_with_completed_checkins,
+      (select count(*)::int from pair_counts) as pairs,
+      (select count(*)::int from pair_counts where n >= 2) as repeat_pairs,
+      (select count(*)::int from agent_negotiations where booking_id is null and created_at >= ${new Date(now - 30 * 86400_000)}) as introductions,
+      (select count(*)::int from agent_negotiations where booking_id is null and host_consented and participant_consented and created_at >= ${new Date(now - 30 * 86400_000)}) as joined_introductions,
+      (select count(*)::int from agent_negotiations n join bookings b on b.id = n.result_booking_id
+        where n.booking_id is null and b.status = 'completed' and n.created_at >= ${new Date(now - 30 * 86400_000)}) as introductions_with_completed_checkins`;
+  return {
+    since,
+    metrics,
+    counts,
+    manualSync: true,
+    retentionDays: 7,
+    fitnessPilot: await fitnessPilotOverview(sql, now),
+    communityOutcomes,
+  };
 }

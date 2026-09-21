@@ -225,8 +225,9 @@ export default function You() {
         <T variant="caption" color="textSecondary">
           {p.freeSessionsLeft > 0
             ? `Your first two sessions are free — ${p.freeSessionsLeft} to go. After that it’s $12 a month, and only once your area is busy enough to be worth it.`
-            : "You’re past your two free sessions. Membership isn’t charging in your area yet."}
+            : "Open membership to see your current status and review any session fees."}
         </T>
+        <Button variant="soft" label="Membership & fees" onPress={() => router.push("/billing")} />
         {(p.creditCents > 0 || p.feesCents > 0 || p.strikes > 0) && (
           <Row style={styles.wrap}>
             {p.creditCents > 0 && (

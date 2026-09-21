@@ -11,11 +11,13 @@ export function ReportLink({
   name,
   sessionId,
   bookingId,
+  negotiationId,
 }: {
   memberId: string;
   name: string;
   sessionId?: string;
   bookingId?: string;
+  negotiationId?: string;
 }) {
   const router = useRouter();
   // Not `<Link asChild>`: it drops a Pressable's function style, and with it the button.
@@ -26,7 +28,13 @@ export function ReportLink({
       onPress={() =>
         router.push({
           pathname: "/report",
-          params: { memberId, name, sessionId: sessionId ?? "", bookingId: bookingId ?? "" },
+          params: {
+            memberId,
+            name,
+            sessionId: sessionId ?? "",
+            bookingId: bookingId ?? "",
+            negotiationId: negotiationId ?? "",
+          },
         })
       }
     />

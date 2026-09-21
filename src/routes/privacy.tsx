@@ -128,17 +128,51 @@ function Privacy() {
             Account deletion removes all private fitness data. Service reliability counts and
             timings contain no notes, measurements, or member identifiers.
           </p>
+          <p>
+            A separate, optional feedback pilot records whether suggested fields stayed the same or
+            changed when you saved, how long the logging screen was open, and feedback you choose to
+            provide. Private comparison fingerprints support later edits; raw notes, exercise values
+            and model responses are not copied into these measurements. They expire after 30 days
+            and are removed when you leave the pilot, disable AI assistance, delete the related log
+            or delete your account. Admin reports show groups of at least five members. Screen
+            timings include pauses and do not prove time saved.
+          </p>
         </Section>
 
         <Section title="Workout assistants">
           <p>
-            Assistants can coordinate with a previous workout partner only after both people opt
-            into the conversation. Enabling shared planning preferences makes your entered
-            availability, activity choices, and approved preference visible in those conversations.
-            Imported health records are never included. You can disable preference sharing, withdraw
+            Assistants can coordinate with a workout partner only after both people opt into the
+            conversation. Enabling shared planning preferences makes your entered availability,
+            activity choices, and approved preference visible in those conversations. Imported
+            health records are never included. You can disable preference sharing, withdraw
             conversation consent, or revoke a delegated credential. Both people must separately
             approve the same plan and booking terms before a session is created. Agents cannot
             perform those human approvals.
+          </p>
+          <p>
+            Meeting a new partner requires a separate discovery choice that expires after seven
+            days. SamePace compares your entered activity, ability, public venues and available
+            times with other opted-in members. Compatible members can see your name and activity and
+            invite you to plan. Exact availability and notes stay private until you both join the
+            conversation. Editing your preferences pauses discovery until you enable it again. Each
+            person separately authorizes any bounded assistant planning run; that permission expires
+            and never authorizes booking or payment.
+          </p>
+        </Section>
+
+        <Section title="Payments and disputes">
+          <p>
+            When payments are enabled for your local group, Stripe hosts checkout and membership
+            management. Card details go to Stripe. SamePace stores provider references, amounts,
+            payment states and fee disputes. Every session fee requires a separate checkout; the app
+            does not automatically debit fees. Membership credits cannot be withdrawn as cash.
+            Billing shows whether collection is available before you begin.
+          </p>
+          <p>
+            Deleting your account queues cancellation and deletion of the Stripe customer and saved
+            payment methods. Failed provider requests are retried. Payment and dispute records
+            needed for reconciliation remain associated with the anonymized account; Stripe retains
+            financial records under its own retention requirements.
           </p>
         </Section>
 
@@ -148,8 +182,9 @@ function Privacy() {
               <strong>Other members</strong> see your first name, initials, levels and track record
               (sessions completed, on-time rate, would-join-again rate, training blocks finished,
               how many people say you helped them finish one, member since) — and only on a session
-              you posted or joined, or a training block you’re in. There is no member directory and
-              no people search.
+              you posted or joined, or a training block you’re in. If you opt into new-partner
+              discovery, compatible opted-in members also see your name and activity. There is no
+              member directory and no people search.
             </li>
             <li>
               <strong>Your progress in a training block</strong> is yours alone. The others in it
@@ -162,7 +197,7 @@ function Privacy() {
             <li>
               <strong>Companies that run our infrastructure</strong> process data on our behalf:
               Vercel (hosting), Neon (database), Apple and Google (sign-in), and Persona (identity
-              verification). They may not use it for their own purposes.
+              verification), Stripe (payments), and TypeSafe (only requested AI assistance).
             </li>
             <li>We disclose information if the law requires it, or to protect someone’s safety.</li>
           </ul>
@@ -186,12 +221,14 @@ function Privacy() {
           </p>
           <p>
             <strong>Verification.</strong> When you delete your account we ask Persona to delete the
-            selfie, number and ID it holds for you. We keep only that a check happened and how it
-            came out.
+            selfie, number and ID it holds for you. Local verification records and badges are
+            removed immediately. Only the provider reference needed to retry a failed deletion
+            remains queued until Persona confirms deletion.
           </p>
           <p>
             <strong>Reports and blocks.</strong> When you report someone we store the report, who it
-            is about, and the session it concerns. The person you report or block isn’t told.
+            is about, and the session or planning invitation it concerns. The person you report or
+            block isn’t told.
           </p>
         </Section>
 

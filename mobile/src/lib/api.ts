@@ -71,6 +71,19 @@ export function captureApiSession(): ApiSession | null {
   });
 }
 
+/** Transport failures need an action a member can take; rule explanations stay intact. */
+const PLUMBING = /^(not found|method not allowed|forbidden|unauthorized|body must be json\.?)$/i;
+function friendly(status: number, message?: string): string {
+  if (!message || PLUMBING.test(message.trim()) || /^[a-zA-Z_.]+: /.test(message)) {
+    if (status === 404) return "That isn’t available any more. Pull down to refresh.";
+    if (status === 400) return "Something in that didn’t look right. Check it and try again.";
+    if (status === 401) return "Sign in again to continue.";
+    if (status === 403) return "You do not have access to that right now.";
+    return "Something went wrong on our side. Try again in a moment.";
+  }
+  return message;
+}
+
 async function parse<T>(res: Response): Promise<T> {
   const text = await res.text();
   let data: unknown = null;
@@ -81,11 +94,7 @@ async function parse<T>(res: Response): Promise<T> {
   }
   if (!res.ok) {
     const body = data as { error?: string; message?: string; code?: string } | null;
-    throw new ApiError(
-      res.status,
-      body?.error ?? body?.message ?? "Something went wrong.",
-      body?.code,
-    );
+    throw new ApiError(res.status, friendly(res.status, body?.error ?? body?.message), body?.code);
   }
   return data as T;
 }

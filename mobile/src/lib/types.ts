@@ -122,6 +122,7 @@ export type ReportInput = {
   detail?: string;
   sessionId?: string;
   bookingId?: string;
+  negotiationId?: string;
   alsoBlock?: boolean;
 };
 

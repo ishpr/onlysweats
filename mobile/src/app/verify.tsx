@@ -1,16 +1,15 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
+import { usePrivateAction } from "@/hooks/use-private-action";
+import { beginVerification } from "@/lib/verification-flow";
 import { Linking } from "react-native";
 
-import { Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
+import { Button, Card, Notice, Row, Screen, T } from "@/components/ui";
 import { SITE_URL } from "@/lib/config";
-import {
-  useDevCompleteVerification,
-  useMe,
-  useRefreshVerification,
-  useStartVerification,
-} from "@/lib/queries";
+import { keys } from "@/lib/queries";
 import type { StartedVerification, VerificationTier } from "@/lib/types";
 
 const COPY: Record<VerificationTier, { title: string; why: string; steps: string[] }> = {
@@ -31,49 +30,74 @@ const COPY: Record<VerificationTier, { title: string; why: string; steps: string
  * and the ID; SamePace only ever learns how it came out. This screen says so
  * before anything is asked for.
  */
-export default function Verify() {
+export default function VerifyRoute() {
+  return <PrivateMember component={Verify} />;
+}
+
+function Verify({ member, session }: PrivateMemberProps) {
   const { tier: asked } = useLocalSearchParams<{ tier?: string }>();
   const router = useRouter();
-  const me = useMe();
-  const start = useStartVerification();
-  const refresh = useRefreshVerification();
-  const dev = useDevCompleteVerification();
+  const client = useQueryClient();
+  const action = usePrivateAction(session);
   const [opened, setOpened] = useState<StartedVerification | null>(null);
 
-  const v = me.data?.verification;
-  if (!v) {
-    return (
-      <Screen edges={["bottom"]}>
-        <StateView loading={me.isPending} error={me.error} onRetry={() => void me.refetch()} />
-      </Screen>
-    );
-  }
+  const v = member.verification;
+  const refresh = () => client.invalidateQueries({ queryKey: keys.me });
+  useEffect(() => {
+    return () => {
+      try {
+        WebBrowser.dismissAuthSession();
+      } catch {
+        /* No browser sheet on this platform. */
+      }
+    };
+  }, []);
 
   // Phone and face come first; the ID check builds on them.
-  const tier: VerificationTier =
+  const [tier, setTier] = useState<VerificationTier>(() =>
     asked === "government_id" && v.member === "approved"
       ? "government_id"
-      : v.member !== "approved"
+      : asked === "member" || v.member !== "approved"
         ? "member"
-        : "government_id";
+        : "government_id",
+  );
   const state = tier === "member" ? v.member : v.governmentId;
   const copy = COPY[tier];
-  const error = start.error ?? refresh.error ?? dev.error;
+  const error = action.error;
 
-  async function begin() {
-    const started = await start.mutateAsync(tier).catch(() => null);
-    if (!started) return;
-    setOpened(started);
-    if (!started.url) return; // the dev stand-in: its buttons are below
-    // Persona's page hands back to `samepace://verified`, which closes the sheet.
-    await WebBrowser.openAuthSessionAsync(started.url, "samepace://verified");
-    refresh.mutate(started.id);
-  }
+  const begin = () =>
+    action.run(
+      (signal) =>
+        beginVerification({
+          session,
+          tier,
+          signal,
+          onStarted: setOpened,
+          openBrowser: (url) => WebBrowser.openAuthSessionAsync(url, "samepace://verified"),
+        }),
+      refresh,
+    );
+  const completeDevelopmentCheck = (outcome: "approved" | "declined") => {
+    if (!opened) return;
+    return action.run(
+      (signal) =>
+        session.request(`/verification/${encodeURIComponent(opened.id)}/dev-complete`, {
+          method: "POST",
+          json: { outcome },
+          signal,
+        }),
+      refresh,
+    );
+  };
 
   return (
     <Screen edges={["bottom"]}>
       <T variant="title">{copy.title}</T>
-      <T color="textSecondary">{copy.why}</T>
+      <T color="textSecondary">
+        {tier === "member" && !v.enforced
+          ? "A phone and selfie check helps a workout partner know you are a real, reachable person. Verification is optional while the service is being introduced."
+          : copy.why}
+      </T>
 
       <Card>
         <T variant="eyebrow" color="stand">
@@ -115,9 +139,9 @@ export default function Verify() {
         </Notice>
       )}
       {!v.available && <Notice>Verification isn’t open yet. Nothing is locked until it is.</Notice>}
-      {error && <Notice tone="danger">{error.message}</Notice>}
+      {error && <Notice tone="danger">{error}</Notice>}
 
-      {opened && !opened.url && state !== "approved" && (
+      {opened?.provider === "dev" && !opened.url && state !== "approved" && (
         <Card>
           <T variant="label">Development stand-in</T>
           <T variant="caption" color="textSecondary">
@@ -127,28 +151,43 @@ export default function Verify() {
             <Button
               variant="soft"
               label="Decline"
-              loading={dev.isPending}
-              onPress={() => dev.mutate({ id: opened.id, outcome: "declined" })}
+              loading={action.busy}
+              onPress={() => void completeDevelopmentCheck("declined")}
             />
             <Button
               variant="accent"
               label="Approve"
-              loading={dev.isPending}
-              onPress={() => dev.mutate({ id: opened.id, outcome: "approved" })}
+              loading={action.busy}
+              onPress={() => void completeDevelopmentCheck("approved")}
             />
           </Row>
         </Card>
       )}
 
       {state === "approved" ? (
-        <Button label="Done" onPress={() => router.back()} />
+        <>
+          {tier === "member" && v.governmentId !== "approved" && v.available && (
+            <Button
+              label="Continue to ID verification"
+              variant="soft"
+              onPress={() => {
+                setOpened(null);
+                setTier("government_id");
+              }}
+            />
+          )}
+          <Button
+            label="Done"
+            onPress={() => (router.canGoBack() ? router.back() : router.replace("/you"))}
+          />
+        </>
       ) : (
         v.available &&
         state !== "needs_review" && (
           <Button
             variant="accent"
             label={state === "pending" ? "Continue" : state === "declined" ? "Try again" : "Start"}
-            loading={start.isPending || refresh.isPending}
+            loading={action.busy}
             onPress={() => void begin()}
           />
         )

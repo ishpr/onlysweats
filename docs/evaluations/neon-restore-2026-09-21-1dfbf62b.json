@@ -1,0 +1,175 @@
+{
+  "startedAt": "2026-09-21T03:27:48.054Z",
+  "projectId": "broad-tree-20089008",
+  "sourceBranchId": "br-red-frost-aukxyhk8",
+  "cliVersion": "5.0.0",
+  "computeUnits": 0.25,
+  "expiresAt": "2026-09-22T03:27:48Z",
+  "scope": "Schema-only copy; synthetic canary only; no writes or restore to existing branches.",
+  "status": "passed",
+  "steps": {
+    "schemaBranch": {
+      "id": "br-bitter-feather-auzaf18e",
+      "name": "samepace-restore-drill-2026-09-21-1dfbf62b-empty",
+      "durationMs": 1322,
+      "schemaOnly": true,
+      "creationMethod": "CLI branches create --schema-only",
+      "parentTimestamp": null,
+      "parentLsn": null
+    },
+    "emptyTableCounts": {
+      "_migrations": 0,
+      "account": 0,
+      "admin_actions": 0,
+      "agent_delegations": 0,
+      "agent_negotiation_events": 0,
+      "agent_negotiations": 0,
+      "agent_preferences": 0,
+      "apple_revocation_jobs": 0,
+      "apple_tokens": 0,
+      "banned_identities": 0,
+      "blocks": 0,
+      "bookings": 0,
+      "fitness_consents": 0,
+      "fitness_strength_logs": 0,
+      "fitness_workout_assessments": 0,
+      "fitness_workout_corrections": 0,
+      "goal_credits": 0,
+      "health_connections": 0,
+      "health_cursors": 0,
+      "health_records": 0,
+      "ledger_events": 0,
+      "messages": 0,
+      "notifications": 0,
+      "operation_events": 0,
+      "profiles": 0,
+      "push_deliveries": 0,
+      "push_devices": 0,
+      "push_tickets": 0,
+      "ratings": 0,
+      "reports": 0,
+      "series": 0,
+      "series_members": 0,
+      "session": 0,
+      "sessions": 0,
+      "strikes": 0,
+      "training_block_members": 0,
+      "training_block_requests": 0,
+      "training_blocks": 0,
+      "user": 0,
+      "venues": 0,
+      "verification": 0,
+      "verification_events": 0,
+      "verifications": 0
+    },
+    "recoveryPoint": {
+      "timestamp": "2026-09-21T03:27:58.677880Z",
+      "lsn": "0/1AC5138"
+    },
+    "currentCanary": [
+      {
+        "id": 1,
+        "marker": "after-change"
+      }
+    ],
+    "seedExpiryTemporarilyRemoved": true,
+    "restoreCoordinate": "recorded_post_commit_timestamp",
+    "pointInTimeReplyShape": {
+      "keys": [
+        "branch",
+        "endpoints",
+        "operations",
+        "roles",
+        "databases",
+        "connection_uris"
+      ],
+      "branchKeys": [
+        "id",
+        "project_id",
+        "parent_id",
+        "parent_lsn",
+        "name",
+        "slug",
+        "project_slug",
+        "current_state",
+        "pending_state",
+        "state_changed_at",
+        "creation_source",
+        "primary",
+        "default",
+        "protected",
+        "cpu_used_sec",
+        "compute_time_seconds",
+        "active_time_seconds",
+        "written_data_bytes",
+        "data_transfer_bytes",
+        "created_at",
+        "updated_at",
+        "ttl_interval_seconds",
+        "expires_at",
+        "created_by",
+        "init_source"
+      ]
+    },
+    "restoreBranch": {
+      "id": "br-wandering-feather-au4iqij1",
+      "name": "samepace-restore-drill-2026-09-21-1dfbf62b-restored",
+      "durationMs": 1259,
+      "schemaOnly": false,
+      "creationMethod": "CLI authenticated API: explicit parent_id + parent_timestamp",
+      "parentTimestamp": null,
+      "parentLsn": "0/1AC52E8"
+    },
+    "restoredCanary": [
+      {
+        "id": 1,
+        "marker": "before-change"
+      },
+      {
+        "id": 2,
+        "marker": "before-delete"
+      }
+    ],
+    "restoreRequestToVerificationMs": 2738,
+    "mutationToVerificationMs": 3804,
+    "restoredPrivateRowCounts": {
+      "users": 0,
+      "health": 0
+    }
+  },
+  "cleanup": [
+    {
+      "id": "br-wandering-feather-au4iqij1",
+      "name": "samepace-restore-drill-2026-09-21-1dfbf62b-restored",
+      "deleted": true
+    },
+    {
+      "id": "br-bitter-feather-auzaf18e",
+      "name": "samepace-restore-drill-2026-09-21-1dfbf62b-empty",
+      "deleted": true
+    }
+  ],
+  "limits": [
+    "Synthetic logical recovery on temporary branches; no application traffic failover or production-size restore.",
+    "Does not validate recovery beyond the project's existing history window, or set RPO/RTO commitments.",
+    "Does not change history retention, plan, main/preview endpoints, or environment variables."
+  ],
+  "sources": [
+    "https://neon.com/docs/reference/cli-branches",
+    "https://neon.com/docs/guides/branching-schema-only",
+    "https://neon.com/docs/reference/cli-connection-string",
+    "https://api-docs.neon.tech/reference/createprojectbranch",
+    "https://neon.com/docs/guides/branch-expiration"
+  ],
+  "attemptedBranchNames": [
+    "samepace-restore-drill-2026-09-21-1dfbf62b-empty",
+    "samepace-restore-drill-2026-09-21-1dfbf62b-restored"
+  ],
+  "sourceBranchName": "preview",
+  "existingBranchesCount": 2,
+  "cleanupVerified": true,
+  "sourceStillPresent": true,
+  "preExistingBranchIdsStillPresent": true,
+  "finishedAt": "2026-09-21T03:28:08.642Z",
+  "totalDurationMs": 20588
+}

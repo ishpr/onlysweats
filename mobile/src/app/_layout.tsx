@@ -186,6 +186,8 @@ function Routes() {
             }}
           />
           <Stack.Screen name="verified" options={{ headerShown: false }} />
+          <Stack.Screen name="billing" options={{ title: "Membership & fees" }} />
+          <Stack.Screen name="billing-return" options={{ headerShown: false }} />
           <Stack.Screen name="training-block/[id]" options={{ title: "Goal" }} />
           <Stack.Screen
             name="training-block/new"
@@ -216,6 +218,7 @@ function Routes() {
         </Stack.Protected>
         {/* Keep the URL mounted through sign-in, including cold-start invites. */}
         <Stack.Screen name="invite/[code]" options={{ title: "Invite" }} />
+        <Stack.Screen name="open" options={{ headerShown: false }} />
       </Stack>
       {splash}
     </ThemeProvider>

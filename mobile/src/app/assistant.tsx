@@ -3,6 +3,9 @@ import { View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AssistantDiscovery } from "@/components/assistant-discovery";
+import { ReportLink } from "@/components/report-link";
+import { AssistantCoordinationPanel } from "@/components/assistant-coordination";
 import { AssistantCredentials } from "@/components/assistant-credentials";
 import { AssistantPreferencesEditor } from "@/components/assistant-preferences";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
@@ -72,7 +75,8 @@ function Assistant({ member, session }: PrivateMemberProps) {
   const refresh = async () => {
     await client.invalidateQueries({ queryKey: key });
   };
-  const partnerName = (ids: string[]) =>
+  const partnerName = (ids: string[], names?: Record<string, string>) =>
+    names?.[ids.find((id) => id !== member.id) ?? ""] ??
     mine.data?.people.find((person) => ids.includes(person.id) && person.id !== member.id)?.name ??
     "Your workout partner";
   const completed = mine.data?.bookings.filter((booking) => booking.status === "completed") ?? [];
@@ -82,8 +86,8 @@ function Assistant({ member, session }: PrivateMemberProps) {
       <Stack.Screen options={{ title: "Workout assistant" }} />
       <T variant="heading">Make your next plan together</T>
       <T color="textSecondary">
-        Find a time and place with someone you have already worked out with. Each person chooses to
-        join the conversation, reviews the plan, and accepts booking terms.
+        Find a time and place with a past partner, or choose to discover someone new. Each person
+        joins the conversation, reviews the plan, and accepts booking terms.
       </T>
       {unavailable ? (
         <Notice>
@@ -159,6 +163,15 @@ function Assistant({ member, session }: PrivateMemberProps) {
               )}
             </>
           )}
+          <AssistantDiscovery
+            ownerId={member.id}
+            session={session}
+            preferences={preferences.error ? null : preferences.data.preferences}
+            onInvited={async (room) => {
+              setSelected(room.id);
+              await refresh();
+            }}
+          />
           <T variant="heading">Planning conversations</T>
           {(list.isPending || list.error) && (
             <StateView
@@ -167,36 +180,41 @@ function Assistant({ member, session }: PrivateMemberProps) {
               onRetry={() => void list.refetch()}
             />
           )}
-          {list.data?.negotiations.length === 0 && (
-            <Notice>Start with a past workout below. Your partner decides whether to join.</Notice>
+          {!list.error && list.data?.negotiations.length === 0 && (
+            <Notice>
+              Choose a past workout below, or opt in to discover a new partner. Each person decides
+              whether to join.
+            </Notice>
           )}
-          {list.data?.negotiations.map((room) => (
-            <Card key={room.id}>
-              <T variant="label">{partnerName(room.memberIds)}</T>
-              <T>{room.plan?.title ?? "A new workout plan"}</T>
-              <T variant="caption" color="textSecondary">
-                {room.booked
-                  ? "Booked"
-                  : room.state === "approved"
-                    ? "Plan approved · booking terms still apply"
-                    : room.state}{" "}
-                · revision {room.revision}
-              </T>
-              <Button
-                label={selected === room.id ? "Conversation open below" : "Open conversation"}
-                variant="soft"
-                disabled={selected === room.id}
-                onPress={() => setSelected(room.id)}
-              />
-            </Card>
-          ))}
+          {!list.error &&
+            list.data?.negotiations.map((room) => (
+              <Card key={room.id}>
+                <T variant="label">{partnerName(room.memberIds, room.memberNames)}</T>
+                <T>{room.plan?.title ?? "A new workout plan"}</T>
+                <T variant="caption" color="textSecondary">
+                  {room.booked
+                    ? "Booked"
+                    : room.state === "approved"
+                      ? "Plan approved · booking terms still apply"
+                      : room.state}{" "}
+                  · revision {room.revision}
+                </T>
+                <Button
+                  label={selected === room.id ? "Conversation open below" : "Open conversation"}
+                  variant="soft"
+                  disabled={selected === room.id}
+                  onPress={() => setSelected(room.id)}
+                />
+              </Card>
+            ))}
           {selected && (
             <Conversation
               key={selected}
               id={selected}
               session={session}
               ownerId={member.id}
-              venues={venues.data?.venues ?? []}
+              preferences={preferences.error ? null : preferences.data.preferences}
+              venues={venues.error ? [] : (venues.data?.venues ?? [])}
               people={mine.data?.people ?? []}
               onChange={refresh}
             />
@@ -258,7 +276,8 @@ function Assistant({ member, session }: PrivateMemberProps) {
           id={selected}
           session={session}
           ownerId={member.id}
-          venues={venues.data?.venues ?? []}
+          preferences={null}
+          venues={venues.error ? [] : (venues.data?.venues ?? [])}
           people={mine.data?.people ?? []}
           onChange={refresh}
         />
@@ -307,6 +326,7 @@ function Conversation({
   session,
   venues,
   people,
+  preferences,
   onChange,
 }: {
   id: string;
@@ -314,6 +334,7 @@ function Conversation({
   session: ApiSession;
   venues: Venue[];
   people: Person[];
+  preferences: AssistantPreferences | null;
   onChange: () => Promise<void>;
 }) {
   const action = usePrivateAction(session);
@@ -387,6 +408,13 @@ function Conversation({
   return (
     <Card>
       <T variant="heading">Current conversation</T>
+      <T variant="label">
+        With{" "}
+        {value.memberNames?.[value.memberIds.find((memberId) => memberId !== ownerId) ?? ""] ??
+          people.find((person) => value.memberIds.includes(person.id) && person.id !== ownerId)
+            ?.name ??
+          "your workout partner"}
+      </T>
       <T variant="caption" color="textSecondary">
         {value.booked ? "Booked" : value.state} · expires{" "}
         {new Date(value.expiresAt).toLocaleString()}
@@ -447,6 +475,15 @@ function Conversation({
           )}
         </>
       )}
+      {mutual && (
+        <AssistantCoordinationPanel
+          room={value}
+          ownerId={ownerId}
+          session={session}
+          preferences={preferences}
+          onChange={refresh}
+        />
+      )}
       {mutual && active && (
         <Candidates
           key={value.revision}
@@ -503,6 +540,20 @@ function Conversation({
         </>
       )}
       {action.error && <Notice tone="danger">{action.error}</Notice>}
+      {value.memberIds
+        .filter((memberId) => memberId !== ownerId)
+        .map((memberId) => (
+          <ReportLink
+            key={memberId}
+            memberId={memberId}
+            name={
+              value.memberNames?.[memberId] ??
+              people.find((person) => person.id === memberId)?.name ??
+              "this partner"
+            }
+            negotiationId={value.id}
+          />
+        ))}
       <History
         id={id}
         revision={value.revision}
@@ -512,6 +563,7 @@ function Conversation({
         session={session}
         venues={venues}
         people={people}
+        memberNames={value.memberNames}
       />
     </Card>
   );
@@ -681,6 +733,7 @@ function History({
   session,
   venues,
   people,
+  memberNames,
 }: {
   id: string;
   revision: number;
@@ -690,6 +743,7 @@ function History({
   session: ApiSession;
   venues: Venue[];
   people: Person[];
+  memberNames?: Record<string, string>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const events = useQuery({
@@ -726,30 +780,32 @@ function History({
               onRetry={() => void events.refetch()}
             />
           )}
-          {events.data?.events.map((event) => (
-            <View key={event.sequence} style={{ gap: 4 }}>
-              <T variant="label">
-                {labels[event.kind]} · revision {event.revision}
-              </T>
-              <T variant="caption" color="textSecondary">
-                {typeof event.data.agentLabel === "string" && event.data.agentLabel !== "Member"
-                  ? `${event.data.agentLabel} (on behalf of ${event.actorId === ownerId ? "you" : "your partner"})`
-                  : event.actorId === ownerId
-                    ? "You"
-                    : (people.find((person) => person.id === event.actorId)?.name ??
-                      "Your partner")}{" "}
-                · {new Date(event.createdAt).toLocaleString()}
-              </T>
-              {event.kind === "proposal" && event.data.plan ? (
-                <PlanDetails plan={event.data.plan as AssistantPlan} venues={venues} />
-              ) : null}
-              {event.kind === "consent" && (
-                <T variant="caption" color="textSecondary">
-                  {event.data.allowed ? "Joined the conversation" : "Withdrew consent"}
+          {!events.error &&
+            events.data?.events.map((event) => (
+              <View key={event.sequence} style={{ gap: 4 }}>
+                <T variant="label">
+                  {labels[event.kind]} · revision {event.revision}
                 </T>
-              )}
-            </View>
-          ))}
+                <T variant="caption" color="textSecondary">
+                  {typeof event.data.agentLabel === "string" && event.data.agentLabel !== "Member"
+                    ? `${event.data.agentLabel} (on behalf of ${event.actorId === ownerId ? "you" : "your partner"})`
+                    : event.actorId === ownerId
+                      ? "You"
+                      : (memberNames?.[event.actorId] ??
+                        people.find((person) => person.id === event.actorId)?.name ??
+                        "Your partner")}{" "}
+                  · {new Date(event.createdAt).toLocaleString()}
+                </T>
+                {event.kind === "proposal" && event.data.plan ? (
+                  <PlanDetails plan={event.data.plan as AssistantPlan} venues={venues} />
+                ) : null}
+                {event.kind === "consent" && (
+                  <T variant="caption" color="textSecondary">
+                    {event.data.allowed ? "Joined the conversation" : "Withdrew consent"}
+                  </T>
+                )}
+              </View>
+            ))}
         </>
       )}
     </View>
