@@ -621,6 +621,8 @@ export type AdminMemberDTO = {
   reportsAgainst: number;
   reportsFiled: number;
   upcomingSessions: number;
+  /** What they have verified. Never the selfie or the ID — we don't hold them. */
+  verification: { member: boolean; governmentId: boolean; idRequired: boolean };
   /** Every block they have been in, newest first. Counts only, as on a profile. */
   trainingBlocks: {
     id: string;
@@ -644,6 +646,9 @@ export async function adminGetMember(sql: Sql, profileId: string): Promise<Admin
     frozen_until: Date | null;
     credit_cents: number;
     created_at: Date;
+    verified_member_at: Date | null;
+    verified_id_at: Date | null;
+    id_required_at: Date | null;
   }>`select * from profiles where id = ${profileId}`;
   if (!row) throw new PaceError(404, "No such member.");
   const [person] = await people(sql, [profileId]);
@@ -680,6 +685,11 @@ export async function adminGetMember(sql: Sql, profileId: string): Promise<Admin
     order by tb.created_at desc limit 20`;
   return {
     person,
+    verification: {
+      member: Boolean(row.verified_member_at),
+      governmentId: Boolean(row.verified_id_at),
+      idRequired: Boolean(row.id_required_at),
+    },
     trainingBlocks: blocks.map((b) => ({
       id: b.id,
       goalLabel: goalLabel(

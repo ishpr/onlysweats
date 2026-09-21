@@ -37,6 +37,14 @@ function Privacy() {
               name and email address. With Apple’s Hide My Email we only receive the relay address.
             </li>
             <li>
+              <strong>Identity verification.</strong> Before public sessions we ask you to verify a
+              phone number and take a short selfie video; women-only sessions, and coming back after
+              a report, also ask for a government ID. Persona, an identity-verification company,
+              runs these checks and is the one that receives your number, your selfie and your ID.{" "}
+              {SITE.name} does not receive or store any of them. We keep which check it was,
+              Persona’s reference for it, and whether it passed.
+            </li>
+            <li>
               <strong>Your profile.</strong> A first name, your neighbourhood, and the level you set
               for each activity (a pace, a speed, an experience level). You may tell us your gender;
               it is used only to open women-only sessions to women, is never shown to anyone and is
@@ -70,7 +78,8 @@ function Privacy() {
             </li>
           </ul>
           <p>
-            We don’t collect your contacts, photos, date of birth, height, weight or relationship
+            We don’t collect your contacts, photos (the verification selfie and ID go to Persona,
+            not to us), date of birth, height, weight or relationship
             status. A training block has no weight goal: the miles it shows are the planned distance
             of the sessions you checked in to, separate from any imported workout.
           </p>
@@ -152,8 +161,8 @@ function Privacy() {
             </li>
             <li>
               <strong>Companies that run our infrastructure</strong> process data on our behalf:
-              Vercel (hosting), Neon (database), and Apple and Google (sign-in). They may not use it
-              for their own purposes.
+              Vercel (hosting), Neon (database), Apple and Google (sign-in), and Persona (identity
+              verification). They may not use it for their own purposes.
             </li>
             <li>We disclose information if the law requires it, or to protect someone’s safety.</li>
           </ul>
@@ -174,6 +183,11 @@ function Privacy() {
             the thread it points at. Those are shown against “Deleted member”, never your name. If
             an account was removed for breaking the rules, we keep a scrambled fingerprint of its
             email address, and nothing else, so it can’t simply be opened again.
+          </p>
+          <p>
+            <strong>Verification.</strong> When you delete your account we ask Persona to delete the
+            selfie, number and ID it holds for you. We keep only that a check happened and how it
+            came out.
           </p>
           <p>
             <strong>Reports and blocks.</strong> When you report someone we store the report, who it
