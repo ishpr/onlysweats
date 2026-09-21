@@ -14,7 +14,8 @@ import {
 } from "./service.server.ts";
 import { withdrawCredits } from "./training-blocks.server.ts";
 import { enqueue } from "./notify.server.ts";
-import type { Person } from "./types.ts";
+import { blockWeeks, goalLabel } from "./rules.ts";
+import type { GoalKind, Person } from "./types.ts";
 
 export const REPORT_REASONS = [
   "date_framing",
@@ -231,12 +232,20 @@ async function audit(
   tx: Sql,
   adminEmail: string,
   action: string,
-  ref: { profileId?: string; sessionId?: string; reportId?: string; note?: string },
+  ref: {
+    profileId?: string;
+    sessionId?: string;
+    reportId?: string;
+    trainingBlockId?: string;
+    note?: string;
+  },
 ) {
   await tx`
-    insert into admin_actions (id, admin_email, action, profile_id, session_id, report_id, note)
-    values (${newId("adm")}, ${adminEmail}, ${action}, ${ref.profileId ?? null},
-      ${ref.sessionId ?? null}, ${ref.reportId ?? null}, ${ref.note ?? ""})`;
+    insert into admin_actions (
+      id, admin_email, action, profile_id, session_id, report_id, training_block_id, note
+    ) values (${newId("adm")}, ${adminEmail}, ${action}, ${ref.profileId ?? null},
+      ${ref.sessionId ?? null}, ${ref.reportId ?? null}, ${ref.trainingBlockId ?? null},
+      ${ref.note ?? ""})`;
 }
 
 export async function adminOverview(sql: Sql) {
@@ -245,6 +254,7 @@ export async function adminOverview(sql: Sql) {
       (select count(*) from profiles where deleted_at is null) as members,
       (select count(*) from profiles where suspended_at is not null and deleted_at is null) as suspended,
       (select count(*) from sessions where status = 'open' and start_at > now()) as upcoming_sessions,
+      (select count(*) from training_blocks where status in ('forming', 'active')) as training_blocks,
       (select count(*) from bookings where status = 'completed') as completed_seats,
       (select count(*) from bookings where status in ('no_show', 'host_no_show')) as no_shows,
       (select count(*) from reports where status = 'open') as open_reports,
@@ -254,6 +264,7 @@ export async function adminOverview(sql: Sql) {
     members: Number(row.members),
     suspended: Number(row.suspended),
     upcomingSessions: Number(row.upcoming_sessions),
+    trainingBlocks: Number(row.training_blocks),
     completedSeats: Number(row.completed_seats),
     noShows: Number(row.no_shows),
     openReports: Number(row.open_reports),
@@ -290,7 +301,15 @@ export type AdminReportDTO = {
   /** Reports against the same member, this one included. */
   reportsAgainst: number;
   reportedSuspended: boolean;
-  session: { id: string; title: string; activity: string; startAt: string; status: string } | null;
+  session: {
+    id: string;
+    title: string;
+    activity: string;
+    startAt: string;
+    status: string;
+    /** One week of a block: the listing repeats, so removing it removes the block. */
+    trainingBlockId: string | null;
+  } | null;
   /** The booking's chat, only when the report points at a booking. */
   messages: { fromId: string; text: string; createdAt: string }[];
 };
@@ -308,8 +327,16 @@ export async function adminListReports(
     const [target] = await sql<{ suspended_at: Date | null }>`
       select suspended_at from profiles where id = ${r.reported_id}`;
     const [s] = r.session_id
-      ? await sql<{ id: string; title: string; activity: string; start_at: Date; status: string }>`
-          select id, title, activity, start_at, status from sessions where id = ${r.session_id}`
+      ? await sql<{
+          id: string;
+          title: string;
+          activity: string;
+          start_at: Date;
+          status: string;
+          training_block_id: string | null;
+        }>`
+          select id, title, activity, start_at, status, training_block_id
+          from sessions where id = ${r.session_id}`
       : [];
     const messages = r.booking_id
       ? await sql<{ from_id: string; text: string; created_at: Date }>`
@@ -330,7 +357,14 @@ export async function adminListReports(
       reportsAgainst: Number(n),
       reportedSuspended: Boolean(target?.suspended_at),
       session: s
-        ? { id: s.id, title: s.title, activity: s.activity, startAt: iso(s.start_at)!, status: s.status }
+        ? {
+            id: s.id,
+            title: s.title,
+            activity: s.activity,
+            startAt: iso(s.start_at)!,
+            status: s.status,
+            trainingBlockId: s.training_block_id,
+          }
         : null,
       messages: messages.map((m) => ({ fromId: m.from_id, text: m.text, createdAt: iso(m.created_at)! })),
     });
@@ -391,9 +425,21 @@ export async function adminRemoveSession(
   now = Date.now(),
 ) {
   await sql.transaction(async (tx) => {
-    const [s] = await tx<{ id: string; status: string; host_id: string; title: string }>`
-      select id, status, host_id, title from sessions where id = ${sessionId} for update`;
+    const [s] = await tx<{
+      id: string;
+      status: string;
+      host_id: string;
+      title: string;
+      training_block_id: string | null;
+    }>`
+      select id, status, host_id, title, training_block_id
+      from sessions where id = ${sessionId} for update`;
     if (!s) throw new PaceError(404, "Session not found.");
+    // A block's listing comes back every week with the same words. Taking one
+    // week down would change nothing, so the block goes with it.
+    if (s.training_block_id && (await blockIsRunning(tx, s.training_block_id))) {
+      return adminRemoveTrainingBlock(tx, adminEmail, s.training_block_id, note, now);
+    }
     if (s.status === "open") {
       const seats = await tx<{ id: string; participant_id: string }>`
         update bookings set status = 'cancelled', settled_at = ${at(now)}
@@ -431,6 +477,69 @@ export async function adminRemoveSession(
       );
     }
     await audit(tx, adminEmail, "remove_session", { sessionId, note });
+  });
+}
+
+const blockIsRunning = async (tx: Sql, blockId: string) =>
+  (await tx`
+    select 1 from training_blocks where id = ${blockId} and status in ('forming', 'active')`)
+    .length > 0;
+
+/**
+ * Take a training block down: its weekly slots end, every session still on the
+ * calendar is called off, and every seat is released free. Whoever started it is
+ * told why; everyone else is told their seats are gone. What already happened —
+ * check-ins, progress, credits — stays on the record.
+ */
+export async function adminRemoveTrainingBlock(
+  sql: Sql,
+  adminEmail: string,
+  blockId: string,
+  note: string,
+  now = Date.now(),
+) {
+  await sql.transaction(async (tx) => {
+    const [b] = await tx<{ id: string; status: string; created_by: string }>`
+      select id, status, created_by from training_blocks where id = ${blockId} for update`;
+    if (!b) throw new PaceError(404, "No training block.");
+    if (b.status !== "ended") {
+      const sessions = await tx<{ id: string }>`
+        select id from sessions where training_block_id = ${blockId} and status = 'open'
+          and start_at > ${at(now)} for update`;
+      for (const s of sessions) {
+        await tx`
+          update bookings set status = 'cancelled', settled_at = ${at(now)}
+          where session_id = ${s.id} and status in ('pending', 'confirmed')`;
+        await tx`update sessions set status = 'cancelled' where id = ${s.id}`;
+      }
+      await tx`update series set status = 'ended' where training_block_id = ${blockId}`;
+      await tx`
+        update training_block_requests set status = 'declined', resolved_at = ${at(now)}
+        where block_id = ${blockId} and status = 'pending'`;
+      await tx`
+        update training_blocks set status = 'ended', ended_reason = 'removed' where id = ${blockId}`;
+
+      const members = await tx<{ profile_id: string }>`
+        select profile_id from training_block_members where block_id = ${blockId} and left_at is null`;
+      for (const m of members) {
+        const started = m.profile_id === b.created_by;
+        await enqueue(
+          tx,
+          {
+            profileId: m.profile_id,
+            kind: started ? "block_removed" : "block_cancelled",
+            category: started ? "account" : "sessions",
+            title: started ? "Your training block was taken down" : "A training block you’re in has ended",
+            body: started
+              ? "It broke the rules for what can be posted. Email support@samepace.app if you think that’s wrong."
+              : "SamePace took it down. Your seats are released and nothing is charged.",
+            url: started ? "/you" : "/sessions",
+          },
+          now,
+        );
+      }
+    }
+    await audit(tx, adminEmail, "remove_training_block", { trainingBlockId: blockId, note });
   });
 }
 
@@ -483,6 +592,18 @@ export type AdminMemberDTO = {
   reportsAgainst: number;
   reportsFiled: number;
   upcomingSessions: number;
+  /** Every block they have been in, newest first. Counts only, as on a profile. */
+  trainingBlocks: {
+    id: string;
+    goalLabel: string;
+    status: string;
+    endedReason: string | null;
+    goalDate: string;
+    startedIt: boolean;
+    left: boolean;
+    members: number;
+    finished: boolean | null;
+  }[];
   joinedAt: string;
 };
 
@@ -506,8 +627,46 @@ export async function adminGetMember(sql: Sql, profileId: string): Promise<Admin
       (select count(*) from reports where reporter_id = ${profileId}) as filed,
       (select count(*) from sessions where host_id = ${profileId} and status = 'open'
         and start_at > now()) as upcoming`;
+  const blocks = await sql<{
+    id: string;
+    goal_kind: GoalKind;
+    event_name: string | null;
+    status: string;
+    ended_reason: string | null;
+    starts_on: string;
+    goal_date: string;
+    created_by: string;
+    left_at: Date | null;
+    finished: boolean | null;
+    members: number;
+    slots: number;
+  }>`
+    select tb.id, tb.goal_kind, tb.event_name, tb.status, tb.ended_reason, tb.created_by,
+      tb.starts_on::text as starts_on, tb.goal_date::text as goal_date, m.left_at, m.finished,
+      (select count(*) from training_block_members x
+        where x.block_id = tb.id and x.left_at is null) as members,
+      (select count(*) from series se where se.training_block_id = tb.id) as slots
+    from training_block_members m join training_blocks tb on tb.id = m.block_id
+    where m.profile_id = ${profileId}
+    order by tb.created_at desc limit 20`;
   return {
     person,
+    trainingBlocks: blocks.map((b) => ({
+      id: b.id,
+      goalLabel: goalLabel(
+        b.goal_kind,
+        b.event_name,
+        Math.max(Number(b.slots), 1),
+        blockWeeks(b.starts_on, b.goal_date),
+      ),
+      status: b.status,
+      endedReason: b.ended_reason,
+      goalDate: b.goal_date,
+      startedIt: b.created_by === profileId,
+      left: Boolean(b.left_at),
+      members: Number(b.members),
+      finished: b.finished,
+    })),
     suspended: row.suspended_at
       ? { at: iso(row.suspended_at)!, reason: row.suspended_reason ?? "" }
       : null,
@@ -544,6 +703,7 @@ export async function adminListActions(sql: Sql) {
     profile_id: string | null;
     session_id: string | null;
     report_id: string | null;
+    training_block_id: string | null;
     note: string;
     created_at: Date;
   }>`select * from admin_actions order by created_at desc limit 100`;
@@ -554,6 +714,7 @@ export async function adminListActions(sql: Sql) {
     profileId: r.profile_id,
     sessionId: r.session_id,
     reportId: r.report_id,
+    trainingBlockId: r.training_block_id,
     note: r.note,
     createdAt: iso(r.created_at)!,
   }));

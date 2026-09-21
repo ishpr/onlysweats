@@ -599,3 +599,104 @@ describe("the end of a block", () => {
     assert.equal(await helped(lee), 0);
   });
 });
+
+describe("admin", () => {
+  const ADMIN = "ops@samepace.app";
+  const postBlock = (who: string) =>
+    blocks.postTrainingBlock(sql, who, {
+      activity: "run",
+      goalKind: "race_10k",
+      eventName: "Turkey Trot",
+      goalDate: daysOut(60),
+      capacity: 3,
+      visibility: "public",
+      joinMode: "instant",
+      womenOnly: false,
+      slots: [
+        {
+          venueId: "katy",
+          title: "Saturday long run",
+          detail: "",
+          ability: RUN,
+          abilityFlex: "strict",
+          startAt: new Date(Date.now() + 2 * DAY).toISOString(),
+          durationMin: 60,
+        },
+      ],
+    });
+  const statusOf = async (id: string) =>
+    (
+      await sql<{ status: string; ended_reason: string | null }>`
+        select status, ended_reason from training_blocks where id = ${id}`
+    )[0];
+
+  it("takes a block down: slots end, seats go free, and each side is told the right thing", async () => {
+    const [ana, bob] = [await member("Ana"), await member("Bob")];
+    const block = await postBlock(ana);
+    await blocks.joinTrainingBlock(sql, bob, block.id);
+    const sessionId = block.slots[0].nextSessionId!;
+
+    await rejects(safety.adminRemoveTrainingBlock(sql, ADMIN, "tb_nope", "spam"), 404);
+    await safety.adminRemoveTrainingBlock(sql, ADMIN, block.id, "Selling coaching");
+    assert.deepEqual(await statusOf(block.id), { status: "ended", ended_reason: "removed" });
+    assert.equal((await svc.getSession(sql, ana, sessionId)).session.status, "cancelled");
+    const seat = (await svc.listMyBookings(sql, bob)).bookings.find((x) => x.sessionId === sessionId)!;
+    assert.equal(seat.status, "cancelled");
+    assert.equal(seat.myFeeCents, 0, "nobody is charged");
+    assert.deepEqual(await svc.listMySeries(sql, bob), []);
+    assert.deepEqual(await blocks.listMyTrainingBlocks(sql, ana), []);
+
+    const kinds = async (who: string) =>
+      (await listNotifications(sql, who)).notifications.map((n) => n.kind);
+    assert.ok((await kinds(ana)).includes("block_removed"));
+    assert.ok((await kinds(bob)).includes("block_cancelled"));
+    assert.ok(!(await kinds(bob)).includes("block_removed"));
+
+    const [logged] = (await safety.adminListActions(sql)).filter((a) => a.trainingBlockId === block.id);
+    assert.equal(logged.action, "remove_training_block");
+    assert.equal(logged.note, "Selling coaching");
+  });
+
+  it("removing one week of a block from a report removes the block", async () => {
+    const [ana, bob] = [await member("Ana"), await member("Bob")];
+    const block = await postBlock(ana);
+    const sessionId = block.slots[0].nextSessionId!;
+    const report = await safety.reportMember(sql, bob, {
+      reportedId: ana,
+      reason: "fake_or_spam",
+      sessionId,
+    });
+    const queued = (await safety.adminListReports(sql)).reports.find((r) => r.id === report.id)!;
+    assert.equal(queued.session?.trainingBlockId, block.id, "the queue says it’s a block");
+
+    await safety.adminResolveReport(sql, ADMIN, report.id, { action: "remove_session", note: "Spam" });
+    assert.deepEqual(await statusOf(block.id), { status: "ended", ended_reason: "removed" });
+  });
+
+  it("shows a member’s blocks in the lookup, as counts", async () => {
+    const [ana, bob] = [await member("Ana"), await member("Bob")];
+    const block = await postBlock(ana);
+    await blocks.joinTrainingBlock(sql, bob, block.id);
+    await blocks.leaveTrainingBlock(sql, bob, block.id);
+
+    const [anas] = (await safety.adminGetMember(sql, ana)).trainingBlocks;
+    assert.deepEqual(
+      { ...anas, goalDate: "" },
+      {
+        id: block.id,
+        goalLabel: "Turkey Trot",
+        status: "ended",
+        endedReason: "too_few",
+        goalDate: "",
+        startedIt: true,
+        left: false,
+        members: 1,
+        finished: null,
+      },
+    );
+    const [bobs] = (await safety.adminGetMember(sql, bob)).trainingBlocks;
+    assert.equal(bobs.left, true);
+    assert.equal(bobs.startedIt, false);
+    assert.ok((await safety.adminOverview(sql)).trainingBlocks >= 0);
+  });
+});

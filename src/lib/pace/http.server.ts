@@ -262,6 +262,10 @@ const routes: [method: string, pattern: string, handler: Handler][] = [
     await safety.adminRemoveSession(sql, adminEmail, params.id, noteBody.parse(body).note);
     return { ok: true };
   })],
+  ["POST", "/admin/training-blocks/:id/remove", admin(async ({ sql, adminEmail, params, body }) => {
+    await safety.adminRemoveTrainingBlock(sql, adminEmail, params.id, noteBody.parse(body).note);
+    return { ok: true };
+  })],
   ["GET", "/admin/actions", admin(async ({ sql }) => ({ actions: await safety.adminListActions(sql) }))],
 
   ["PATCH", "/me", ({ sql, userId, body }) => svc.updateProfile(sql, userId, profileBody.parse(body))],
