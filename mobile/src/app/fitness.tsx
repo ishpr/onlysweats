@@ -20,6 +20,7 @@ import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
 import { useRefreshOnFocus } from "@/lib/queries";
 import { localDateTime, parseLocalDateTime } from "@/lib/local-datetime";
+import { fitnessCalendarDay, fitnessTimeZone } from "@/lib/fitness-summary";
 import { prepareFitnessExport } from "@/lib/health/export";
 import { sharePrivateExport } from "@/lib/health/export-share";
 import {
@@ -32,6 +33,7 @@ import {
   type StrengthLogInput,
   type WeightUnit,
 } from "../../../shared/fitness";
+import type { FitnessActivitySummary } from "../../../shared/fitness-summary";
 
 export default function FitnessRoute() {
   return <PrivateMember component={Fitness} />;
@@ -53,7 +55,19 @@ function Fitness({ member, session }: PrivateMemberProps) {
   const [outcomeId, setOutcomeId] = useState<string | null>(null);
   const [showAiPermissions, setShowAiPermissions] = useState(false);
   const now = useNow(60_000);
+  const timeZone = fitnessTimeZone();
+  const calendarDay = fitnessCalendarDay(now, timeZone);
   const key = ["private-fitness", member.id];
+  const summary = useQuery({
+    queryKey: [...key, "summary", timeZone, calendarDay],
+    gcTime: 0,
+    retry: false,
+    queryFn: ({ signal }) =>
+      session.request<{ summary: FitnessActivitySummary }>(
+        `/fitness/summary?timeZone=${encodeURIComponent(timeZone)}`,
+        { signal },
+      ),
+  });
   const consent = useQuery({
     queryKey: [...key, "consent"],
     gcTime: 0,
@@ -89,11 +103,13 @@ function Fitness({ member, session }: PrivateMemberProps) {
     await refresh();
   };
   return (
-    <Screen onRefresh={() => void refresh()} refreshing={logs.isRefetching}>
+    <Screen onRefresh={() => void refresh()} refreshing={logs.isRefetching || summary.isRefetching}>
       <Stack.Screen options={{ title: "Fitness log" }} />
       <FitnessSummary
-        logs={logs.data?.logs ?? []}
-        now={now}
+        summary={summary.error ? undefined : summary.data?.summary}
+        loading={summary.isPending}
+        error={summary.error}
+        onRetry={() => void summary.refetch()}
         onHealth={() => router.push("/health")}
       />
       <ActionCard
@@ -108,22 +124,24 @@ function Fitness({ member, session }: PrivateMemberProps) {
           assistant to prepare it again.
         </Notice>
       )}
-      <LogEditor
-        key={`${editing?.id ?? "new"}:${formVersion}:${consent.data?.consent.generation ?? "off"}`}
-        session={session}
-        consent={consent.error ? undefined : consent.data?.consent}
-        pilotConsent={pilot.error ? undefined : pilot.data?.consent}
-        initial={editing}
-        importedDraft={!editing && formVersion === 0 ? importedDraft : null}
-        disabled={action.busy}
-        onSaved={saved}
-        onCancel={() => {
-          setEditing(null);
-          setFormVersion((value) => value + 1);
-        }}
-      />
+      {!(editing && logs.error) && (
+        <LogEditor
+          key={`${editing?.id ?? "new"}:${formVersion}:${consent.data?.consent.generation ?? "off"}`}
+          session={session}
+          consent={consent.error ? undefined : consent.data?.consent}
+          pilotConsent={pilot.error ? undefined : pilot.data?.consent}
+          initial={editing}
+          importedDraft={!editing && formVersion === 0 ? importedDraft : null}
+          disabled={action.busy}
+          onSaved={saved}
+          onCancel={() => {
+            setEditing(null);
+            setFormVersion((value) => value + 1);
+          }}
+        />
+      )}
       {action.error && <Notice tone="danger">{action.error}</Notice>}
-      <SectionTitle>Saved exercises</SectionTitle>
+      <SectionTitle>Individual exercise logs</SectionTitle>
       {(logs.isPending || logs.error) && (
         <StateView
           loading={logs.isPending}
@@ -131,68 +149,69 @@ function Fitness({ member, session }: PrivateMemberProps) {
           onRetry={() => void logs.refetch()}
         />
       )}
-      {logs.data?.logs.length === 0 && (
-        <Notice>No exercises saved yet. Start with one exercise above.</Notice>
+      {!logs.error && logs.data?.logs.length === 0 && (
+        <Notice>No individual exercise logs yet. You can record one above.</Notice>
       )}
-      {logs.data?.logs.map((log) => (
-        <LogCard key={log.id} log={log}>
-          {log.measurementSessionId &&
-            pilot.data?.consent.enabled &&
-            !pilot.error &&
-            (outcomeId === log.measurementSessionId ? (
-              <FitnessPilotResult
-                key={outcomeId}
-                id={outcomeId}
-                ownerId={member.id}
-                session={session}
-                onDismiss={() => setOutcomeId(null)}
-              />
-            ) : (
+      {!logs.error &&
+        logs.data?.logs.map((log) => (
+          <LogCard key={log.id} log={log}>
+            {log.measurementSessionId &&
+              pilot.data?.consent.enabled &&
+              !pilot.error &&
+              (outcomeId === log.measurementSessionId ? (
+                <FitnessPilotResult
+                  key={outcomeId}
+                  id={outcomeId}
+                  ownerId={member.id}
+                  session={session}
+                  onDismiss={() => setOutcomeId(null)}
+                />
+              ) : (
+                <Button
+                  label="Review logging outcome and optional feedback"
+                  variant="ghost"
+                  onPress={() => setOutcomeId(log.measurementSessionId!)}
+                />
+              ))}
+            <Row>
               <Button
-                label="Review logging outcome and optional feedback"
-                variant="ghost"
-                onPress={() => setOutcomeId(log.measurementSessionId!)}
-              />
-            ))}
-          <Row>
-            <Button
-              label="Edit exercise"
-              variant="soft"
-              disabled={action.busy}
-              onPress={() => setEditing(log)}
-            />
-            <Button
-              label="Delete"
-              variant="ghost"
-              disabled={action.busy}
-              onPress={() => setRemoveId(log.id)}
-            />
-          </Row>
-          {removeId === log.id && (
-            <>
-              <Notice>Delete this exercise and its saved sets?</Notice>
-              <Button
-                label="Delete exercise"
-                variant="danger"
+                label="Edit exercise"
+                variant="soft"
                 disabled={action.busy}
-                onPress={() =>
-                  void action.run(
-                    (signal) =>
-                      session.request(`/fitness/logs/${log.id}`, { method: "DELETE", signal }),
-                    async () => {
-                      setRemoveId(null);
-                      if (editing?.id === log.id) setEditing(null);
-                      await refresh();
-                    },
-                  )
-                }
+                onPress={() => setEditing(log)}
               />
-              <Button label="Keep exercise" variant="ghost" onPress={() => setRemoveId(null)} />
-            </>
-          )}
-        </LogCard>
-      ))}
-      {logs.data?.nextCursor && (
+              <Button
+                label="Delete"
+                variant="ghost"
+                disabled={action.busy}
+                onPress={() => setRemoveId(log.id)}
+              />
+            </Row>
+            {removeId === log.id && (
+              <>
+                <Notice>Delete this exercise and its saved sets?</Notice>
+                <Button
+                  label="Delete exercise"
+                  variant="danger"
+                  disabled={action.busy}
+                  onPress={() =>
+                    void action.run(
+                      (signal) =>
+                        session.request(`/fitness/logs/${log.id}`, { method: "DELETE", signal }),
+                      async () => {
+                        setRemoveId(null);
+                        if (editing?.id === log.id) setEditing(null);
+                        await refresh();
+                      },
+                    )
+                  }
+                />
+                <Button label="Keep exercise" variant="ghost" onPress={() => setRemoveId(null)} />
+              </>
+            )}
+          </LogCard>
+        ))}
+      {!logs.error && logs.data?.nextCursor && (
         <Button
           label="Older exercises"
           variant="soft"

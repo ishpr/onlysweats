@@ -193,6 +193,7 @@ function RunEditor({
           setRest((current) => ({ seconds: restSeconds, key: (current?.key ?? 0) + 1 }));
         if (finish) setRest(null);
         await client.invalidateQueries({ queryKey: ["private-workout-runs", member.id] });
+        await client.invalidateQueries({ queryKey: ["private-fitness", member.id, "summary"] });
         if (run.sessionId)
           await client.invalidateQueries({
             queryKey: ["session-workout-plan", member.id, run.sessionId],
@@ -561,6 +562,9 @@ function RunEditor({
                 async () => {
                   await clearWorkoutRecovery(member.id, run.id).catch(() => undefined);
                   await client.invalidateQueries({ queryKey: ["private-workout-runs", member.id] });
+                  await client.invalidateQueries({
+                    queryKey: ["private-fitness", member.id, "summary"],
+                  });
                   if (run.sessionId)
                     await client.invalidateQueries({
                       queryKey: ["session-workout-plan", member.id, run.sessionId],
