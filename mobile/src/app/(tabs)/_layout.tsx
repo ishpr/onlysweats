@@ -199,11 +199,21 @@ function TabBar({ state, navigation }: TabBarProps) {
                 {route.name === "agent" ? needsMe : null}
                 {route.name === "index" && waiting > 0 && (
                   <View style={[styles.dot, { backgroundColor: theme.move }]}>
-                    <T style={[styles.dotText, { color: theme.onDanger }]}>{waiting}</T>
+                    <T
+                      maxFontSizeMultiplier={1.2}
+                      style={[styles.dotText, { color: theme.onDanger }]}
+                    >
+                      {waiting}
+                    </T>
                   </View>
                 )}
               </View>
-              <T style={[styles.label, { color: route.name === "agent" ? theme.accent : color }]}>
+              <T
+                // A tab label has a fixed slot; the large-content viewer covers bigger sizes.
+                maxFontSizeMultiplier={1.2}
+                numberOfLines={1}
+                style={[styles.label, { color: route.name === "agent" ? theme.accent : color }]}
+              >
                 {tab.label}
               </T>
             </Pressable>

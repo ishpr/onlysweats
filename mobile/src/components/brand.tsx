@@ -31,9 +31,9 @@ export function Lockup() {
   return (
     <View style={styles.lockup} accessibilityRole="header">
       <PaceMark size={56} />
-      <T style={styles.lockupWord} accessibilityLabel="SamePace">
+      <T maxFontSizeMultiplier={1.15} style={styles.lockupWord} accessibilityLabel="SamePace">
         same
-        <T style={styles.lockupWord} color="accent">
+        <T maxFontSizeMultiplier={1.15} style={styles.lockupWord} color="accent">
           pace
         </T>
       </T>
@@ -48,9 +48,13 @@ export function AppHeader() {
   return (
     <View style={styles.header} accessibilityRole="header">
       <PaceMark size={32} />
-      <T style={[styles.wordmark, styles.headerWord]} accessibilityLabel="SamePace">
+      <T
+        maxFontSizeMultiplier={1.15}
+        style={[styles.wordmark, styles.headerWord]}
+        accessibilityLabel="SamePace"
+      >
         same
-        <T style={styles.wordmark} color="accent">
+        <T maxFontSizeMultiplier={1.15} style={styles.wordmark} color="accent">
           pace
         </T>
       </T>

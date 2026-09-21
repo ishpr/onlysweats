@@ -355,6 +355,13 @@ export default function You() {
       </T>
 
       <ListCard>
+        {__DEV__ ? (
+          <ListRow
+            icon={Bot}
+            label="Design kit (development)"
+            onPress={() => router.push("/dev-kit")}
+          />
+        ) : null}
         <ListRow icon={LogOut} label="Sign out" onPress={() => void signOut()} />
         <ListRow
           icon={Trash2}

@@ -71,6 +71,17 @@ export const TYPE: Record<Variant, object> = {
   },
 };
 
+/** How far each style may grow with Dynamic Type. Big type needs less room to be legible. */
+const MAX_SCALE: Record<Variant, number> = {
+  title: 1.3,
+  heading: 1.4,
+  body: 1.7,
+  label: 1.6,
+  caption: 1.7,
+  eyebrow: 1.5,
+  mono: 1.2,
+};
+
 export function T({
   variant = "body",
   color = "text",
@@ -78,7 +89,15 @@ export function T({
   ...rest
 }: TextProps & { variant?: Variant; color?: ThemeColor }) {
   const theme = useTheme();
-  return <Text style={[{ color: theme[color] }, TYPE[variant], style]} {...rest} />;
+  return (
+    <Text
+      // Text grows with the member's setting — up to a point. Past it, big type stops
+      // being readable and starts breaking words a letter at a time.
+      maxFontSizeMultiplier={MAX_SCALE[variant]}
+      style={[{ color: theme[color] }, TYPE[variant], style]}
+      {...rest}
+    />
+  );
 }
 
 // ── Layout ───────────────────────────────────────────────────────────────────
