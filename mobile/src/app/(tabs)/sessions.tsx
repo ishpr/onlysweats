@@ -1,15 +1,17 @@
 import { useRouter } from "expo-router";
-import { Search } from "lucide-react-native";
+import { LocateFixed, Search } from "lucide-react-native";
 import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { AppHeader } from "@/components/brand";
 import { SectionTitle } from "@/components/list";
-import { Enter } from "@/components/motion";
+import { Enter, PressScale } from "@/components/motion";
 import { SessionCard, type MineTag } from "@/components/session-card";
 import { TrainingBlockCard } from "@/components/training-block-card";
 import { Button, Card, Chip, EmptyState, Screen, StateView, T } from "@/components/ui";
-import { Spacing } from "@/constants/theme";
+import { HitTarget, Spacing } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
+import { useArea } from "@/lib/area";
 import { clusterHour, formatWhen } from "@/lib/format";
 import { byId } from "@/lib/lookup";
 import {
@@ -44,6 +46,8 @@ export default function Find() {
   const open = useSessions();
   const goals = usePublicTrainingBlocks();
   const venues = byId(useVenues().data);
+  const { area, ask } = useArea();
+  const theme = useTheme();
 
   const [activity, setActivity] = useState<Activity | "all">("all");
   const [allLevels, setAllLevels] = useState(false);
@@ -100,8 +104,21 @@ export default function Find() {
       <View>
         <T variant="title">Find a session</T>
         <T variant="caption" color="textSecondary">
-          Near Dallas · the next two weeks
+          {area?.name ? `Near ${area.name}` : "Near Dallas"} · the next two weeks
         </T>
+        {area?.permission === "undetermined" && (
+          <PressScale
+            accessibilityRole="button"
+            accessibilityLabel="Use my location to show how far each session is"
+            onPress={() => void ask()}
+            style={styles.locate}
+          >
+            <LocateFixed size={14} color={theme.accent} />
+            <T variant="caption" color="accent">
+              Use my location to see what’s closest
+            </T>
+          </PressScale>
+        )}
       </View>
 
       <View style={styles.wrap} accessibilityRole="radiogroup" accessibilityLabel="Activity">
@@ -217,6 +234,7 @@ export default function Find() {
 }
 
 const styles = StyleSheet.create({
+  locate: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: HitTarget },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.one },
   row: { gap: Spacing.one, paddingRight: Spacing.three },
   section: { gap: Spacing.two },

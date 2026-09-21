@@ -18,6 +18,7 @@ import { T, withAlpha } from "@/components/ui";
 import { Fonts, Radius, Spacing } from "@/constants/theme";
 import { welcomeKey } from "@/app/welcome";
 import { useSurfaces } from "@/hooks/use-surfaces";
+import { useKeepAreaCurrent } from "@/lib/area";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptic } from "@/lib/haptics";
@@ -36,6 +37,7 @@ export default function TabsLayout() {
   const me = useMe().data;
   const router = useRouter();
   useSurfaces();
+  useKeepAreaCurrent();
 
   // First run: the promise is "at your level", so ask for it before the feed. Shown
   // once per member on this phone; "Set my level" on Home brings it back any time.
