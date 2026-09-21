@@ -220,25 +220,25 @@ function Compact({
             <T variant="caption" color="textSecondary">
               {read.ourRead ? read.ourRead.because : read.lines[0]}
             </T>
+            {stats.length > 0 ? (
+              <View style={styles.pills}>
+                {stats.map(({ icon: Icon, color, value, label }) => (
+                  <View
+                    key={label}
+                    accessible
+                    accessibilityLabel={`${label}: ${value}`}
+                    style={[styles.pill, { backgroundColor: theme.field }]}
+                  >
+                    <Icon size={13} color={color} />
+                    <T variant="caption" style={styles.statText} numberOfLines={1}>
+                      {value}
+                    </T>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         </Row>
-        {stats.length > 0 ? (
-          <View style={styles.stats}>
-            {stats.map(({ icon: Icon, color, value, label }) => (
-              <View key={label} style={styles.stat}>
-                <Row style={styles.statLabel}>
-                  <Icon size={14} color={color} />
-                  <T variant="caption" color="textSecondary">
-                    {label}
-                  </T>
-                </Row>
-                <T variant="heading" style={styles.statText}>
-                  {value}
-                </T>
-              </View>
-            ))}
-          </View>
-        ) : null}
       </PressScale>
       {picked && pick && <Suggested why={pick.why} session={picked} />}
     </Card>
@@ -708,6 +708,15 @@ const styles = StyleSheet.create({
   statLabel: { alignItems: "center", gap: Spacing.half },
   statText: { fontFamily: Fonts.medium, fontVariant: ["tabular-nums"] },
   recorded: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: Spacing.two, gap: 2 },
+  pills: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: Spacing.one },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: Spacing.half,
+  },
   dialSub: { fontSize: 11, lineHeight: 14 },
   panel: { padding: Spacing.three, gap: Spacing.half },
   axis: { fontSize: 12, lineHeight: 16 },
