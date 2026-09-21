@@ -121,7 +121,7 @@ function NewWorkoutPlan({ member, session }: PrivateMemberProps) {
       }
     >
       <Stack.Screen options={{ title: review ? "Review workout" : "Create workout plan" }} />
-      <T variant="title">{review ? review.title : "Make it yours."}</T>
+      {review && <T variant="title">{review.title}</T>}
       <T color="textSecondary">
         {review
           ? "Check the targets. Start when you’re ready."
