@@ -348,7 +348,7 @@ const styles = StyleSheet.create({
   segmented: { flexDirection: "row", borderRadius: Radius.pill, padding: 4, gap: 4 },
   segment: {
     flex: 1,
-    minHeight: HitTarget - 8,
+    minHeight: HitTarget,
     borderRadius: Radius.pill,
     flexDirection: "row",
     alignItems: "center",
@@ -414,7 +414,7 @@ const styles = StyleSheet.create({
     paddingLeft: Spacing.three,
     borderRadius: Radius.xl,
   },
-  input: { flex: 1, maxHeight: 120, minHeight: HitTarget - 8, paddingTop: 8, paddingBottom: 8 },
+  input: { flex: 1, maxHeight: 120, minHeight: HitTarget, paddingTop: 10, paddingBottom: 10 },
   send: {
     width: HitTarget,
     height: HitTarget,
