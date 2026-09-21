@@ -1,3 +1,5 @@
+import { ConfirmSheet } from "@/components/confirm-sheet";
+import { useToast } from "@/components/toast";
 import { useState } from "react";
 import { View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -52,6 +54,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
   const [editing, setEditing] = useState<StrengthLog | null>(null);
   const [formVersion, setFormVersion] = useState(0);
   const [removeId, setRemoveId] = useState<string | null>(null);
+  const toast = useToast();
   const [outcomeId, setOutcomeId] = useState<string | null>(null);
   const [showAiPermissions, setShowAiPermissions] = useState(false);
   const now = useNow(60_000);
@@ -187,28 +190,6 @@ function Fitness({ member, session }: PrivateMemberProps) {
                 onPress={() => setRemoveId(log.id)}
               />
             </Row>
-            {removeId === log.id && (
-              <>
-                <Notice>Delete this exercise and its saved sets?</Notice>
-                <Button
-                  label="Delete exercise"
-                  variant="danger"
-                  disabled={action.busy}
-                  onPress={() =>
-                    void action.run(
-                      (signal) =>
-                        session.request(`/fitness/logs/${log.id}`, { method: "DELETE", signal }),
-                      async () => {
-                        setRemoveId(null);
-                        if (editing?.id === log.id) setEditing(null);
-                        await refresh();
-                      },
-                    )
-                  }
-                />
-                <Button label="Keep exercise" variant="ghost" onPress={() => setRemoveId(null)} />
-              </>
-            )}
           </LogCard>
         ))}
       {!logs.error && logs.data?.nextCursor && (
@@ -306,6 +287,32 @@ function Fitness({ member, session }: PrivateMemberProps) {
           The optional timing study isn’t available right now. You can keep logging exercises.
         </Notice>
       )}
+      <ConfirmSheet
+        visible={removeId !== null}
+        onClose={() => setRemoveId(null)}
+        title="Delete this exercise?"
+        body="Its sets and note go with it. Nothing in Apple Health is touched."
+        confirm={{
+          label: "Delete exercise",
+          danger: true,
+          onPress: () => {
+            const id = removeId;
+            if (!id) return;
+            void action.run(
+              (signal) => session.request(`/fitness/logs/${id}`, { method: "DELETE", signal }),
+              async () => {
+                setRemoveId(null);
+                if (editing?.id === id) setEditing(null);
+                toast.show({ message: "Exercise deleted" });
+                await refresh();
+              },
+            );
+          },
+        }}
+        cancelLabel="Keep it"
+        busy={action.busy}
+        error={removeId ? action.error : null}
+      />
     </Screen>
   );
 }

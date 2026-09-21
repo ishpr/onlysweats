@@ -1,3 +1,4 @@
+import { ConfirmSheet } from "@/components/confirm-sheet";
 import { useState } from "react";
 import { Switch, View } from "react-native";
 import { Redirect, Stack, useRouter } from "expo-router";
@@ -134,34 +135,6 @@ function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSes
       if (session.isCurrent()) setRemoving(false);
     }
   };
-  const confirmControls = confirmation && (
-    <View style={{ gap: 8 }}>
-      <T variant="label">
-        {confirmation.action === "disconnect"
-          ? "Disconnect and delete synced data?"
-          : "Remove this workout?"}
-      </T>
-      <T color="textSecondary">
-        {confirmation.action === "disconnect"
-          ? "This removes your imported workouts and readings from SamePace. You can reconnect later to import again. Apple Health stays unchanged."
-          : "This workout stays in Apple Health. Regular syncing will not bring it back to SamePace."}
-      </T>
-      <Button
-        label={confirmation.action === "disconnect" ? "Disconnect and delete" : "Remove workout"}
-        variant="danger"
-        loading={removing}
-        disabled={busy}
-        onPress={() => void confirmRemoval()}
-      />
-      <Button
-        label="Keep data"
-        variant="ghost"
-        disabled={busy}
-        onPress={() => setConfirmation(null)}
-      />
-    </View>
-  );
-
   return (
     <Screen>
       <Stack.Screen options={{ title: "Apple Health" }} />
@@ -301,7 +274,6 @@ function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSes
             disabled={busy}
             onPress={() => setConfirmation({ action: "disconnect" })}
           />
-          {confirmation?.action === "disconnect" && confirmControls}
         </Card>
       )}
       {health.error && <Notice tone="danger">{health.error}</Notice>}
@@ -391,7 +363,6 @@ function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSes
             disabled={busy}
             onPress={() => setConfirmation({ action: "remove", id: workout.id })}
           />
-          {confirmation?.action === "remove" && confirmation.id === workout.id && confirmControls}
         </Card>
       ))}
       {workouts.data?.nextCursor && (
@@ -404,6 +375,28 @@ function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSes
       {cursor && (
         <Button label="Most recent workouts" variant="ghost" onPress={() => setCursor(null)} />
       )}
+      <ConfirmSheet
+        visible={confirmation !== null}
+        onClose={() => setConfirmation(null)}
+        title={
+          confirmation?.action === "disconnect"
+            ? "Disconnect and delete synced data?"
+            : "Remove this workout?"
+        }
+        body={
+          confirmation?.action === "disconnect"
+            ? "This removes your imported workouts and readings from SamePace. You can reconnect later to import again. Apple Health stays unchanged."
+            : "This workout stays in Apple Health. Regular syncing will not bring it back to SamePace."
+        }
+        confirm={{
+          label: confirmation?.action === "disconnect" ? "Disconnect and delete" : "Remove workout",
+          danger: true,
+          onPress: () => void confirmRemoval(),
+        }}
+        cancelLabel="Keep data"
+        busy={removing}
+        error={confirmation ? actionError : null}
+      />
     </Screen>
   );
 }

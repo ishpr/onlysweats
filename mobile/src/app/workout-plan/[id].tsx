@@ -1,3 +1,5 @@
+import { ConfirmSheet } from "@/components/confirm-sheet";
+import { useToast } from "@/components/toast";
 import { useState } from "react";
 import * as Crypto from "expo-crypto";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -22,6 +24,7 @@ function WorkoutPlanDetail({ member, session }: PrivateMemberProps) {
   const action = usePrivateAction(session);
   const [edit, setEdit] = useState<{ revision: number; value: PlanFields } | null>(null);
   const [remove, setRemove] = useState(false);
+  const toast = useToast();
   const [runId, setRunId] = useState(Crypto.randomUUID);
   const key = ["private-workout-plan", member.id, id];
   const query = useQuery({
@@ -150,34 +153,30 @@ function WorkoutPlanDetail({ member, session }: PrivateMemberProps) {
             disabled={action.busy}
             onPress={() => setRemove(true)}
           />
-          {remove && (
-            <Card>
-              <Notice>
-                Delete this private template? Copies already shared with sessions and saved workout
-                records remain available.
-              </Notice>
-              <Button
-                label="Delete private template"
-                variant="danger"
-                disabled={action.busy}
-                onPress={() =>
-                  void action.run(
-                    (signal) =>
-                      session.request(`/fitness/plans/${id}`, { method: "DELETE", signal }),
-                    async () => {
-                      await client.invalidateQueries({
-                        queryKey: ["private-workout-plans", member.id],
-                      });
-                      router.replace("/workout-plans");
-                    },
-                  )
-                }
-              />
-              <Button label="Keep template" variant="ghost" onPress={() => setRemove(false)} />
-            </Card>
-          )}
         </>
       )}
+      <ConfirmSheet
+        visible={remove}
+        onClose={() => setRemove(false)}
+        title="Delete this plan?"
+        body="Copies already shared with a session, and workouts you recorded from it, stay as they are."
+        confirm={{
+          label: "Delete plan",
+          danger: true,
+          onPress: () =>
+            void action.run(
+              (signal) => session.request(`/fitness/plans/${id}`, { method: "DELETE", signal }),
+              async () => {
+                await client.invalidateQueries({ queryKey: ["private-workout-plans", member.id] });
+                toast.show({ message: "Plan deleted" });
+                router.replace("/workout-plans");
+              },
+            ),
+        }}
+        cancelLabel="Keep it"
+        busy={action.busy}
+        error={remove ? action.error : null}
+      />
     </Screen>
   );
 }
