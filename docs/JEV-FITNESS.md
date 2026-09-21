@@ -1,12 +1,14 @@
 # Jev for SamePace fitness tracking
 
-Status: implementation design, researched September 20, 2026. The TypeSafe skill is installed for Codex in this repository. No TypeSafe runtime SDK, inference calls, wearable integration, or health-data collection has been added by this change. Continue on `codex/samepace-fixes-a2a`.
+Status: implementation design, researched September 20, 2026. The TypeSafe skill is installed for Codex in this repository. No TypeSafe runtime SDK, inference calls, wearable integration, or health-data collection has been added by this change. Track delivery in the [vision roadmap](./VISION-ROADMAP.md).
 
 ## Product direction
 
 Make the workout log understand what the member is doing with less manual entry. Jev evaluates a small, current description of the workout and returns decisions that SamePace can use immediately. The first benefit should be better exercise logging and interpretation; matching can use the resulting member-approved preferences later.
 
-The recommended sequence is **real workout import plus an editable interpretation**, followed by **live capture and occasional contextual decisions**. A member can start with explicit workout logging while the selected wearable adapter is built. Device priority remains open: Apple Watch/iPhone, Android/Wear OS, or phone logging first.
+The agreed first source is **Apple Health sync**: import real workouts and associated heart rate, then add the other authorized variables needed by a feature. Resting heart rate, HRV, sleep, steps, distance, and active energy are optional context when available. Keep each variable's source, units, time range, and missing-data state explicit; a daily total must not be presented as a workout measurement.
+
+The recommended sequence is **real workout import plus an editable interpretation**, followed by contextual suggestions based on useful changes in synced data. Explicit exercise logging fills details the source does not provide. A custom live recorder and Android support are later extensions; Apple Health synchronization does not guarantee an immediate heartbeat stream.
 
 ## Current repository gap
 
@@ -66,8 +68,8 @@ This separation follows TypeSafe's own [Jev 1.13 limitations](https://docs.types
 
 | Platform | First integration | Live integration |
 | --- | --- | --- |
-| Apple | Read saved workouts and associated metrics using HealthKit. Apply additions/deletions with a saved query anchor. | A native Apple Watch workout uses `HKWorkoutSession` and `HKLiveWorkoutBuilder`, with mirroring to iPhone. iPhone workout sessions require an external sensor for live heart rate. |
-| Android | Import exercise sessions and associated heart-rate records through Health Connect, using source IDs and incremental changes. | A native Wear OS app uses Health Services `ExerciseClient`; check supported data types and persist its session state. |
+| Apple — selected first | Read saved workouts and associated metrics using HealthKit. Apply additions/deletions with a saved query anchor. Request other health variables only for features that need them. | A later native Apple Watch workout can use `HKWorkoutSession` and `HKLiveWorkoutBuilder`, with mirroring to iPhone. iPhone workout sessions require an external sensor for live heart rate. |
+| Android — later | Import exercise sessions and associated heart-rate records through Health Connect, using source IDs and incremental changes. | A native Wear OS app uses Health Services `ExerciseClient`; check supported data types and persist its session state. |
 | Phone-only logging | Explicit exercise, sets, repetitions, weights, and notes; optional measured location for supported activities. | No heart-rate measurement without a suitable source. Missing heart rate remains unavailable. |
 
 Health-store synchronization and observer callbacks are not guaranteed live sensor streams. SamePace already uses an Expo development client, so a native bridge or local Expo module is compatible with its architecture, but permissions, native builds, watch targets, and physical-device verification are still required. Sources: [Apple workout architecture](https://developer.apple.com/videos/play/wwdc2025/322/), [Apple observer queries](https://developer.apple.com/documentation/healthkit/executing-observer-queries), [Health Connect workouts](https://developer.android.com/health-and-fitness/health-connect/experiences/workouts), [Wear OS active exercise data](https://developer.android.com/health-and-fitness/health-services/active-data), [Expo native code](https://docs.expo.dev/workflow/customizing/).

@@ -246,7 +246,9 @@ strike**; whoever did gets **$5 of membership credit**. Nobody came → `void`, 
 fee (no one was stood up). An unanswered request → `declined`. Two strikes in 60
 days pause posting and joining **public** sessions for 14 days; invites from
 people you know still work. Fees carry `chargeable_at` = 24h after the session,
-the dispute window. It runs on `GET /bookings` until a scheduler owns it.
+the dispute window. Settlement runs on `GET /bookings` and the ten-minute
+`/api/cron/settle` sweep. Host attendance and settlement are tracked once per
+session, including when another participant joins after the host arrives.
 
 ## Standing slots
 

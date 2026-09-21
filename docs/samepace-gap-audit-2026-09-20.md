@@ -19,7 +19,9 @@ All 17 findings now have repository fixes:
 
 Migrations `0011`–`0013` add attendance state, durable delivery/revocation jobs, and the [A2A foundation](./A2A.md). The agent feature defaults to off. The branch also includes regression tests and official A2A SDK interoperability tests against isolated embedded Postgres.
 
-Final branch validation: **376 tests passed, zero failures**, including 26 A2A lifecycle, protocol, listing, and quota tests. Web typecheck and build passed. Web lint has zero errors and two pre-existing warnings. Mobile typecheck, lint, and the 20-route web export passed. A local HTTP smoke verified discovery, signed-in delegation issuance, separation of member and agent credentials, immediate revocation, and disabled-feature `404` responses. The isolated dev server and build agreed that sign-in was enabled.
+Initial branch validation: **376 tests passed, zero failures**, including 26 A2A lifecycle, protocol, listing, and quota tests. Web typecheck and build passed. Web lint has zero errors and two pre-existing warnings. Mobile typecheck, lint, and the 20-route web export passed. A local HTTP smoke verified discovery, signed-in delegation issuance, separation of member and agent credentials, immediate revocation, and disabled-feature `404` responses. The isolated dev server and build agreed that sign-in was enabled.
+
+Integration validation on `codex/samepace-fixes-a2a-pr`, based on main `2ba3f3c`: **412 tests passed, zero failures**, including the current training-block suite and a regression for joining a block after the host arrives. Web typecheck, development build, and lint passed (the same two existing lint warnings). Mobile typecheck, lint, and the 22-route web export passed. Training-block recurrence, goal-date boundaries, credits, admin controls, and navigation are preserved. The development build does not run remote database migrations.
 
 These changes prevent future incorrect host settlement. Existing duplicate fees, strikes, or counters need an explicit review using [the reconciliation guide](./settlement-reconciliation.md); no historical financial data was rewritten. No production migrations, deployments, or provider configuration changes were made. Mobile checks cover types, lint, and web export; physical-device acceptance and real Postgres concurrency stress remain unperformed.
 
@@ -179,16 +181,18 @@ The privacy page says the app confirms users are 18 or older. The sign-in screen
 
 Fix: implement the stated confirmation or revise the description to match the actual behavior. This is a product/copy discrepancy, not a legal compliance determination.
 
-## Documented unfinished work
+## Unfinished work recorded by the original audit
 
 These are already acknowledged in [the API contract](/Users/ishprasad/code/onlysweats/docs/API.md:210) and [mobile README](/Users/ishprasad/code/onlysweats/mobile/README.md:111), rather than newly discovered defects:
 
 - Membership billing, card collection, and collection of recorded no-show fees.
 - Phone/selfie/ID verification and fee-dispute tooling. Email dispute instructions exist, but the complete workflow is unfinished.
-- Training blocks, gym matching, maps, and route links in the app.
+- Training blocks, gym matching, maps, and route links in the app. **Update:** training blocks, public joining, goal credits, and admin controls are now implemented on main and preserved by this integration.
 - Universal-link association files and server-driven Live Activity updates while the app is closed.
 - Android OAuth setup and Google OAuth production publishing are still marked unfinished in the README. Their current console state was not verified.
 - Android push credential setup needs confirmation on a real build; current cloud credentials were not inspected.
+
+The [vision roadmap](./VISION-ROADMAP.md) is the current pending-work checklist, including the selected Apple Health sync approach. This section and the validation below preserve the earlier audit snapshot.
 
 ## Validation and limits
 

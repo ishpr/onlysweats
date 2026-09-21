@@ -20,6 +20,8 @@ The v0.3 PRD is the spec: <https://claude.ai/code/artifact/dc7b8843-caec-496b-9b
 
 ## Layout
 
+The [vision roadmap](docs/VISION-ROADMAP.md) tracks remaining release work, Apple Health sync, Jev-assisted fitness logging, and member-facing A2A coordination. The [A2A foundation](docs/A2A.md) is implemented behind a default-off flag; Apple Health and Jev runtime integration remain pending.
+
 | Path | What it is |
 | --- | --- |
 | `mobile/` | The app: React Native (Expo, expo-router), iOS and Android from one codebase. See `mobile/README.md`. |
