@@ -9,49 +9,33 @@ import { StyleSheet, View } from "react-native";
 
 import { WeekBars } from "@/components/charts";
 import { PressScale } from "@/components/motion";
-import { Card, Row, T } from "@/components/ui";
+import { Card, Row, StateView, T } from "@/components/ui";
 import { Radius, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { formatWhen } from "@/lib/format";
+import { fitnessDayLabel, fitnessQuantity, fitnessRecordedTime } from "@/lib/fitness-summary";
 
 import { EXERCISE_CATALOGUE, type StrengthLog, type StrengthSet } from "../../../shared/fitness";
-
-const DAY = 86_400_000;
-const LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+import type { FitnessActivitySummary } from "../../../shared/fitness-summary";
 
 const exerciseName = (log: StrengthLog) =>
   EXERCISE_CATALOGUE.find((exercise) => exercise.id === log.exerciseId)?.name ?? "Exercise";
 
-/** Seven days of what the member logged, today last. `now` comes from the caller. */
+/** Owner-scoped seven-day totals come from every saved actual entry, never a log page. */
 export function FitnessSummary({
-  logs,
-  now,
+  summary,
+  loading,
+  error,
+  onRetry,
   onHealth,
 }: {
-  logs: StrengthLog[];
-  now: number;
+  summary?: FitnessActivitySummary;
+  loading?: boolean;
+  error?: Error | null;
+  onRetry: () => void;
   onHealth: () => void;
 }) {
   const theme = useTheme();
-  const midnight = new Date(now);
-  midnight.setHours(0, 0, 0, 0);
-  const start = midnight.getTime() - 6 * DAY;
-  const reps = Array.from({ length: 7 }, () => 0);
-  let exercises = 0;
-  let volume = 0;
-  let volumeKnown = false;
-  for (const log of logs) {
-    const day = Math.floor((new Date(log.startedAt).getTime() - start) / DAY);
-    if (day < 0 || day > 6) continue;
-    reps[day] += log.totalRepetitions;
-    exercises += 1;
-    if (log.totalVolumeKg !== null) {
-      volume += log.totalVolumeKg;
-      volumeKnown = true;
-    }
-  }
-  const total = reps.reduce((sum, value) => sum + value, 0);
-  const days = reps.filter((value) => value > 0).length;
   return (
     <Card>
       <Row>
@@ -71,33 +55,84 @@ export function FitnessSummary({
           </T>
         </PressScale>
       </Row>
+      {loading || error || !summary ? (
+        <StateView
+          loading={loading}
+          error={error}
+          onRetry={onRetry}
+          empty="Your recorded activity summary is not available."
+          rows={2}
+        />
+      ) : (
+        <FitnessSummaryFacts summary={summary} />
+      )}
+      <T variant="caption" color="textFaint">
+        Your recorded exercise entries and workout-plan results stay private and separate from Apple
+        Health measurements.
+      </T>
+    </Card>
+  );
+}
+
+function FitnessSummaryFacts({ summary }: { summary: FitnessActivitySummary }) {
+  const theme = useTheme();
+  const { totals, daysWithActivity, days } = summary;
+  return (
+    <>
       <T variant="heading">
-        {exercises === 0
-          ? "Nothing logged this week yet"
-          : `${days} ${days === 1 ? "day" : "days"} trained`}
+        {totals.completedSets === 0
+          ? "No completed sets recorded"
+          : `${daysWithActivity} ${daysWithActivity === 1 ? "day" : "days"} with recorded sets`}
       </T>
       <View style={styles.stats}>
-        <Stat value={String(exercises)} label={exercises === 1 ? "exercise" : "exercises"} />
-        <Stat value={total.toLocaleString("en-US")} label="reps" />
+        <Stat value={fitnessQuantity(totals.completedSets)} label="completed sets" />
+        <Stat value={fitnessQuantity(totals.recordedReps.value)} label="recorded reps" />
+      </View>
+      <View style={styles.stats}>
         <Stat
-          value={volumeKnown ? Math.round(volume).toLocaleString("en-US") : "—"}
-          label="kg lifted"
+          value={fitnessRecordedTime(totals.recordedDurationSeconds.value)}
+          label="recorded set time"
+        />
+        <Stat
+          value={fitnessQuantity(totals.knownExternalVolumeKg.value)}
+          label="kg·reps subtotal"
         />
       </View>
-      <View accessible accessibilityLabel={`Reps by day, most recent last: ${reps.join(", ")}`}>
-        <WeekBars values={reps.map((value) => (value > 0 ? value : null))} color={theme.accent} />
+      <View
+        accessible
+        accessibilityLabel={`Completed sets by day: ${days.map((day) => `${day.date}: ${day.completedSets}`).join(", ")}`}
+      >
+        <T variant="caption" color="textSecondary">
+          Completed sets by day
+        </T>
+        <WeekBars
+          values={days.map((day) => (day.completedSets > 0 ? day.completedSets : null))}
+          color={theme.accent}
+        />
         <View style={styles.letters}>
-          {reps.map((_, index) => (
-            <T key={index} variant="caption" color="textFaint" style={styles.letter}>
-              {LETTERS[new Date(start + index * DAY).getDay()]}
+          {days.map((day) => (
+            <T key={day.date} variant="caption" color="textFaint" style={styles.letter}>
+              {fitnessDayLabel(day.date)}
             </T>
           ))}
         </View>
       </View>
-      <T variant="caption" color="textFaint">
-        What you typed in — private, and separate from Apple Health’s measurements.
+      {totals.completedSets > 0 && (
+        <T variant="caption" color="textSecondary">
+          Reps entered for {totals.recordedReps.contributingSets} of {totals.completedSets} sets;
+          time entered for {totals.recordedDurationSeconds.contributingSets} of{" "}
+          {totals.completedSets}. Unentered amounts stay unknown.
+        </T>
+      )}
+      <T variant="caption" color="textSecondary">
+        External load × reps is a subtotal from {totals.knownExternalVolumeKg.contributingSets} of{" "}
+        {totals.completedSets} sets. Bodyweight and sets with missing reps or load are excluded.
       </T>
-    </Card>
+      <T variant="caption" color="textFaint">
+        Days use {summary.timeZone}. Sets are grouped by the workout’s start day. Recorded time adds
+        entered set durations only, excluding rest and untimed sets.
+      </T>
+    </>
   );
 }
 
@@ -147,7 +182,7 @@ export function LogCard({ log, children }: { log: StrengthLog; children?: ReactN
           </T>
           {log.totalVolumeKg !== null && (
             <T variant="caption" color="textSecondary" style={styles.tabular}>
-              {Math.round(log.totalVolumeKg).toLocaleString("en-US")} kg
+              {fitnessQuantity(log.totalVolumeKg)} kg·reps
             </T>
           )}
         </View>

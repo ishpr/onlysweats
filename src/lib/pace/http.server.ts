@@ -29,6 +29,7 @@ import {
   type OperationComponent,
 } from "../operations/service.server";
 import * as fitness from "../fitness/service.server";
+import { getFitnessActivitySummary } from "../fitness/summary.server";
 import * as outcomes from "../fitness/outcomes.server";
 import * as billing from "../billing/service.server";
 import * as conversation from "../conversation/service.server";
@@ -245,6 +246,7 @@ const OPEN_WHEN_SUSPENDED = new Set([
   "PUT /fitness/pilot-consent",
   "GET /fitness/logging-sessions/:id",
   "GET /fitness/logs",
+  "GET /fitness/summary",
   "DELETE /fitness/logs/:id",
   "GET /fitness/export",
   "GET /fitness/plans",
@@ -267,6 +269,8 @@ const OPEN_WHEN_SUSPENDED = new Set([
 ]);
 
 const routes: [method: string, pattern: string, handler: Handler][] = [
+  ["GET", "/fitness/summary", async ({ sql, userId, query }) =>
+    ({ summary: await getFitnessActivitySummary(sql, userId, Object.fromEntries(query)) })],
   ["GET", "/assistant/chat", async ({ sql, userId, query }) => {
     const history = await conversation.getHistory(sql, userId);
     return { ...history, messages: history.messages.map(message =>

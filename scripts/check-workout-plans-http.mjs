@@ -162,10 +162,15 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   await request(null, "/fitness/plans", { expected: 401 });
+  const summaryPath = "/fitness/summary?timeZone=America%2FChicago";
+  await request(null, summaryPath, { expected: 401 });
   await request(null, "/fitness/runs", { method: "POST", json: {}, expected: 401 });
   const host = await signup("host"),
     buddy = await signup("buddy"),
     visitor = await signup("visitor");
+  await request(host, "/fitness/summary", { expected: 400 });
+  await request(host, "/fitness/summary?timeZone=not-a-zone", { expected: 400 });
+  assert.equal((await request(host, summaryPath)).data.summary.totals.completedSets, 0);
   const input = planInput();
   const created = (await request(host, "/fitness/plans", { method: "POST", json: input })).data
     .plan;
@@ -225,6 +230,22 @@ try {
   ).data.run;
   assert.equal(saved.results[0].reps, 6);
   assert.equal(saved.snapshot.exercises[0].sets[0].reps, 8);
+  const runSummary = (await request(host, summaryPath)).data.summary;
+  assert.equal(runSummary.days.length, 7);
+  assert.equal(runSummary.daysWithActivity, 1);
+  assert.equal(runSummary.totals.completedSets, 1);
+  assert.deepEqual(runSummary.totals.recordedReps, { value: 6, contributingSets: 1 });
+  assert.deepEqual(runSummary.totals.knownExternalVolumeKg, { value: null, contributingSets: 0 });
+  assert.equal((await request(buddy, summaryPath)).data.summary.totals.completedSets, 0);
+  const legacy = (await request(host, "/fitness/logs", {
+    method: "POST",
+    json: { startedAt: new Date().toISOString(), exerciseId: "squat", note: "Synthetic weekly-summary check",
+      sets: [{ reps: 5, weight: 10, unit: "kg" }] },
+  })).data.log;
+  const mixedSummary = (await request(host, summaryPath)).data.summary;
+  assert.equal(mixedSummary.totals.completedSets, 2);
+  assert.deepEqual(mixedSummary.totals.recordedReps, { value: 11, contributingSets: 2 });
+  assert.deepEqual(mixedSummary.totals.knownExternalVolumeKg, { value: 50, contributingSets: 1 });
   await request(host, `/fitness/runs/${standalone.id}`, {
     method: "PUT",
     json: {
@@ -350,6 +371,7 @@ try {
   const delegatedHeaders = { authorization: `Bearer ${delegation.token}` };
   await request(null, "/fitness/plans", { headers: delegatedHeaders, expected: 401 });
   await request(null, "/fitness/runs", { headers: delegatedHeaders, expected: 401 });
+  await request(null, summaryPath, { headers: delegatedHeaders, expected: 401 });
   await request(null, `/sessions/${session.id}/workout-plan`, {
     headers: delegatedHeaders,
     expected: 401,
@@ -361,6 +383,8 @@ try {
     expected: 403,
   });
   await request(host, `/fitness/runs/${standalone.id}`, { method: "DELETE", json: {} });
+  await request(host, `/fitness/logs/${legacy.id}`, { method: "DELETE", json: {} });
+  assert.equal((await request(host, summaryPath)).data.summary.totals.completedSets, 0);
   await request(host, `/fitness/plans/${created.id}`, { method: "DELETE", json: {} });
   assert.equal(
     (await request(buddy, `/sessions/${session.id}/workout-plan`)).data.plan.planId,
