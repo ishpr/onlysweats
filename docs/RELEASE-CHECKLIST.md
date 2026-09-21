@@ -23,6 +23,8 @@ The normal `device` build profile includes Watch and requires registered, provis
 
 Use the dated evidence for the current implementation: [intelligence checks](evaluations/intelligence-release-2026-09-21.md), [shared workout checks and package audit](evaluations/shared-workouts-release-2026-09-21.md), and [actual local model examples and limitations](evaluations/workout-plan-local-v1-2026-09-21.md). Historical checks apply to the versions they name; they do not prove later screens have been exercised on hardware.
 
+The [weekly activity follow-up and goal audit](evaluations/fitness-summary-release-2026-09-21.md) record the subsequent totals fix and remaining external acceptance.
+
 For code changes, run relevant tests, root/mobile types and lint, web build and mobile export. Exercise database races on an explicitly disposable PostgreSQL database. `scripts/check-workout-plans-http.mjs` runs the structured-workout flow against its own loopback server and in-memory database, creates synthetic members and deletes them afterward. Its passing result does not prove the physical interface works.
 
 ## Physical member flow
