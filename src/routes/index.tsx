@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { CalendarCheck, MapPin, Repeat, ShieldCheck, UserRoundCheck, UsersRound } from "lucide-react";
+import { CalendarCheck, Flag, MapPin, Repeat, ShieldCheck, UserRoundCheck, UsersRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { SiteShell } from "@/components/site/site-shell";
 import { SITE } from "@/lib/site";
@@ -46,6 +46,11 @@ const PROMISES: { icon: LucideIcon; title: string; body: string }[] = [
     icon: Repeat,
     title: "Same time next week",
     body: "One tap turns a session that worked into a standing slot. Skip a week with notice and your seat goes to a substitute — you keep your place.",
+  },
+  {
+    icon: Flag,
+    title: "Give it a finish line",
+    body: "Aim a standing slot at a date — a marathon, a first 10k, twelve weeks of showing up — and it becomes a training block. You see the sessions you kept out of the ones you had. When it ends, the people who finished can say who helped them stick to it. That count is the review: no stars, no weight, nothing you type in.",
   },
   {
     icon: UserRoundCheck,

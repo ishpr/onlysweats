@@ -28,16 +28,18 @@ function Privacy() {
             <li><strong>Your account.</strong> You sign in with Apple or Google, which gives us your name and email address. With Apple’s Hide My Email we only receive the relay address.</li>
             <li><strong>Your profile.</strong> A first name, your neighbourhood, and the level you set for each activity (a pace, a speed, an experience level). You may tell us your gender; it is used only to open women-only sessions to women, is never shown to anyone and is never used for ranking.</li>
             <li><strong>Sessions.</strong> What you post and join, when you cancelled, whether you checked in and by which method, and the five yes/no answers people give each other afterwards.</li>
+            <li><strong>Training blocks.</strong> The goal you pick from a short list, an event name if you give one, the date, and — counted from your check-ins — how many of your sessions you kept. When a block ends, a member who finished can say another member helped them stick to it. We keep who said it so it can be taken back; the person it is about is never told who.</li>
             <li><strong>Messages.</strong> Chat is tied to a single booking and closes a day after the session. We keep the messages so a report can be reviewed; a person at {SITE.name} reads a thread only when a report points at it.</li>
             <li><strong>Reliability.</strong> Strikes, fees and credits recorded on your account under the rules in our Terms.</li>
             <li><strong>Location, once.</strong> When you tap Check in, your phone sends its position so our server can measure the distance to the meeting pin. We record that you checked in and when — not where you were. The app never reads location in the background.</li>
           </ul>
-          <p>We don’t collect your contacts, photos, health data, age (beyond confirming you’re 18 or over), height, weight or relationship status.</p>
+          <p>We don’t collect your contacts, photos, health data, age (beyond confirming you’re 18 or over), height, weight or relationship status. A training block has no weight goal, and nothing about your workout is logged: the miles it shows are the planned distance of the sessions you checked in to.</p>
         </Section>
 
         <Section title="Who sees what">
           <ul>
-            <li><strong>Other members</strong> see your first name, initials, levels and track record (sessions completed, on-time rate, would-join-again rate, member since) — and only on a session you posted or joined. There is no member directory and no people search.</li>
+            <li><strong>Other members</strong> see your first name, initials, levels and track record (sessions completed, on-time rate, would-join-again rate, training blocks finished, how many people say you helped them finish one, member since) — and only on a session you posted or joined, or a training block you’re in. There is no member directory and no people search.</li>
+            <li><strong>Your progress in a training block</strong> is yours alone. The others in it see a total for the group, never your count.</li>
             <li><strong>The exact meeting spot and the check-in code</strong> go only to the people confirmed on that session.</li>
             <li><strong>Companies that run our infrastructure</strong> process data on our behalf: Vercel (hosting), Neon (database), and Apple and Google (sign-in). They may not use it for their own purposes.</li>
             <li>We disclose information if the law requires it, or to protect someone’s safety.</li>
