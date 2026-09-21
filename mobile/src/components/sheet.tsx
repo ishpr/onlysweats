@@ -12,6 +12,7 @@ import { BlurView } from "expo-blur";
 import { X } from "lucide-react-native";
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -49,6 +50,7 @@ export function Sheet({
   children,
   footer,
   startFull = false,
+  keepMounted = false,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -59,6 +61,8 @@ export function Sheet({
   footer?: ReactNode;
   /** Open straight to full height (long content, a form). */
   startFull?: boolean;
+  /** Keep what's inside alive while closed — a half-filled form survives a stray swipe. */
+  keepMounted?: boolean;
 }) {
   const theme = useTheme();
   const scheme = useColorScheme();
@@ -102,6 +106,27 @@ export function Sheet({
     // `settle` is a fresh worklet each render; the values it reads are what matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, startFull, canFill, half, closed]);
+
+  // Typing: the sheet takes the full height and pads itself clear of the keyboard.
+  const [keyboard, setKeyboard] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => setKeyboard(e.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboard(0),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  useEffect(() => {
+    if (visible && keyboard > 0 && canFill) settle(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyboard, visible, canFill]);
 
   const notch = () => haptic.select();
   const drag = Gesture.Pan()
@@ -154,11 +179,17 @@ export function Sheet({
   // At half height the content's visible part ends where the screen does.
   const body = useAnimatedStyle(() => ({ paddingBottom: Math.max(0, y.value) }));
 
-  if (!mounted) return null;
+  if (!mounted && !keepMounted) return null;
   const ios = Platform.OS === "ios";
   const Glass = ios ? BlurView : View;
   return (
-    <Modal transparent visible statusBarTranslucent animationType="none" onRequestClose={onClose}>
+    <Modal
+      transparent
+      visible={mounted}
+      statusBarTranslucent
+      animationType="none"
+      onRequestClose={onClose}
+    >
       <GestureHandlerRootView style={styles.flex}>
         <Animated.View style={[StyleSheet.absoluteFill, styles.dim, backdrop]}>
           <Pressable
@@ -208,7 +239,7 @@ export function Sheet({
           <Animated.View style={[styles.flex, body]}>
             <ScrollView
               style={styles.flex}
-              contentContainerStyle={styles.content}
+              contentContainerStyle={[styles.content, keyboard > 0 && { paddingBottom: keyboard }]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
               onContentSizeChange={(_, height) => setContentH(height)}
