@@ -41,9 +41,23 @@ scrubbed its profile and completed the provider-deletion job with zero worker
 errors. Stripe confirmed the test customer was deleted and its subscription
 canceled. No outstanding test subscription or pending provider event remained.
 
+A separate synthetic member completed hosted **3-D Secure 2** acceptance on
+September 21, 2026 UTC. The first attempt returned
+`payment_intent_authentication_failure`: no payment succeeded, no subscription
+existed and app membership stayed inactive. Retrying the same open Checkout
+then completed the challenge and the $12 test payment. Stripe's successful
+charge reported `authentication_flow=challenge`, `result=authenticated` and
+version `2.1.0`. The signed Checkout webhook arrived, reconciliation processed
+four events and one account without errors, and app membership became active.
+Account deletion then invalidated the session, scrubbed the profile, deleted
+the Stripe customer and cancelled its subscription. The deletion worker and
+late subscription event completed without errors. Across both Stripe fixtures,
+no active account, sign-in record, pending deletion job or pending provider
+event remained; temporary credentials and hosted URLs were removed.
+
 The browser return reached Vercel's Preview sign-in gate. This proves the
 provider redirect was issued, not a complete physical-device return flow.
-3DS, failed renewal, refunds, event replay/reordering and outage recovery still
+Failed renewal, refunds, event replay/reordering and outage recovery still
 need actual-provider acceptance. A successful test payment does not authorize
 live collection or establish the cluster-density gate for launch.
 
@@ -108,7 +122,7 @@ Checkout identities are committed before external calls. Customer, checkout, cre
 
 Inspect the cron's billing error counts and pending `billing_webhook_events`, `billing_deletion_queue`, `billing_credit_exports`, and `billing_checkouts`. A `review_required` checkout or failed refund requires an operator to inspect Stripe and the matching internal operation; this release has no generic dashboard button that safely resolves every provider ambiguity. Do not clear references or start another charge without reconciling the original. Stripe's idempotency retention is finite, so durable metadata checks are necessary: [idempotent requests](https://docs.stripe.com/api/idempotent_requests), [refunds](https://docs.stripe.com/api/refunds/create).
 
-Before enabling a live cluster, complete test-mode hosted checkout/3DS, cancellation, failed renewal, duplicate and reordered webhook delivery, dispute/waiver/refund, deleted-customer delayed refund, worker outage/recovery, and physical-device browser return acceptance using the actual account. Verify the cron plan can meet the ten-minute schedule and the worker capacity keeps reconciliation within 24 hours. The current worker processes at most ten accounts, ten events and ten deletions per scheduled invocation (plus bounded per-account operations); scale scheduling/throughput before growth exceeds that capacity.
+Hosted checkout/3DS, portal cancellation and account deletion passed the bounded test-mode checks above. Before enabling a live cluster, complete failed renewal, duplicate and reordered webhook delivery, dispute/waiver/refund, deleted-customer delayed refund, worker outage/recovery, and physical-device browser return acceptance using the actual account. Verify the cron plan can meet the ten-minute schedule and the worker capacity keeps reconciliation within 24 hours. The current worker processes at most ten accounts, ten events and ten deletions per scheduled invocation (plus bounded per-account operations); scale scheduling/throughput before growth exceeds that capacity.
 
 Business account activation, settlement details, refund/support policy, recurring-payment disclosures, tax obligations and live deployment approval remain operator work. Automatic tax, promotions, alternate plans, and other currencies are not implemented. Do not enable live payments until those product and operational decisions are complete.
 
