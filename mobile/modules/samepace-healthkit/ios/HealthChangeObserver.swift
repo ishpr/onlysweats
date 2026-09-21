@@ -31,7 +31,7 @@ final class HealthChangeObserver {
       if let sample = try? HealthKitReader.sampleType(type) { store.disableBackgroundDelivery(for: sample) { _, _ in } }
     }
     guard enabled else { completion(.success(())); return }
-    guard HKHealthStore.isHealthDataAvailable(), !types.isEmpty, types.count <= 10 else {
+    guard HKHealthStore.isHealthDataAvailable(), !types.isEmpty, types.count <= HealthKitReader.supportedTypes.count else {
       completion(.failure(HealthImportError.invalidOptions)); return
     }
     do {

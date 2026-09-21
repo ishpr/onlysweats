@@ -12,6 +12,7 @@ export const HEALTH_TYPES = [
   "steps",
   "distance",
   "active_energy",
+  "blood_glucose",
 ] as const satisfies readonly HealthDataType[];
 export const healthType = z.enum(HEALTH_TYPES);
 // Canonical UUID casing prevents a source record from bypassing a tombstone.
@@ -147,6 +148,14 @@ export const healthRecord = z
         type: z.literal("active_energy"),
         value: nonnegative,
         unit: z.literal("kcal"),
+      })
+      .strict(),
+    z
+      .object({
+        ...base,
+        type: z.literal("blood_glucose"),
+        value: nonnegative.positive(),
+        unit: z.literal("mg/dL"),
       })
       .strict(),
     z

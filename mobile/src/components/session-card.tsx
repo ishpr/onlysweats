@@ -10,6 +10,7 @@ import { T, withAlpha } from "@/components/ui";
 import { Fonts, Radius, Spacing } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { OnPhoto, useTheme } from "@/hooks/use-theme";
+import { formatMiles, milesBetween, useArea } from "@/lib/area";
 import { API_URL } from "@/lib/config";
 import { formatDuration, formatWhen, inCheckinWindow } from "@/lib/format";
 import { ACTIVITIES, type Session, type Venue } from "@/lib/types";
@@ -156,6 +157,8 @@ const seatsLabel = (n: number) => (n === 0 ? "Full" : `${n} ${n === 1 ? "spot" :
 export type MineTag = "Joined" | "Waiting for approval" | "Hosting";
 
 export function SessionCardFace({ session, venue, fits, mine }: FaceProps) {
+  const { area } = useArea();
+  const away = area?.coords && venue ? formatMiles(milesBetween(area.coords, venue)) : null;
   const live = inCheckinWindow(session.startAt);
   return (
     <PhotoCard
@@ -188,7 +191,7 @@ export function SessionCardFace({ session, venue, fits, mine }: FaceProps) {
         {session.abilityLabel}
       </T>
       <View style={styles.meta}>
-        <Meta icon={MapPin} text={venue?.name ?? "—"} />
+        <Meta icon={MapPin} text={`${venue?.name ?? "—"}${away ? ` · ${away}` : ""}`} />
         <Meta icon={Clock} text={formatDuration(session.durationMin)} />
         <Meta icon={Users} text={seatsLabel(session.seatsLeft)} />
       </View>

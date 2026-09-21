@@ -24,7 +24,7 @@ final class HealthKitReader {
     types: [String], completion: @escaping (Result<Void, Error>) -> Void
   ) throws {
     guard HKHealthStore.isHealthDataAvailable() else { throw HealthImportError.unavailable }
-    guard !types.isEmpty, types.count <= 10 else { throw HealthImportError.invalidOptions }
+    guard !types.isEmpty, types.count <= Self.supportedTypes.count else { throw HealthImportError.invalidOptions }
     let readTypes = try Set(types.map { try Self.sampleType($0) as HKObjectType })
     store.requestAuthorization(toShare: [], read: readTypes) { completed, error in
       if let error { completion(.failure(error)) }
@@ -87,6 +87,7 @@ final class HealthKitReader {
     case "steps": return HKObjectType.quantityType(forIdentifier: .stepCount)!
     case "distance": return HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning)!
     case "active_energy": return HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!
+    case "blood_glucose": return HKObjectType.quantityType(forIdentifier: .bloodGlucose)!
     default: throw HealthImportError.invalidType
     }
   }
@@ -166,6 +167,7 @@ final class HealthKitReader {
       case "steps": unit = .count(); label = "count"
       case "distance": unit = .meter(); label = "m"
       case "active_energy": unit = .kilocalorie(); label = "kcal"
+      case "blood_glucose": unit = HKUnit.gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci)); label = "mg/dL"
       default: throw HealthImportError.invalidRecord
       }
       guard quantity.quantity.is(compatibleWith: unit) else { throw HealthImportError.invalidRecord }
@@ -176,7 +178,7 @@ final class HealthKitReader {
   }
 
   static var supportedTypes: [String] {
-    var types = ["workout", "heart_rate", "resting_heart_rate", "heart_rate_variability", "sleep", "steps", "distance", "active_energy"]
+    var types = ["workout", "heart_rate", "resting_heart_rate", "heart_rate_variability", "sleep", "steps", "distance", "active_energy", "blood_glucose"]
     if #available(iOS 17.0, *) { types.append("cycling_power") }
 #if compiler(>=6.4) && !SAMEPACE_HEALTH_LEGACY_SDK
     if #available(iOS 27.0, *) { types.append("heart_rate_variability_rmssd") }

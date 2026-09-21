@@ -9,7 +9,8 @@ export type HealthDataType =
   | "sleep"
   | "steps"
   | "distance"
-  | "active_energy";
+  | "active_energy"
+  | "blood_glucose";
 
 export type HealthSource = { bundleId: string; name: string };
 export type HealthRecordBase = {
@@ -49,6 +50,7 @@ export type QuantityRecord = HealthRecordBase &
     | { type: "steps"; value: number; unit: "count" }
     | { type: "distance"; value: number; unit: "m" }
     | { type: "active_energy"; value: number; unit: "kcal" }
+    | { type: "blood_glucose"; value: number; unit: "mg/dL" }
   );
 export type SleepRecord = HealthRecordBase & {
   type: "sleep";

@@ -45,6 +45,14 @@ struct HealthKitReaderChecks {
     }
 
 #endif
+    let glucose = HKQuantitySample(type: .quantityType(forIdentifier: .bloodGlucose)!,
+      quantity: HKQuantity(unit: HKUnit.gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci)), doubleValue: 98),
+      start: start, end: start)
+    let glucoseRecord = try HealthKitReader.serialize(glucose, type: "blood_glucose")
+    precondition(glucoseRecord["value"] as? Double == 98)
+    precondition(glucoseRecord["unit"] as? String == "mg/dL")
+    precondition(HealthKitReader.supportedTypes.contains("blood_glucose"))
+
     let heartRate = HKQuantitySample(
       type: .quantityType(forIdentifier: .heartRate)!,
       quantity: HKQuantity(unit: .count().unitDivided(by: .second()), doubleValue: 2),
