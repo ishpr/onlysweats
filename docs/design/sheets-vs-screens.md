@@ -1,3 +1,5 @@
+> Superseded by docs/design/MASTER-PLAN.md — kept as an appendix.
+
 # SamePace — sheets versus screens
 
 Research note and decision framework, 21 September 2026. Companion to

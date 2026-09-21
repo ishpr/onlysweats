@@ -1,3 +1,5 @@
+> Superseded by docs/design/MASTER-PLAN.md — kept as an appendix.
+
 # SamePace — the agent-first layout
 
 Design specification, 21 September 2026. Builds on `docs/audits/2026-09-21-agent-first-audit.md`
