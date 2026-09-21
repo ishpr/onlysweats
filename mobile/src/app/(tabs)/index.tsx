@@ -119,7 +119,7 @@ export default function Home() {
         </>
       }
     >
-      <T variant="heading" color="textSecondary">
+      <T variant="heading" color="textSecondary" style={styles.greeting}>
         {greeting()}
         {name ? (
           <T variant="heading">
@@ -549,6 +549,8 @@ function weeksToGo(goalDate: string) {
 
 const styles = StyleSheet.create({
   content: { paddingTop: Spacing.half, gap: Spacing.two },
+  // Sits close to Today, so the whole first screen — down to the shortcuts — fits above the bar.
+  greeting: { marginBottom: -Spacing.one },
   planRow: { alignItems: "center", gap: Spacing.two },
   planIcon: {
     width: 44,

@@ -680,12 +680,14 @@ export function TrainingShortcuts() {
             <View style={[styles.badge, { backgroundColor: theme.accentSoft }]}>
               <Icon size={18} color={theme.accent} />
             </View>
-            <T variant="label" numberOfLines={1}>
-              {label}
-            </T>
-            <T variant="caption" color="textSecondary" numberOfLines={1} style={styles.axis}>
-              {hint}
-            </T>
+            <View style={styles.flex}>
+              <T variant="label" numberOfLines={1}>
+                {label}
+              </T>
+              <T variant="caption" color="textSecondary" numberOfLines={1} style={styles.axis}>
+                {hint}
+              </T>
+            </View>
           </Card>
         </PressScale>
       ))}
@@ -742,5 +744,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   shortcuts: { flexDirection: "row", gap: Spacing.one },
-  shortcut: { gap: Spacing.half, padding: Spacing.two },
+  // One line high: icon beside the words, so the row fits on Home's first screen.
+  shortcut: { flexDirection: "row", alignItems: "center", gap: Spacing.one, padding: Spacing.two },
 });
