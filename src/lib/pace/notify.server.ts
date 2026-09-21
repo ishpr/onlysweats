@@ -37,15 +37,16 @@ const EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
 const MAX_ATTEMPTS = 3;
 const at = (n: number) => new Date(n).toISOString();
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
-const json = <T>(v: unknown): T => (typeof v === "string" ? JSON.parse(v) : v) as T;
 
 export const isExpoToken = (token: string) => /^Expo(nent)?PushToken\[[^\]]+\]$/.test(token);
 
 /** "6:30 PM" in the cluster's timezone — what a reminder should say. */
 export const clockTime = (when: number | Date | string) =>
-  new Intl.DateTimeFormat("en-US", { timeZone: CLUSTER_TZ, hour: "numeric", minute: "2-digit" }).format(
-    new Date(when),
-  );
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: CLUSTER_TZ,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(when));
 
 /** "Sat 6:30 PM" in the cluster's timezone. */
 export const dayAndTime = (when: number | Date | string) =>
@@ -155,11 +156,77 @@ function expoHeaders(): Record<string, string> {
   return headers;
 }
 
+const MINUTE = 60_000;
+const LEASE_MS = 5 * MINUTE;
+const RECEIPT_LIFETIME = 24 * 60 * MINUTE;
+const retryDelay = (attempt: number) => Math.min(60 * MINUTE, MINUTE * 2 ** (attempt - 1));
+const permanentErrors = new Set([
+  "DeviceNotRegistered",
+  "MessageTooBig",
+  "MismatchSenderId",
+  "InvalidCredentials",
+]);
+
+type Delivery = {
+  id: string;
+  notification_id: string;
+  token: string;
+  attempts: number;
+  title: string;
+  body: string;
+  url: string | null;
+  category: NotifyCategory;
+  unread: number;
+};
+
+/** Atomically turn notification rows into a durable device outbox. */
+async function prepareDeliveries(sql: Sql, now: number) {
+  await sql.transaction(async (tx) => {
+    const rows = await tx<{ id: string }>`
+      select id from notifications where sent_at is null
+        and created_at > ${at(now - 60 * MINUTE)}
+      order by created_at limit 100 for update skip locked`;
+    if (!rows.length) return;
+    const ids = rows.map((row) => row.id);
+    // Preferences and device ownership are also rechecked when retrying below.
+    await tx.query(
+      `
+      insert into push_deliveries (id, notification_id, token, next_attempt_at)
+      select 'pd_' || md5(n.id || ':' || d.token), n.id, d.token, $2
+      from notifications n join profiles p on p.id = n.profile_id
+      join push_devices d on d.profile_id = p.id and d.disabled_at is null
+      where n.id = any($1) and p.deleted_at is null
+        and (n.category = 'account' or (p.suspended_at is null
+          and coalesce((p.notify ->> n.category)::boolean, true)))
+      on conflict (notification_id, token) do nothing`,
+      [ids, at(now)],
+    );
+    // sent_at means expanded/handled; delivery state lives on the device rows.
+    await tx.query("update notifications set sent_at = $2 where id = any($1)", [ids, at(now)]);
+  });
+}
+
+async function failDelivery(
+  sql: Sql,
+  id: string,
+  attempts: number,
+  error: string,
+  now: number,
+  retryable = true,
+) {
+  const retry = retryable && attempts < MAX_ATTEMPTS;
+  await sql`
+    update push_deliveries set state = ${retry ? "pending" : "failed"},
+      next_attempt_at = ${at(now + retryDelay(attempts))}, lease_until = null,
+      last_error = ${error}
+    where id = ${id} and state in ('sending', 'ticket') and attempts = ${attempts}`;
+}
+
 /**
- * Push everything owed. Rows are claimed first (`skip locked`), so two requests
- * finishing together never double-send; a failed call hands them back for the
- * next sweep, up to three tries. Members who muted a category, or have no
- * device, are simply marked done — the activity list still has the row.
+ * Claim at most 100 device deliveries per request, after fan-out. Successes stay
+ * on their own ticket, so a failure on another device cannot replay them. Leases
+ * recover interrupted workers; calls that fail before returning a ticket remain
+ * at-least-once because Expo does not offer an idempotent send API.
  */
 export async function deliverDue(
   sql: Sql,
@@ -167,102 +234,127 @@ export async function deliverDue(
 ): Promise<{ sent: number; failed: number }> {
   const send = opts.fetch ?? (globalThis.fetch as Fetch);
   const now = opts.now ?? Date.now();
-  const claimed = await sql<{
-    id: string;
-    profile_id: string;
-    category: NotifyCategory;
-    title: string;
-    body: string;
-    url: string | null;
-  }>`
-    update notifications set sent_at = ${at(now)}, attempts = attempts + 1
-    where id in (
-      select id from notifications
-      where sent_at is null and attempts < ${MAX_ATTEMPTS} and created_at > ${at(now - 60 * 60_000)}
-      order by created_at limit 100 for update skip locked)
-    returning id, profile_id, category, title, body, url`;
-  if (claimed.length === 0) return { sent: 0, failed: 0 };
-
-  const owners = [...new Set(claimed.map((n) => n.profile_id))];
-  const devices = await sql.query<{ token: string; profile_id: string }>(
-    "select token, profile_id from push_devices where profile_id = any($1) and disabled_at is null",
-    [owners],
-  );
-  const prefRows = await sql.query<{ id: string; notify: unknown; gone: boolean }>(
-    `select id, notify, (deleted_at is not null or suspended_at is not null) as gone
-     from profiles where id = any($1)`,
-    [owners],
-  );
-  const prefs = new Map(prefRows.map((p) => [p.id, p]));
-
-  const unreadRows = await sql.query<{ profile_id: string; n: number }>(
-    `select profile_id, count(*) as n from notifications
-     where profile_id = any($1) and read_at is null group by profile_id`,
-    [owners],
-  );
-  const unread = new Map(unreadRows.map((r) => [r.profile_id, Number(r.n)]));
-
-  const messages: { to: string; notificationId: string; payload: Record<string, unknown> }[] = [];
-  for (const n of claimed) {
-    const owner = prefs.get(n.profile_id);
-    if (!owner || (owner.gone && n.category !== "account")) continue;
-    const wants = { ...DEFAULT_PREFS, ...(json<Partial<NotifyPrefs>>(owner.notify) ?? {}) };
-    if (n.category !== "account" && !wants[n.category]) continue;
-    for (const d of devices.filter((x) => x.profile_id === n.profile_id)) {
-      messages.push({
-        to: d.token,
-        notificationId: n.id,
-        payload: {
-          to: d.token,
-          title: n.title,
-          body: n.body,
-          sound: "default",
-          // Android: one channel per kind (the app creates them). iOS: the icon badge.
-          channelId: n.category,
-          badge: unread.get(n.profile_id) ?? 1,
-          priority: "high",
-          data: { url: n.url, notificationId: n.id },
-        },
+  await prepareDeliveries(sql, now);
+  await sql`
+    update push_deliveries set state = 'failed', lease_until = null, last_error = 'AttemptsExhausted'
+    where state = 'sending' and lease_until <= ${at(now)} and attempts >= ${MAX_ATTEMPTS}`;
+  let sent = 0;
+  let failed = 0;
+  // Bound a sweep's work; anything remaining stays durable for the next sweep.
+  for (let batch = 0; batch < 6; batch += 1) {
+    // Account switches, preference changes, and dead-token responses can happen
+    // while a preceding batch is in flight. Recheck before every batch.
+    await sql`
+      update push_deliveries d set state = 'failed', lease_until = null,
+        last_error = 'RecipientUnavailable'
+      where d.state in ('pending', 'sending') and (d.lease_until is null or d.lease_until <= ${at(now)})
+        and not exists (
+          select 1 from notifications n join profiles p on p.id = n.profile_id
+          join push_devices device on device.profile_id = p.id and device.token = d.token
+          where n.id = d.notification_id and device.disabled_at is null and p.deleted_at is null
+            and (n.category = 'account' or (p.suspended_at is null
+              and coalesce((p.notify ->> n.category)::boolean, true))))`;
+    const messages = await sql<Delivery>`
+      with claimed as (
+        update push_deliveries set state = 'sending', attempts = attempts + 1,
+          lease_until = ${at(now + LEASE_MS)}
+        where id in (
+          select d.id from push_deliveries d
+          where ((d.state = 'pending' and d.next_attempt_at <= ${at(now)})
+            or (d.state = 'sending' and d.lease_until <= ${at(now)})) and d.attempts < ${MAX_ATTEMPTS}
+            and exists (
+              select 1 from notifications n join profiles p on p.id = n.profile_id
+              join push_devices device on device.profile_id = p.id and device.token = d.token
+              where n.id = d.notification_id and device.disabled_at is null and p.deleted_at is null
+                and (n.category = 'account' or (p.suspended_at is null
+                  and coalesce((p.notify ->> n.category)::boolean, true))))
+          order by d.next_attempt_at, d.id limit 100 for update of d skip locked)
+        returning *)
+      select c.*, n.title, n.body, n.url, n.category,
+        (select count(*) from notifications where profile_id = n.profile_id and read_at is null) as unread
+      from claimed c join notifications n on n.id = c.notification_id`;
+    if (!messages.length) break;
+    let data: Ticket[];
+    let requestError: string | undefined;
+    let retryable = true;
+    try {
+      const res = await send(EXPO_PUSH_URL, {
+        method: "POST",
+        headers: expoHeaders(),
+        signal: AbortSignal.timeout(15_000),
+        body: JSON.stringify(
+          messages.map((m) => ({
+            to: m.token,
+            title: m.title,
+            body: m.body,
+            sound: "default",
+            channelId: m.category,
+            badge: Number(m.unread),
+            priority: "high",
+            // Coalesce a retry when a network disconnect hides the first ticket.
+            collapseId: m.notification_id,
+            tag: m.notification_id,
+            data: { url: m.url, notificationId: m.notification_id },
+          })),
+        ),
       });
-    }
-  }
-  if (messages.length === 0) return { sent: 0, failed: 0 };
-
-  try {
-    const res = await send(EXPO_PUSH_URL, {
-      method: "POST",
-      headers: expoHeaders(),
-      body: JSON.stringify(messages.map((m) => m.payload)),
-    });
-    if (!res.ok) throw new Error(`Expo push answered ${res.status}`);
-    const { data } = (await res.json()) as { data: Ticket[] };
-    let failed = 0;
-    for (let i = 0; i < messages.length; i += 1) {
-      const ticket = data[i];
-      if (ticket?.status === "ok") {
-        await sql`
-          insert into push_tickets (id, token) values (${ticket.id}, ${messages[i].to})
-          on conflict (id) do nothing`;
+      if (!res.ok) {
+        requestError = `HTTP${res.status}`;
+        retryable = res.status === 429 || res.status >= 500;
+        data = [];
       } else {
-        failed += 1;
-        if (ticket?.details?.error === "DeviceNotRegistered") {
-          await sql`update push_devices set disabled_at = ${at(now)} where token = ${messages[i].to}`;
+        const body = (await res.json()) as { data?: Ticket[] };
+        data = Array.isArray(body.data) ? body.data : [];
+      }
+    } catch {
+      // Do not log provider bodies or tokens.
+      requestError = "NetworkOrInvalidResponse";
+      data = [];
+    }
+    // Persist each accepted ticket with its state in one transaction. A storage
+    // failure must surface, not cause previously accepted devices to be reset.
+    await sql.transaction(async (tx) => {
+      for (let i = 0; i < messages.length; i += 1) {
+        const m = messages[i];
+        const ticket = data[i];
+        if (ticket?.status === "ok" && typeof ticket.id === "string" && ticket.id) {
+          const updated = await tx`
+            update push_deliveries set state = 'ticket', lease_until = null, last_error = null
+            where id = ${m.id} and state = 'sending' and attempts = ${m.attempts} returning id`;
+          if (updated.length) {
+            await tx`
+              insert into push_tickets (id, token, delivery_id, created_at, next_check_at)
+              values (${ticket.id}, ${m.token}, ${m.id}, ${at(now)}, ${at(now + 15 * MINUTE)})
+              on conflict (id) do nothing`;
+          }
+          sent += 1;
+        } else {
+          failed += 1;
+          const error =
+            requestError ??
+            (ticket?.status === "error" ? ticket.details?.error : undefined) ??
+            "MissingTicket";
+          if (error === "DeviceNotRegistered") {
+            await tx`update push_devices set disabled_at = ${at(now)} where token = ${m.token}`;
+          }
+          await failDelivery(
+            tx,
+            m.id,
+            m.attempts,
+            error,
+            now,
+            retryable && !permanentErrors.has(error),
+          );
         }
       }
-    }
-    return { sent: messages.length - failed, failed };
-  } catch (err) {
-    console.error("[push] send failed", err);
-    await sql.query("update notifications set sent_at = null where id = any($1)", [
-      [...new Set(messages.map((m) => m.notificationId))],
-    ]);
-    return { sent: 0, failed: messages.length };
+    });
   }
+  return { sent, failed };
 }
 
 /**
- * Expo only learns a token is dead when Apple or Google says so, minutes later.
- * Read those receipts and stop sending to uninstalled apps.
+ * Retain unresolved receipts and fetch failures until Expo's 24-hour expiry.
+ * Only a confirmed retryable error queues a resend; absent receipts never do.
  */
 export async function checkReceipts(
   sql: Sql,
@@ -270,31 +362,75 @@ export async function checkReceipts(
 ): Promise<number> {
   const send = opts.fetch ?? (globalThis.fetch as Fetch);
   const now = opts.now ?? Date.now();
-  const due = await sql<{ id: string; token: string }>`
-    select id, token from push_tickets where created_at < ${at(now - 15 * 60_000)} limit 300`;
-  if (due.length === 0) return 0;
-  let disabled = 0;
+  await sql.transaction(async (tx) => {
+    await tx`
+      update push_deliveries set state = 'failed', last_error = 'ReceiptExpired'
+      where state = 'ticket' and id in (
+        select delivery_id from push_tickets where created_at <= ${at(now - RECEIPT_LIFETIME)})`;
+    await tx`delete from push_tickets where created_at <= ${at(now - RECEIPT_LIFETIME)}`;
+  });
+  const due = await sql<{ id: string; token: string; delivery_id: string | null; checks: number }>`
+    update push_tickets set next_check_at = ${at(now + LEASE_MS)}, checks = checks + 1
+    where id in (select id from push_tickets
+      where next_check_at <= ${at(now)} and created_at <= ${at(now - 15 * MINUTE)}
+      order by next_check_at limit 300 for update skip locked)
+    returning id, token, delivery_id, checks`;
+  if (!due.length) return 0;
+  let data: Record<string, { status?: string; details?: { error?: string } }> = {};
   try {
     const res = await send(EXPO_RECEIPTS_URL, {
       method: "POST",
       headers: expoHeaders(),
+      signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({ ids: due.map((t) => t.id) }),
     });
-    if (!res.ok) throw new Error(`Expo receipts answered ${res.status}`);
-    const { data } = (await res.json()) as {
-      data: Record<string, { status: string; details?: { error?: string } }>;
-    };
+    if (res.ok) {
+      const body = (await res.json()) as { data?: typeof data };
+      if (body.data && typeof body.data === "object" && !Array.isArray(body.data)) data = body.data;
+    }
+  } catch {
+    // Unresolved tickets are rescheduled below, including malformed responses.
+  }
+  let disabled = 0;
+  await sql.transaction(async (tx) => {
     for (const t of due) {
-      if (data[t.id]?.details?.error === "DeviceNotRegistered") {
-        await sql`update push_devices set disabled_at = ${at(now)} where token = ${t.token}`;
-        disabled += 1;
+      const receipt = data[t.id];
+      if (receipt?.status !== "ok" && receipt?.status !== "error") {
+        await tx`update push_tickets set next_check_at = ${at(now + Math.max(LEASE_MS, retryDelay(t.checks)))}
+          where id = ${t.id} and checks = ${t.checks}`;
+        continue;
+      }
+      // The receipt lease may have expired while this worker waited. Lock in
+      // the same order as expiry/send (delivery, then ticket), and consume only
+      // this claim's generation before changing either delivery or device state.
+      const [delivery] = t.delivery_id
+        ? await tx<{ attempts: number }>`
+            select attempts from push_deliveries where id = ${t.delivery_id} for update`
+        : [];
+      const claimed = await tx`
+        delete from push_tickets where id = ${t.id} and checks = ${t.checks} returning id`;
+      if (!claimed.length) continue;
+      if (receipt.status === "ok") {
+        await tx`update push_deliveries set state = 'delivered', last_error = null
+          where id = ${t.delivery_id} and state = 'ticket'`;
+      } else {
+        const error = receipt.details?.error ?? "ProviderError";
+        if (error === "DeviceNotRegistered") {
+          await tx`update push_devices set disabled_at = ${at(now)} where token = ${t.token}`;
+          disabled += 1;
+        }
+        if (delivery)
+          await failDelivery(
+            tx,
+            t.delivery_id!,
+            delivery.attempts,
+            error,
+            now,
+            !permanentErrors.has(error),
+          );
       }
     }
-  } catch (err) {
-    console.error("[push] receipts failed", err);
-  }
-  // Receipts live a day at Expo; either way these tickets are finished with.
-  await sql.query("delete from push_tickets where id = any($1)", [due.map((t) => t.id)]);
+  });
   return disabled;
 }
 

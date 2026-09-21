@@ -1,5 +1,5 @@
 import * as Location from "expo-location";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Check } from "lucide-react-native";
 import { Linking, StyleSheet, View } from "react-native";
@@ -27,11 +27,12 @@ import { GEOFENCE_M, type RatingInput } from "@/lib/types";
 type Fix = { lat: number; lng: number; accuracyM?: number };
 
 /** When-in-use location, only while this screen is open. No background tracking. */
-function useLiveFix() {
+function useLiveFix(enabled: boolean) {
   const [fix, setFix] = useState<Fix | null>(null);
   const [denied, setDenied] = useState(false);
 
   useEffect(() => {
+    if (!enabled) return;
     let sub: Location.LocationSubscription | undefined;
     let alive = true;
     (async () => {
@@ -53,7 +54,7 @@ function useLiveFix() {
       alive = false;
       sub?.remove();
     };
-  }, []);
+  }, [enabled]);
 
   return { fix, denied };
 }
@@ -73,8 +74,12 @@ export default function Live() {
   const me = useMe().data;
   const now = useNow(2000);
   const mine = useMine({ live: true });
+  const booking = mine.data?.bookings.find((b) => b.id === id);
+  const session = byId(mine.data?.sessions).get(booking?.sessionId ?? "");
   const venues = byId(useVenues().data);
-  const { fix, denied } = useLiveFix();
+  const { fix, denied } = useLiveFix(
+    booking?.status === "confirmed" && Boolean(session && inCheckinWindow(session.startAt, now)),
+  );
   const geo = useGeoCheckIn();
   const byCode = useCodeCheckIn();
   const reveal = useRevealCode();
@@ -101,9 +106,7 @@ export default function Live() {
     if (nowInside) resetGeo();
   }, [nowInside, resetGeo]);
 
-  const booking = mine.data?.bookings.find((b) => b.id === id);
   const slot = mine.data?.series.find((x) => x.id === booking?.seriesId);
-  const session = byId(mine.data?.sessions).get(booking?.sessionId ?? "");
   if (!booking || !session) {
     return (
       <Screen edges={["bottom"]}>
@@ -126,6 +129,7 @@ export default function Live() {
 
   return (
     <Screen edges={["bottom"]}>
+      <Stack.Screen options={{ title: done ? "Completed session" : "Live session" }} />
       {done && (
         <View style={styles.success}>
           <SuccessMark>
@@ -279,12 +283,11 @@ export default function Live() {
           <Button
             label="Submit"
             loading={rate.isPending}
-            onPress={() =>
-              rate.mutate({ bookingId: booking.id, rating }, { onSuccess: () => router.back() })
-            }
+            onPress={() => rate.mutate({ bookingId: booking.id, rating })}
           />
         </Card>
       )}
+      {done && booking.ratedByMe && <Notice>Your rating is saved.</Notice>}
       {other && (
         <ReportLink
           memberId={other.id}

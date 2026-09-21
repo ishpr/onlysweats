@@ -15,7 +15,8 @@ The client never decides seats, check-in or fees.
   training blocks in
   `src/lib/pace/training-blocks.server.ts`, schema in `migrations/0002_pace.sql`,
   `0004_safety.sql`, `0007_training_blocks.sql`, `0008_training_block_requests.sql`,
-  `0009_goal_credits.sql` and `0010_admin_training_blocks.sql`.
+  `0009_goal_credits.sql`, `0010_admin_training_blocks.sql`,
+  `0011_session_attendance.sql`, `0012_delivery_retries.sql`, and `0013_agent_negotiations.sql`.
   ("pace" stays the code shorthand; the product name is SamePace.)
 
 ## Auth
@@ -100,6 +101,41 @@ The first authenticated API call creates the caller's profile.
 | POST | `/reports` | `{ reportedId, reason, detail?, sessionId? \| bookingId?, alsoBlock? }` → `{ id, blocked }`. |
 
 `GET /me` also carries `suspended: { reason } \| null` and `isAdmin`.
+
+## Agent negotiation (opt-in foundation)
+
+These routes are available only when `A2A_ENABLED=true`; otherwise they return
+`404`. They require a normal Better Auth **member session**. Scoped agent tokens
+cannot issue credentials, consent for a person, or confirm a proposal here.
+
+| Method | Path | Body / response |
+| --- | --- | --- |
+| GET | `/agents/delegations` | `{ delegations: [{ id, label, expiresAt, revokedAt }] }`; never returns existing tokens. |
+| POST | `/agents/delegations` | `{ label, expiresInHours? }` → `{ delegation: { id, label, token, expiresAt, scope } }`. Label 1–80 characters; integer expiry 1–24 hours, default 24; scope `workout:negotiate`. |
+| DELETE | `/agents/delegations/:id` | Empty body or `{}` → `{ ok: true }`; revoke only your own credential. |
+| GET | `/agents/negotiations` | `{ negotiations }`; latest 100 accessible conversations. |
+| POST | `/agents/negotiations` | `{ bookingId }` → `{ negotiation }`; starts from a completed shared booking and opts in only the caller. |
+| GET | `/agents/negotiations/:id` | `{ negotiation }`. |
+| POST | `/agents/negotiations/:id/consent` | `{ allow: boolean }` → `{ negotiation }`; withdrawing consent cancels the conversation. |
+| POST | `/agents/negotiations/:id/confirm` | `{ revision: integer >= 1 }` → `{ negotiation }`; invoke only after the signed-in person explicitly approves that revision. |
+| POST | `/agents/negotiations/:id/cancel` | Empty body or `{}` → `{ negotiation }`; cancels the negotiation only. |
+
+A negotiation contains `{ id, bookingId, memberIds, consentedIds, state, revision,
+plan, confirmedIds, expiresAt, booked: false }`. `state` is `open`, `approved`,
+`cancelled`, or `expired`. Each changed proposal increments the revision and
+clears previous confirmations. Both people must consent before agents can access
+the conversation, then confirm the same current revision for it to be approved.
+**Approval does not create or cancel a session, seat, standing slot, or fee.**
+Request bodies reject unknown properties; delegation and negotiation IDs are UUIDs.
+
+The separate A2A 1.0 JSON-RPC endpoint is `POST /api/a2a`, discovered at
+`GET /.well-known/agent-card.json`. It uses official `@a2a-js/sdk` 1.2.0 and
+requires a scoped delegation token plus `A2A-Version: 1.0`. It supports structured
+proposal/counteroffer messages, task reads/listing, and cancellation of open
+negotiations. Matching, model inference, outbound federation, calendars, booking
+execution, and a mobile agent-management interface are not integrated yet.
+See [the A2A framework guide](./A2A.md) for schemas, limits, authorization rules,
+and a complete two-member example.
 
 ## Notifications
 

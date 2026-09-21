@@ -242,6 +242,115 @@ describe("joining", () => {
 });
 
 describe("check-in + settlement", () => {
+  it("inherits the host's earlier arrival for a late instant join", async () => {
+    for (const id of ["lateHost", "earlyJoiner", "lateJoiner"]) await user(id, id);
+    const start = Date.now() + 31 * MIN;
+    const s = await svc.postSession(sql, "lateHost", listing({
+      capacity: 3, startAt: new Date(start).toISOString(),
+    }));
+    const early = await svc.bookSeat(sql, "earlyJoiner", s.id);
+    await svc.checkInGeo(sql, "lateHost", early.id, KATY, start - 19 * MIN);
+    const late = await svc.bookSeat(sql, "lateJoiner", s.id, {}, start - 10 * MIN);
+    assert.equal(late.hostCheckedInAt, new Date(start - 19 * MIN).toISOString());
+    await svc.checkInGeo(sql, "earlyJoiner", early.id, KATY, start);
+    await svc.checkInGeo(sql, "lateJoiner", late.id, KATY, start);
+    await svc.settleDue(sql, start + 26 * MIN);
+    for (const seat of [early, late]) {
+      assert.equal((await svc.getBooking(sql, "lateHost", seat.id)).status, "completed");
+    }
+    const host = await svc.getMe(sql, "lateHost");
+    assert.equal(host.completedCount, 1, "a group workout consumes only one host session");
+    assert.equal(host.strikes, 0);
+    assert.equal(host.feesCents, 0);
+    assert.equal((await svc.getMe(sql, "lateJoiner")).completedCount, 1);
+  });
+
+  it("inherits host attendance when a pending seat is approved after arrival", async () => {
+    for (const id of ["approveHost", "approveFirst", "approveLater"]) await user(id, id);
+    const start = Date.now() + 31 * MIN;
+    const s = await svc.postSession(sql, "approveHost", listing({
+      capacity: 3, joinMode: "approve", startAt: new Date(start).toISOString(),
+    }));
+    const first = await svc.bookSeat(sql, "approveFirst", s.id);
+    const later = await svc.bookSeat(sql, "approveLater", s.id);
+    await svc.approveBooking(sql, "approveHost", first.id);
+    await svc.checkInGeo(sql, "approveHost", first.id, KATY, start - 19 * MIN);
+    await svc.checkInGeo(sql, "approveFirst", first.id, KATY, start - 18 * MIN);
+    const approved = await svc.approveBooking(sql, "approveHost", later.id, start - 10 * MIN);
+    assert.ok(approved.hostCheckedInAt);
+    const done = await svc.checkInGeo(sql, "approveLater", later.id, KATY, start);
+    assert.equal(done.status, "completed");
+    assert.equal((await svc.getMe(sql, "approveHost")).completedCount, 1);
+  });
+
+  it("accepts legacy booking-only attendance written during a rolling deployment", async () => {
+    for (const id of ["rollingHost", "rollingFirst", "rollingLater"]) await user(id, id);
+    const start = Date.now() + 31 * MIN;
+    const s = await svc.postSession(sql, "rollingHost", listing({
+      capacity: 3, startAt: new Date(start).toISOString(),
+    }));
+    const first = await svc.bookSeat(sql, "rollingFirst", s.id);
+    // Old code can still write a booking check-in after the migration ran.
+    await sql`
+      update bookings set host_checked_in_at = ${new Date(start - 19 * MIN).toISOString()}
+      where id = ${first.id}`;
+    const later = await svc.bookSeat(sql, "rollingLater", s.id, {}, start - 10 * MIN);
+    assert.equal(later.hostCheckedInAt, new Date(start - 19 * MIN).toISOString());
+    assert.equal((await svc.checkInGeo(sql, "rollingFirst", first.id, KATY, start)).status, "completed");
+    assert.equal((await svc.checkInGeo(sql, "rollingLater", later.id, KATY, start)).status, "completed");
+    assert.equal((await svc.getMe(sql, "rollingHost")).completedCount, 1);
+    assert.equal((await svc.getMe(sql, "rollingHost")).feesCents, 0);
+  });
+
+  it("assesses one host fee and strike per missed group session, crediting every present joiner", async () => {
+    for (const id of ["absentGroupHost", "groupAnn", "groupBob"]) await user(id, id);
+    const start = Date.now() + 31 * MIN;
+    const s = await svc.postSession(sql, "absentGroupHost", listing({
+      capacity: 3, startAt: new Date(start).toISOString(),
+    }));
+    const seats = [];
+    for (const id of ["groupAnn", "groupBob"]) {
+      const seat = await svc.bookSeat(sql, id, s.id);
+      await svc.checkInGeo(sql, id, seat.id, KATY, start);
+      seats.push(seat);
+    }
+    await svc.settleDue(sql, start + 26 * MIN);
+    await svc.settleDue(sql, start + 26 * MIN);
+    const host = await svc.getMe(sql, "absentGroupHost");
+    assert.equal(host.feesCents, 1000);
+    assert.equal(host.strikes, 1);
+    assert.equal(host.frozenUntil, null);
+    for (const seat of seats) {
+      assert.equal((await svc.getBooking(sql, seat.participantId, seat.id)).status, "host_no_show");
+      assert.equal((await svc.getMe(sql, seat.participantId)).creditCents, 500);
+    }
+    const notices = await sql`
+      select 1 from notifications where profile_id = 'absentGroupHost' and kind = 'no_show'`;
+    assert.equal(notices.length, 1);
+  });
+
+  it("recognizes a legacy booking-linked host fee when settling the rest of a group", async () => {
+    for (const id of ["legacyHost", "legacyAnn", "legacyBob"]) await user(id, id);
+    const start = Date.now() + 31 * MIN;
+    const s = await svc.postSession(sql, "legacyHost", listing({
+      capacity: 3, startAt: new Date(start).toISOString(),
+    }));
+    const first = await svc.bookSeat(sql, "legacyAnn", s.id);
+    const second = await svc.bookSeat(sql, "legacyBob", s.id);
+    await sql`update bookings set status = 'host_no_show' where id = ${first.id}`;
+    await sql`
+      insert into ledger_events (id, profile_id, booking_id, kind, amount_cents)
+      values ('legacy-fee', 'legacyHost', ${first.id}, 'no_show_fee', 1000)`;
+    await sql`
+      insert into strikes (id, profile_id, booking_id)
+      values ('legacy-strike', 'legacyHost', ${first.id})`;
+    await svc.checkInGeo(sql, "legacyBob", second.id, KATY, start);
+    await svc.settleDue(sql, start + 26 * MIN);
+    assert.equal((await svc.getMe(sql, "legacyHost")).feesCents, 1000);
+    assert.equal((await svc.getMe(sql, "legacyHost")).strikes, 1);
+    assert.equal((await svc.getMe(sql, "legacyBob")).creditCents, 500);
+  });
+
   it("both check in: nothing is charged, both profiles complete, ratings land", async () => {
     await user("h2", "Jordan Post");
     await user("p2", "Pat Join");
@@ -398,6 +507,47 @@ describe("standing slots", () => {
     assert.equal((await svc.listMySeries(sql, "sub2")).length, 0, "a substitute joins one occurrence only");
   });
 
+  it("closes an entirely skipped occurrence and schedules the following week once", async () => {
+    await user("skipHost", "Skip Host");
+    await user("skipRegular", "Skip Regular");
+    const { b } = await meet("skipHost", "skipRegular");
+    const series = await svc.repeatWeekly(sql, "skipHost", b.id);
+    const start = new Date(series.nextStartAt!).getTime();
+    const seat = (await svc.listMyBookings(sql, "skipRegular")).bookings.find(
+      (x) => x.sessionId === series.nextSessionId,
+    )!;
+    await svc.cancelBooking(sql, "skipRegular", seat.id);
+    await svc.settleDue(sql, start + 26 * MIN);
+    const [rolled] = await svc.listMySeries(sql, "skipHost", start + 26 * MIN);
+    assert.ok(rolled.nextSessionId);
+    assert.notEqual(rolled.nextSessionId, series.nextSessionId);
+    assert.equal(rolled.streak, 0, "a skipped workout is not an attended occurrence");
+    assert.equal((await svc.getSession(sql, "skipHost", series.nextSessionId!)).session.status, "completed");
+    await svc.settleDue(sql, start + 26 * MIN);
+    const [{ n }] = await sql<{ n: number }>`
+      select count(*) as n from sessions where series_id = ${series.id} and status = 'open'`;
+    assert.equal(Number(n), 1);
+    assert.equal((await svc.getMe(sql, "skipHost")).feesCents, 0);
+    assert.equal((await svc.getMe(sql, "skipRegular")).feesCents, 0);
+  });
+
+  it("stops automatic recurrence if any regular has become ineligible", async () => {
+    await user("invalidHost", "Invalid Host");
+    await user("invalidRegular", "Invalid Regular");
+    const { b } = await meet("invalidHost", "invalidRegular");
+    const series = await svc.repeatWeekly(sql, "invalidHost", b.id);
+    // Simulate a legacy series missed by account withdrawal, to exercise the
+    // defensive eligibility check at generation rather than only API cleanup.
+    await sql`update profiles set suspended_at = now() where id = 'invalidRegular'`;
+    const start = new Date(series.nextStartAt!).getTime();
+    await svc.settleDue(sql, start + 26 * MIN);
+    const [row] = await sql<{ status: string }>`select status from series where id = ${series.id}`;
+    assert.equal(row.status, "ended");
+    const future = await sql`
+      select 1 from sessions where series_id = ${series.id} and status = 'open'`;
+    assert.equal(future.length, 0);
+  });
+
   it("rolls forward after each occurrence, keeps a streak, and ends when regulars leave", async () => {
     await user("kim", "Kim Reg");
     await user("lee", "Lee Reg");
@@ -432,5 +582,44 @@ describe("chat", () => {
     await rejects(svc.sendMessage(sql, "ann", b.id, "hi"), 404);
     await rejects(svc.sendMessage(sql, "bob", b.id, "   "), 400);
     await rejects(svc.sendMessage(sql, "bob", b.id, "late", Date.now() + 50 * HOUR), 409, /expired/);
+  });
+});
+
+describe("session attendance migration", () => {
+  it("backfills arrival into the session and a legacy late seat, and is safe to rerun", async () => {
+    const pg = new PGlite({ parsers: { 20: Number } });
+    try {
+      const dir = join(import.meta.dirname, "../../../migrations");
+      for (const f of readdirSync(dir).filter((x) => x.endsWith(".sql") && x < "0011").sort()) {
+        await pg.exec(readFileSync(join(dir, f), "utf8"));
+      }
+      await pg.exec(`
+        insert into profiles (id, name, handle, initials) values
+          ('migration-host', 'Host', 'migration-host', 'H'),
+          ('migration-first', 'First', 'migration-first', 'F'),
+          ('migration-second', 'Second', 'migration-second', 'S');
+        insert into sessions (id, host_id, venue_id, activity, title, ability, start_at,
+          duration_min, capacity, visibility, join_mode, code)
+        values ('migration-session', 'migration-host', 'katy', 'run', 'Legacy group',
+          '{"kind":"run","paceMinSec":570,"paceMaxSec":600,"miles":5}',
+          '2030-01-01T12:00:00Z', 40, 3, 'public', 'instant', '1234');
+        insert into bookings (id, session_id, participant_id, status, host_checked_in_at)
+        values ('migration-first-seat', 'migration-session', 'migration-first', 'confirmed', '2030-01-01T11:41:00Z'),
+          ('migration-second-seat', 'migration-session', 'migration-second', 'confirmed', null);
+      `);
+      const migration = readFileSync(join(dir, "0011_session_attendance.sql"), "utf8");
+      await pg.exec(migration);
+      await pg.exec(migration);
+      const { rows } = await pg.query<{ host_checked_in_at: Date }>(
+        `select host_checked_in_at from sessions where id = 'migration-session'
+         union all select host_checked_in_at from bookings where session_id = 'migration-session'`,
+      );
+      assert.equal(rows.length, 3);
+      for (const row of rows) {
+        assert.equal(new Date(row.host_checked_in_at).toISOString(), "2030-01-01T11:41:00.000Z");
+      }
+    } finally {
+      await pg.close();
+    }
   });
 });

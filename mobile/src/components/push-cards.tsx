@@ -32,6 +32,14 @@ export function NotificationSettings({ me }: { me: Me }) {
   return (
     <Card>
       <T variant="label">Notifications</T>
+      {push.registration === "failed" && <RegistrationRetry push={push} />}
+      {push.status === "granted" && push.registration !== "failed" && (
+        <T variant="caption" color="textSecondary">
+          {push.registration === "registered"
+            ? "Notifications are connected on this phone."
+            : "Permission is on. Connecting this phone for notifications…"}
+        </T>
+      )}
       {push.status === "unavailable" && (
         <T variant="caption" color="textSecondary">
           Push isn’t available on this device. Everything still shows up under Inbox → Activity.
@@ -100,6 +108,13 @@ export function PushPrompt() {
       .catch(() => setDismissed(false));
   }, []);
 
+  if (push.registration === "failed") {
+    return (
+      <Card>
+        <RegistrationRetry push={push} />
+      </Card>
+    );
+  }
   if (push.status !== "undetermined" || dismissed !== false) return null;
   const dismiss = () => {
     setDismissed(true);
@@ -124,6 +139,26 @@ export function PushPrompt() {
         />
       </Row>
     </Card>
+  );
+}
+
+function RegistrationRetry({ push }: { push: ReturnType<typeof usePush> }) {
+  return (
+    <>
+      <T variant="label">Notifications need attention</T>
+      <T variant="caption" color="textSecondary">
+        {push.status === "granted"
+          ? "Permission is on, but this phone isn’t connected for notifications yet."
+          : "We couldn’t connect notifications on this phone."}{" "}
+        {push.error} Everything still appears in Inbox → Activity.
+      </T>
+      <Button
+        variant="soft"
+        label="Retry notifications"
+        loading={push.busy}
+        onPress={() => void push.retry()}
+      />
+    </>
   );
 }
 

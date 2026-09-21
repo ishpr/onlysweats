@@ -124,6 +124,7 @@ export type SessionRow = {
   status: "open" | "cancelled" | "completed";
   code: string;
   code_revealed_at: Date | null;
+  host_checked_in_at: Date | null;
   invite_code: string | null;
   series_id: string | null;
 };
@@ -824,7 +825,7 @@ export async function bookSeat(
   const me = await profileRow(sql, userId);
   const bookingId = await sql.transaction(async (tx) => {
     // The row lock serializes concurrent joiners, so the seat count is exact.
-    const [s] = await tx<SessionRow>`select * from sessions where id = ${sessionId} for update`;
+    const s = await lockSession(tx, sessionId);
     if (!s) throw new PaceError(404, "That session is gone.");
     const [mine] = await tx<BookingRow>`
       select * from bookings where session_id = ${sessionId} and participant_id = ${userId}
@@ -880,8 +881,9 @@ export async function bookSeat(
     const id = newId("bk");
     const instant = s.join_mode === "instant" || inSeries;
     await tx`
-      insert into bookings (id, session_id, participant_id, status, substitute_for)
-      values (${id}, ${sessionId}, ${userId}, ${instant ? "confirmed" : "pending"}, ${substituteFor})`;
+      insert into bookings (id, session_id, participant_id, status, substitute_for, host_checked_in_at)
+      values (${id}, ${sessionId}, ${userId}, ${instant ? "confirmed" : "pending"}, ${substituteFor},
+        ${instant ? iso(s.host_checked_in_at) : null})`;
     if (instant) await coverLateCancel(tx, sessionId);
     const joiner = await firstName(tx, userId);
     await enqueue(
@@ -931,7 +933,8 @@ type BookingJoinRow = BookingRow & {
 };
 
 const BOOKING_SELECT = `
-  select b.*, s.host_id, s.start_at, s.duration_min, s.series_id,
+  select b.*, coalesce(s.host_checked_in_at, b.host_checked_in_at) as host_checked_in_at,
+    s.host_id, s.start_at, s.duration_min, s.series_id,
     exists (select 1 from ratings r where r.booking_id = b.id and r.from_id = $1) as rated_by_me,
     (select coalesce(sum(l.amount_cents), 0) from ledger_events l
       where l.booking_id = b.id and l.profile_id = $1 and l.status = 'assessed'
@@ -1005,12 +1008,30 @@ export async function listMyBookings(
   };
 }
 
+/** Also accepts arrival evidence written by an older process during rollout. */
+async function lockSession(tx: Sql, sessionId: string): Promise<SessionRow | undefined> {
+  const [s] = await tx<SessionRow>`select * from sessions where id = ${sessionId} for update`;
+  if (s && !s.host_checked_in_at) {
+    const [{ arrived }] = await tx<{ arrived: Date | null }>`
+      select min(host_checked_in_at) as arrived from bookings where session_id = ${sessionId}`;
+    if (arrived) {
+      await tx`update sessions set host_checked_in_at = ${iso(arrived)} where id = ${sessionId}`;
+      s.host_checked_in_at = arrived;
+    }
+  }
+  return s;
+}
+
 /** Lock a booking + its session for a poster/joiner action. */
 async function lockBooking(tx: Sql, bookingId: string) {
+  const [ref] = await tx<{ session_id: string }>`select session_id from bookings where id = ${bookingId}`;
+  if (!ref) throw new PaceError(404, "No booking.");
+  // Every action locks the session before its seats: group check-ins touch all
+  // seats, so locking a different seat first can deadlock concurrent arrivals.
+  const s = await lockSession(tx, ref.session_id);
+  if (!s) throw new PaceError(404, "No session.");
   const [b] = await tx<BookingRow>`select * from bookings where id = ${bookingId} for update`;
   if (!b) throw new PaceError(404, "No booking.");
-  const [s] = await tx<SessionRow>`select * from sessions where id = ${b.session_id} for update`;
-  if (!s) throw new PaceError(404, "No session.");
   return { b, s };
 }
 
@@ -1024,7 +1045,9 @@ export async function approveBooking(sql: Sql, userId: string, bookingId: string
       select count(*) as n from bookings where session_id = ${s.id}
         and status in ('confirmed', 'completed')`;
     if (Number(n) >= s.capacity - 1) throw new PaceError(409, "It’s full.");
-    await tx`update bookings set status = 'confirmed' where id = ${bookingId}`;
+    await tx`
+      update bookings set status = 'confirmed', host_checked_in_at = ${iso(s.host_checked_in_at)}
+      where id = ${bookingId}`;
     await coverLateCancel(tx, s.id);
     await enqueue(
       tx,
@@ -1168,45 +1191,61 @@ async function offerSubstituteSeat(tx: Sql, s: SessionRow, now: number) {
 async function applySettlement(tx: Sql, b: BookingRow, s: SessionRow, now: number) {
   const outcome = settle(
     {
-      hostCheckedIn: Boolean(b.host_checked_in_at),
+      hostCheckedIn: Boolean(s.host_checked_in_at),
       participantCheckedIn: Boolean(b.participant_checked_in_at),
     },
     ms(s.start_at)!,
     now,
   );
   if (!outcome) return;
+  const [hostCompleted] = outcome.status === "completed"
+    ? await tx`
+        select 1 from bookings where session_id = ${s.id} and status = 'completed' limit 1`
+    : [];
   await tx`update bookings set status = ${outcome.status}, settled_at = ${at(now)} where id = ${b.id}`;
 
   if (outcome.status === "completed") {
     await tx.query(
       "update profiles set completed_count = completed_count + 1 where id = any($1)",
-      [[s.host_id, b.participant_id]],
+      [hostCompleted ? [b.participant_id] : [s.host_id, b.participant_id]],
     );
   } else if (outcome.status !== "void") {
     // Same rule either way round: the one who didn't come pays and takes the
     // strike; the one who did gets membership credit.
     const [absent, present] =
       outcome.absent === "joiner" ? [b.participant_id, s.host_id] : [s.host_id, b.participant_id];
-    await ledger(tx, absent, "no_show_fee", outcome.feeCents, {
-      bookingId: b.id,
-      chargeableAt: feeChargeableAt(ms(s.start_at)!, s.duration_min),
-    });
-    await strike(tx, absent, b.id, now);
-    await enqueue(
-      tx,
-      {
-        profileId: absent,
-        kind: "no_show",
-        category: "account",
-        title: "Missed session: $10 fee and a strike",
-        body: `You didn’t check in to ${s.title}. If that’s wrong, email support@samepace.app within 24 hours and a person will look.`,
-        url: "/you",
-        sessionId: s.id,
+    // A missing host can stand up several joiners, but missed one session.
+    // Include legacy booking-linked ledger rows so a partially settled group
+    // remains idempotent across deployment of this change.
+    const [hostAssessed] = outcome.absent === "poster"
+      ? await tx`
+          select 1 from ledger_events l left join bookings old on old.id = l.booking_id
+          where l.profile_id = ${s.host_id} and l.kind = 'no_show_fee'
+            and (l.session_id = ${s.id} or old.session_id = ${s.id}) limit 1`
+      : [];
+    if (!hostAssessed) {
+      await ledger(tx, absent, "no_show_fee", outcome.feeCents, {
         bookingId: b.id,
-        dedupeKey: `noshow:${b.id}:${absent}`,
-      },
-      now,
-    );
+        sessionId: s.id,
+        chargeableAt: feeChargeableAt(ms(s.start_at)!, s.duration_min),
+      });
+      await strike(tx, absent, b.id, now);
+      await enqueue(
+        tx,
+        {
+          profileId: absent,
+          kind: "no_show",
+          category: "account",
+          title: "Missed session: $10 fee and a strike",
+          body: `You didn’t check in to ${s.title}. If that’s wrong, email support@samepace.app within 24 hours and a person will look.`,
+          url: "/you",
+          sessionId: s.id,
+          bookingId: b.id,
+          dedupeKey: `noshow:${outcome.absent === "poster" ? s.id : b.id}:${absent}`,
+        },
+        now,
+      );
+    }
     await enqueue(
       tx,
       {
@@ -1227,20 +1266,25 @@ async function applySettlement(tx: Sql, b: BookingRow, s: SessionRow, now: numbe
       update profiles set credit_cents = credit_cents + ${outcome.creditCents} where id = ${present}`;
   }
 
-  // The session is done once no seat is still in play.
+  await closeSettledSession(tx, s, now);
+}
+
+async function closeSettledSession(tx: Sql, s: SessionRow, now: number) {
+  // This also runs for overdue sessions with no remaining confirmed bookings.
   const [closed] = await tx<{ id: string }>`
     update sessions set status = 'completed'
     where id = ${s.id} and status = 'open' and not exists (
       select 1 from bookings where session_id = ${s.id} and status in ('pending', 'confirmed'))
     returning id`;
   if (closed && s.series_id) {
-    const [{ missed }] = await tx<{ missed: number }>`
-      select count(*) as missed from bookings
-      where session_id = ${s.id} and status in ('no_show', 'host_no_show', 'void', 'late_cancel')`;
+    const [{ missed, completed }] = await tx<{ missed: number; completed: number }>`
+      select count(*) filter (where status in ('no_show', 'host_no_show', 'void', 'late_cancel')) as missed,
+        count(*) filter (where status = 'completed') as completed
+      from bookings where session_id = ${s.id}`;
     // The streak counts consecutive occurrences where everyone checked in.
     await tx.query(
       `update series set streak = case when $2::int = 0 then streak + 1 else 0 end where id = $1`,
-      [s.series_id, Number(missed)],
+      [s.series_id, Number(missed) + (Number(completed) === 0 ? 1 : 0)],
     );
     await ensureNextOccurrence(tx, s.series_id, now);
   }
@@ -1265,22 +1309,12 @@ export async function settleDue(sql: Sql, now = Date.now()): Promise<number> {
   await sql`
     update bookings b set status = 'declined', settled_at = ${cutoff}
     from sessions s where s.id = b.session_id and b.status = 'pending' and s.start_at < ${cutoff}`;
-
-  // A week every regular skipped has no seat left to settle, so nothing above
-  // closes it — and a standing slot only rolls forward from a closed occurrence.
-  const empty = await sql<{ id: string; series_id: string }>`
-    select s.id, s.series_id from sessions s
-    where s.series_id is not null and s.status = 'open'
-      and s.start_at + interval '25 minutes' < ${cutoff}
-      and not exists (
-        select 1 from bookings b where b.session_id = s.id and b.status in ('pending', 'confirmed'))`;
-  for (const { id, series_id } of empty) {
+  const overdue = await sql<{ id: string }>`
+    select id from sessions where status = 'open' and start_at + interval '25 minutes' < ${cutoff}`;
+  for (const { id } of overdue) {
     await sql.transaction(async (tx) => {
-      const [closed] = await tx<{ id: string }>`
-        update sessions set status = 'completed' where id = ${id} and status = 'open' returning id`;
-      if (!closed) return;
-      await tx`update series set streak = 0 where id = ${series_id}`;
-      await ensureNextOccurrence(tx, series_id, now);
+      const [s] = await tx<SessionRow>`select * from sessions where id = ${id} for update`;
+      if (s?.status === "open") await closeSettledSession(tx, s, now);
     });
   }
   return due.length;
@@ -1297,8 +1331,12 @@ async function markCheckedIn(
   const when = at(now);
   if (who === "host" || who === "both") {
     // The poster arrives once, for every seat on the session.
+    const [arrived] = await tx<{ host_checked_in_at: Date }>`
+      update sessions set host_checked_in_at = coalesce(host_checked_in_at, ${when})
+      where id = ${s.id} returning host_checked_in_at`;
+    s.host_checked_in_at = arrived.host_checked_in_at;
     await tx`
-      update bookings set host_checked_in_at = coalesce(host_checked_in_at, ${when})
+      update bookings set host_checked_in_at = coalesce(host_checked_in_at, ${iso(s.host_checked_in_at)})
       where session_id = ${s.id} and status = 'confirmed'`;
   }
   if (who === "participant" || who === "both") {
@@ -1375,6 +1413,23 @@ export async function checkInCode(
 
 // ── Standing slots ───────────────────────────────────────────────────────────
 
+/** Regulars must still be active, and every pair must be safe to book together. */
+async function validRegulars(tx: Sql, members: string[]): Promise<boolean> {
+  // Safety changes take conflicting profile locks. Hold these through creation
+  // so a concurrent block/deletion cannot fall between validation and booking.
+  const active = await tx.query<{ id: string }>(
+    `select id from profiles where id = any($1)
+       and deleted_at is null and suspended_at is null order by id for share`,
+    [members],
+  );
+  if (active.length !== members.length) return false;
+  const blocked = await tx.query(
+    `select 1 from blocks where blocker_id = any($1) and blocked_id = any($1) limit 1`,
+    [members],
+  );
+  return blocked.length === 0;
+}
+
 /**
  * Make sure an active standing slot has its next occurrence on the calendar:
  * same place, level and wall-clock time, a week after the latest one, with every
@@ -1400,8 +1455,12 @@ export async function ensureNextOccurrence(tx: Sql, seriesId: string, now: numbe
         select status, goal_date::text as goal_date from training_blocks
         where id = ${series.training_block_id}`
     : [];
-  // One person is not a slot — unless it's a posted block still waiting for its second.
-  if (members.length < 2 && !(members.length === 1 && block?.status === "forming")) {
+  // A forming block can keep its sole host's slot open while waiting for its
+  // second member. Every regular must still pass the safety checks.
+  const enoughMembers = members.length >= 2 || (members.length === 1 && block?.status === "forming");
+  if (!enoughMembers || !(await validRegulars(tx, members))) {
+    // Eligibility is checked again for every new occurrence, even if this slot
+    // predates the current account or blocking rules. Do not auto-book it.
     await tx`update series set status = 'ended' where id = ${seriesId}`;
     return null;
   }
@@ -1482,10 +1541,11 @@ export async function repeatWeekly(
       await tx`update sessions set series_id = ${id} where id = ${s.id}`;
       const showed = await tx<{ participant_id: string }>`
         select participant_id from bookings where session_id = ${s.id} and status = 'completed'`;
-      if (await blockedBetween(tx, userId, [s.host_id, ...showed.map((x) => x.participant_id)])) {
+      const members = [...new Set([s.host_id, ...showed.map((x) => x.participant_id)])];
+      if (!(await validRegulars(tx, members))) {
         throw new PaceError(409, "That standing slot can’t be set up.");
       }
-      for (const member of new Set([s.host_id, ...showed.map((x) => x.participant_id)])) {
+      for (const member of members) {
         await tx`
           insert into series_members (series_id, profile_id) values (${id}, ${member})
           on conflict (series_id, profile_id) do update set left_at = null`;
@@ -1673,7 +1733,10 @@ export async function severTies(sql: Sql, blocker: string, blocked: string, now 
       from sessions s
       where s.id = b.session_id and b.status in ('pending', 'confirmed') and s.start_at > ${at(now)}
         and ((s.host_id = ${blocker} and b.participant_id = ${blocked})
-          or (s.host_id = ${blocked} and b.participant_id = ${blocker}))`;
+          or (s.host_id = ${blocked} and b.participant_id = ${blocker})
+          or (b.participant_id = ${blocker} and exists (
+            select 1 from bookings other where other.session_id = s.id
+              and other.participant_id = ${blocked} and other.status in ('pending', 'confirmed'))))`;
   });
 }
 

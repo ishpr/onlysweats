@@ -27,7 +27,9 @@ async function handle({ request }: { request: Request }) {
   const reminders = await notify.enqueueReminders(sql);
   const pushed = await notify.deliverDue(sql);
   const retired = await notify.checkReceipts(sql);
-  return Response.json({ ok: true, settled, closed, reminders, pushed, retired });
+  const { retryAppleRevocations } = await import("@/lib/auth/apple-revoke.server");
+  const appleRevocations = await retryAppleRevocations(sql);
+  return Response.json({ ok: true, settled, closed, reminders, pushed, retired, appleRevocations });
 }
 
 export const Route = createFileRoute("/api/cron/settle")({

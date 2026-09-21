@@ -17,7 +17,7 @@ import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
 import { formatWhen, inCheckinWindow } from "@/lib/format";
 import { byId } from "@/lib/lookup";
-import { useMe, useMessages, useMine, useSendMessage } from "@/lib/queries";
+import { useMe, useMessages, useMine, useRefreshOnFocus, useSendMessage } from "@/lib/queries";
 
 const SMART = [
   "On my way — eight minutes out.",
@@ -26,6 +26,7 @@ const SMART = [
 ];
 
 export default function Thread() {
+  useRefreshOnFocus();
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useTheme();
   const now = useNow(15_000);
@@ -75,9 +76,18 @@ export default function Thread() {
               bookingId={booking.id}
             />
           )}
-          {live ? (
+          {live || booking.status === "completed" ? (
             <Link href={{ pathname: "/live/[id]", params: { id: booking.id } }} asChild>
-              <Button variant="accent" label="Check-in is open" />
+              <Button
+                variant="accent"
+                label={
+                  live
+                    ? "Check-in is open"
+                    : booking.ratedByMe
+                      ? "Review session · repeat weekly"
+                      : "Rate session · repeat weekly"
+                }
+              />
             </Link>
           ) : (
             <Link href={{ pathname: "/session/[id]", params: { id: session.id } }} asChild>

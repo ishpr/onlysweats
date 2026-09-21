@@ -1,6 +1,6 @@
 import Constants from "expo-constants";
 
-const API_PORT = 8088;
+const API_PORT = 8080;
 
 /**
  * Where the Pace API lives. Set `EXPO_PUBLIC_API_URL` for staging/production.

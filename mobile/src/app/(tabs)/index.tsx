@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 
 import { AppHeader, LiveBanner } from "@/components/brand";
 import { PushPrompt } from "@/components/push-cards";
+import { LeaveStandingSlot } from "@/components/leave-standing-slot";
 import { SessionCard } from "@/components/session-card";
 import { Enter } from "@/components/motion";
 import { Button, Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
@@ -41,6 +42,11 @@ export default function Today() {
   const live = upcoming.find(
     (x) => x.booking.status === "confirmed" && inCheckinWindow(x.session!.startAt, now),
   );
+  const mySeats = upcoming.filter((x) => x.booking.participantId === me.data?.id);
+  // Listings exist before their first booking, including private invite links.
+  const hosted = (mine.data?.sessions ?? [])
+    .filter((s) => s.hostId === me.data?.id && s.status === "open")
+    .sort((a, b) => +new Date(a.startAt) - +new Date(b.startAt));
   const soon = (open.data?.sessions ?? []).filter(
     (s) => +new Date(s.startAt) - now < SOON_MS && s.hostId !== me.data?.id,
   );
@@ -64,7 +70,7 @@ export default function Today() {
       </View>
 
       {/* Ask once there's something worth hearing about. */}
-      {upcoming.length > 0 && <PushPrompt />}
+      {(upcoming.length > 0 || hosted.length > 0) && <PushPrompt />}
 
       {toAnswer.map((block) => (
         <Card key={block.id}>
@@ -95,10 +101,19 @@ export default function Today() {
         </Card>
       )}
 
-      {upcoming.length > 0 && (
+      {hosted.length > 0 && (
+        <View style={styles.section}>
+          <T variant="heading">Your listings</T>
+          {hosted.map((session) => (
+            <SessionCard key={session.id} session={session} venue={venues.get(session.venueId)} />
+          ))}
+        </View>
+      )}
+
+      {mySeats.length > 0 && (
         <View style={styles.section}>
           <T variant="heading">Your seats</T>
-          {upcoming.map(({ booking, session }) => (
+          {mySeats.map(({ booking, session }) => (
             <Link
               key={booking.id}
               href={{ pathname: "/thread/[id]", params: { id: booking.id } }}
@@ -229,6 +244,7 @@ export default function Today() {
                   router.push({ pathname: "/training-block/new", params: { seriesId: slot.id } })
                 }
               />
+              <LeaveStandingSlot seriesId={slot.id} />
             </View>
           ))}
         </View>

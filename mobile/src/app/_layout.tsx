@@ -15,7 +15,7 @@ import { DarkTheme, DefaultTheme, type Href, Stack, ThemeProvider, useRouter } f
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
-import { Appearance, AppState, Pressable, Text } from "react-native";
+import { Appearance, AppState, Platform, Pressable, Text } from "react-native";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
@@ -29,7 +29,7 @@ SplashScreen.preventAutoHideAsync();
 // No native cross-fade: the in-app mark is already exactly where the still one was.
 SplashScreen.setOptions({ fade: false });
 // Native chrome (keyboard, alerts, share sheet) follows the pinned dark scheme too.
-Appearance.setColorScheme("dark");
+if (Platform.OS !== "web") Appearance.setColorScheme("dark");
 
 // React Query's window-focus refetch, mapped to the app returning to the foreground.
 AppState.addEventListener("change", (state) => focusManager.setFocused(state === "active"));
@@ -110,7 +110,14 @@ function Routes() {
   useEffect(() => {
     if (!ready || !signedIn) return;
     void syncPush();
-    return onNotificationOpened((route) => router.push(route as Href));
+    const foreground = AppState.addEventListener("change", (state) => {
+      if (state === "active") void syncPush();
+    });
+    const stopOpening = onNotificationOpened((route) => router.push(route as Href));
+    return () => {
+      foreground.remove();
+      stopOpening();
+    };
   }, [ready, signedIn, router]);
 
   // Keychain read / fonts in flight — the splash screen is still up.
@@ -156,7 +163,6 @@ function Routes() {
             }}
           />
           <Stack.Screen name="post" options={{ title: "Post a session", presentation: "modal" }} />
-          <Stack.Screen name="invite/[code]" options={{ title: "Invite" }} />
           <Stack.Screen name="training-block/[id]" options={{ title: "" }} />
           <Stack.Screen
             name="training-block/new"
@@ -173,6 +179,8 @@ function Routes() {
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
+        {/* Keep the URL mounted through sign-in, including cold-start invites. */}
+        <Stack.Screen name="invite/[code]" options={{ title: "Invite" }} />
       </Stack>
       {splash}
     </ThemeProvider>

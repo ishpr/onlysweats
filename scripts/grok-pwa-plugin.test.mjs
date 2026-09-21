@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   appNameFromHost,
-  createHeadInjector,
+  createHeadInjector as rawCreateHeadInjector,
   grokXCreatorHeadTags,
-  injectGrokPwaHead,
+  injectGrokPwaHead as rawInjectGrokPwaHead,
   isDocumentPath,
   isInstallQuery,
   publicAppHost,
@@ -20,6 +20,11 @@ import {
 import { renderInstallPage } from "./grok-pwa-plugin.mjs";
 
 const TEMPLATE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// Unit fixtures must not inherit SamePace branding from the current checkout.
+const EMPTY_ROOT = mkdtempSync(join(tmpdir(), "pwa-unit-"));
+const injectGrokPwaHead = (html, ctx = {}) => rawInjectGrokPwaHead(html, { cwd: EMPTY_ROOT, ...ctx });
+const createHeadInjector = (ctx = {}) => rawCreateHeadInjector({ cwd: EMPTY_ROOT, ...ctx });
 
 test("injects before </head>", () => {
   const out = injectGrokPwaHead("<html><head><title>x</title></head><body></body></html>");
@@ -496,13 +501,14 @@ test("vite config keeps the nitro serverDir wiring", () => {
   assert.match(viteConfig, /grokPwaPlugin\(\)/);
 });
 
-test("nitro middleware and its bundled assets exist", () => {
+test("nitro middleware and SamePace public assets exist", () => {
   const middleware = readFileSync(join(TEMPLATE_ROOT, "server/middleware/grok-pwa.ts"), "utf8");
   assert.match(middleware, /install-page\.html\?raw/);
   assert.match(middleware, /virtual:grok-og-identity/);
   readFileSync(join(TEMPLATE_ROOT, "scripts/install-page.html"));
-  readFileSync(join(TEMPLATE_ROOT, "public/__grok/icon-180.png"));
-  readFileSync(join(TEMPLATE_ROOT, "public/__grok/install/styles.css"));
+  const manifest = JSON.parse(readFileSync(join(TEMPLATE_ROOT, "public/manifest.webmanifest"), "utf8"));
+  for (const icon of manifest.icons) readFileSync(join(TEMPLATE_ROOT, "public", icon.src));
+  readFileSync(join(TEMPLATE_ROOT, "public/apple-touch-icon.png"));
 });
 
 test("vite plugin bakes og identity as a virtual module", () => {

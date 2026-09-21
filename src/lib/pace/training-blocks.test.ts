@@ -357,6 +357,37 @@ describe("public blocks", () => {
     assert.ok(!(await blocks.listPublicTrainingBlocks(sql, dan)).some((b) => b.id === block.id));
   });
 
+  it("a late block join inherits host attendance without double-counting the host or block progress", async () => {
+    const [host, first, later] = [await member("EarlyHost"), await member("EarlyJoiner"), await member("LateJoiner")];
+    const block = await post(host, { slots: [slot()] });
+    await blocks.joinTrainingBlock(sql, first, block.id);
+    const sessionId = block.slots[0].nextSessionId!;
+    const start = new Date(block.slots[0].nextStartAt!).getTime();
+    const firstSeat = (await svc.listMyBookings(sql, first)).bookings.find((b) => b.sessionId === sessionId)!;
+    await svc.checkInGeo(sql, host, firstSeat.id, KATY, start - 19 * MIN);
+
+    // Block admission makes its own confirmed seats, bypassing bookSeat.
+    await blocks.joinTrainingBlock(sql, later, block.id, {}, start - 10 * MIN);
+    const laterSeat = (await svc.listMyBookings(sql, later, start - 10 * MIN)).bookings.find(
+      (b) => b.sessionId === sessionId,
+    )!;
+    assert.equal(laterSeat.hostCheckedInAt, new Date(start - 19 * MIN).toISOString());
+    assert.equal((await svc.checkInGeo(sql, first, firstSeat.id, KATY, start)).status, "completed");
+    assert.equal((await svc.checkInGeo(sql, later, laterSeat.id, KATY, start)).status, "completed");
+    await svc.settleDue(sql, start + 26 * MIN);
+
+    const hostProfile = await svc.getMe(sql, host, start + HOUR);
+    assert.equal(hostProfile.completedCount, 1);
+    assert.equal(hostProfile.feesCents, 0);
+    assert.equal(hostProfile.strikes, 0);
+    for (const id of [host, first, later]) {
+      const current = (await blocks.getTrainingBlock(sql, id, block.id, {}, start + HOUR)).block;
+      assert.deepEqual(current.my, { planned: 1, kept: 1, keptMiles: 5, finished: null });
+      assert.ok(current.slots[0].nextSessionId);
+      assert.notEqual(current.slots[0].nextSessionId, sessionId);
+    }
+  });
+
   it("a regular’s skipped week is still a one-off seat for someone else", async () => {
     const [ana, bob, sub] = [await member("Ana"), await member("Bob"), await member("Sub")];
     const block = await post(ana, { slots: [slot()] });

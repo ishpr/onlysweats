@@ -44,6 +44,12 @@ export async function blockMember(sql: Sql, userId: string, targetId: string, no
   if (targetId === userId) throw new PaceError(400, "That’s you.");
   await mustExist(sql, targetId);
   await sql.transaction(async (tx) => {
+    // Serialize a block with standing-slot eligibility validation. Otherwise a
+    // newly created slot can miss this block while severTies misses that slot.
+    await tx.query(
+      `select id from profiles where id = any($1) order by id for update`,
+      [[userId, targetId]],
+    );
     await tx`
       insert into blocks (blocker_id, blocked_id, created_at)
       values (${userId}, ${targetId}, ${at(now)})
@@ -198,6 +204,10 @@ export async function deleteAccount(sql: Sql, userId: string, now = Date.now()) 
     await tx`delete from blocks where blocker_id = ${userId}`;
     await tx`delete from push_devices where profile_id = ${userId}`;
     await tx`delete from notifications where profile_id = ${userId}`;
+    await tx`delete from agent_delegations where profile_id = ${userId}`;
+    // Negotiation events cascade with the room; private proposals do not remain
+    // attached to the deliberately retained, anonymized history profile.
+    await tx`delete from agent_negotiations where host_id = ${userId} or participant_id = ${userId}`;
     await tx`
       update profiles set
         name = 'Deleted member', handle = ${`deleted${newId("x").slice(2, 14)}`}, initials = '–',

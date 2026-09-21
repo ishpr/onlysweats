@@ -102,6 +102,20 @@ describe("block", () => {
     await rejects(svc.bookSeat(sql, c.id, s.id), 404);
   });
 
+  it("releases only the blocker when both already hold group seats, without fees or the meeting pin", async () => {
+    const [host, a, b] = [await member("GroupHost"), await member("GroupA"), await member("GroupB")];
+    const s = await post(host.id, { capacity: 3, startAt: new Date(Date.now() + 2 * HOUR).toISOString() });
+    const aSeat = await svc.bookSeat(sql, a.id, s.id);
+    const bSeat = await svc.bookSeat(sql, b.id, s.id);
+    await safety.blockMember(sql, a.id, b.id);
+    assert.equal((await svc.getBooking(sql, a.id, aSeat.id)).status, "cancelled");
+    assert.equal((await svc.getBooking(sql, b.id, bSeat.id)).status, "confirmed");
+    assert.equal((await svc.getSession(sql, a.id, s.id)).session.pinHint, null);
+    assert.equal((await svc.getMe(sql, a.id)).feesCents, 0);
+    assert.equal((await svc.getMe(sql, b.id)).feesCents, 0);
+    await rejects(svc.bookSeat(sql, a.id, s.id), 404);
+  });
+
   it("ends the standing slot they share, and stops a new one", async () => {
     const [a, b] = [await member("Vic"), await member("Wes")];
     const KATY = { lat: 32.8019, lng: -96.8074 };
@@ -122,6 +136,21 @@ describe("block", () => {
     const [next] = await sql<{ status: string }>`
       select status from sessions where id = ${series.nextSessionId}`;
     assert.equal(next.status, "cancelled");
+  });
+
+  it("refuses a new standing slot when two past joiners blocked each other", async () => {
+    const [host, a, b] = [await member("RepeatHost"), await member("RepeatA"), await member("RepeatB")];
+    const start = Date.now() + 31 * 60_000;
+    const s = await post(host.id, { capacity: 3, startAt: new Date(start).toISOString() });
+    const first = await svc.bookSeat(sql, a.id, s.id);
+    const second = await svc.bookSeat(sql, b.id, s.id);
+    const katy = { lat: 32.8019, lng: -96.8074 };
+    await svc.checkInGeo(sql, a.id, first.id, katy, start);
+    await svc.checkInGeo(sql, b.id, second.id, katy, start);
+    await svc.checkInGeo(sql, host.id, first.id, katy, start);
+    await safety.blockMember(sql, a.id, b.id, start + HOUR);
+    await rejects(svc.repeatWeekly(sql, host.id, first.id, start + HOUR), 409, /can’t be set up/);
+    assert.deepEqual(await svc.listMySeries(sql, host.id), []);
   });
 
   it("refuses blocking yourself or nobody", async () => {
@@ -195,6 +224,24 @@ describe("report", () => {
 });
 
 describe("delete my account", () => {
+  it("does not resurrect deleted or suspended past participants through repeat weekly", async () => {
+    for (const kind of ["delete", "suspend"] as const) {
+      const [host, joiner] = [await member(`PastHost${kind}`), await member(`PastJoiner${kind}`)];
+      const start = Date.now() + 31 * 60_000;
+      const s = await post(host.id, { startAt: new Date(start).toISOString() });
+      const b = await svc.bookSeat(sql, joiner.id, s.id);
+      const katy = { lat: 32.8019, lng: -96.8074 };
+      await svc.checkInGeo(sql, joiner.id, b.id, katy, start);
+      await svc.checkInGeo(sql, host.id, b.id, katy, start);
+      if (kind === "delete") await safety.deleteAccount(sql, host.id, start + HOUR);
+      else await safety.adminSuspend(sql, ADMIN, host.id, "Test suspension", start + HOUR);
+      await rejects(svc.repeatWeekly(sql, joiner.id, b.id, start + HOUR), 409, /can’t be set up/);
+      const future = await sql`
+        select 1 from sessions where host_id = ${host.id} and status = 'open'`;
+      assert.equal(future.length, 0);
+    }
+  });
+
   it("removes the identity, scrubs the profile, and clears the calendar free", async () => {
     const [a, b] = [await member("Pia"), await member("Quin")];
     await svc.updateProfile(sql, a.id, { neighborhood: "Uptown", gender: "woman" });
@@ -203,10 +250,29 @@ describe("delete my account", () => {
     const theirs = await post(b.id);
     const seat = await svc.bookSeat(sql, a.id, theirs.id);
     await svc.sendMessage(sql, a.id, seat.id, "See you at the trailhead");
+    await sql`
+      insert into agent_delegations (id, profile_id, label, token_hash, expires_at) values
+        ('delete-delegate', ${a.id}, 'Private assistant', 'delete-hash', now() + interval '1 day'),
+        ('keep-delegate', ${b.id}, 'Other assistant', 'keep-hash', now() + interval '1 day')`;
+    await sql`
+      insert into agent_negotiations (id, booking_id, host_id, participant_id, expires_at) values
+        ('delete-host-room', ${seatOnHosted.id}, ${a.id}, ${b.id}, now() + interval '1 day'),
+        ('delete-joiner-room', ${seat.id}, ${b.id}, ${a.id}, now() + interval '1 day')`;
+    await sql`
+      insert into agent_negotiation_events
+        (negotiation_id, profile_id, message_id, command_hash, kind, revision, data)
+      values ('delete-host-room', ${a.id}, 'private-message', 'private-hash', 'proposal', 1,
+        '{"note":"Private scheduling preference"}'::jsonb)`;
 
     await safety.deleteAccount(sql, a.id);
 
     assert.deepEqual(await sql`select 1 from "user" where id = ${a.id}`, []);
+    assert.deepEqual(await sql`select 1 from agent_delegations where profile_id = ${a.id}`, []);
+    assert.equal((await sql`select 1 from agent_delegations where profile_id = ${b.id}`).length, 1);
+    assert.deepEqual(await sql`
+      select 1 from agent_negotiations where host_id = ${a.id} or participant_id = ${a.id}`, []);
+    assert.deepEqual(await sql`
+      select 1 from agent_negotiation_events where negotiation_id = 'delete-host-room'`, []);
     const [p] = await sql<Record<string, unknown>>`select * from profiles where id = ${a.id}`;
     assert.equal(p.name, "Deleted member");
     assert.equal(p.neighborhood, "");

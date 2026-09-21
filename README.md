@@ -45,13 +45,13 @@ The server decides seats, check-in and fees. The clients only display and ask.
 npm install
 ```
 
-The app expects the API on port **8088**. `.claude/launch.json` starts it there; by hand:
+The app defaults to the API on port **8080**. Start it with:
 
 ```bash
-node scripts/with-app-env.mjs node_modules/.bin/vite dev --host 0.0.0.0 --port 8088
+npm run dev
 ```
 
-(`npm run dev` is the same server on 8080.) With no `DATABASE_URL` the API runs an in-memory Postgres that resets on restart and seeds a demo cluster on the first call. Set `DATABASE_URL` for a real Postgres; demo data is never written there.
+If you use another port, set the mobile app's `EXPO_PUBLIC_API_URL` to that server. With no `DATABASE_URL` the API runs an in-memory Postgres that resets on restart and seeds a demo cluster on the first call. Set `DATABASE_URL` for a real Postgres; demo data is never written there.
 
 ```bash
 npm test

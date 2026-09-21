@@ -20,6 +20,8 @@ import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as YouRouteImport } from './routes/you'
+import { Route as DotwellKnownAgentCardDotjsonRouteImport } from './routes/[.]well-known.agent-card[.]json'
+import { Route as ApiA2aRouteImport } from './routes/api/a2a'
 import { Route as InboxIndexRouteImport } from './routes/inbox.index'
 import { Route as InboxIdRouteImport } from './routes/inbox.$id'
 import { Route as InviteCodeRouteImport } from './routes/invite.$code'
@@ -85,6 +87,17 @@ const YouRoute = YouRouteImport.update({
   path: '/you',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DotwellKnownAgentCardDotjsonRoute =
+  DotwellKnownAgentCardDotjsonRouteImport.update({
+    id: '/.well-known/agent-card.json',
+    path: '/.well-known/agent-card.json',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiA2aRoute = ApiA2aRouteImport.update({
+  id: '/api/a2a',
+  path: '/api/a2a',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InboxIndexRoute = InboxIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -143,6 +156,8 @@ export interface FileRoutesByFullPath {
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/you': typeof YouRoute
+  '/.well-known/agent-card.json': typeof DotwellKnownAgentCardDotjsonRoute
+  '/api/a2a': typeof ApiA2aRoute
   '/inbox/$id': typeof InboxIdRoute
   '/invite/$code': typeof InviteCodeRoute
   '/live/$id': typeof LiveIdRoute
@@ -163,6 +178,8 @@ export interface FileRoutesByTo {
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/you': typeof YouRoute
+  '/.well-known/agent-card.json': typeof DotwellKnownAgentCardDotjsonRoute
+  '/api/a2a': typeof ApiA2aRoute
   '/inbox/$id': typeof InboxIdRoute
   '/invite/$code': typeof InviteCodeRoute
   '/live/$id': typeof LiveIdRoute
@@ -186,6 +203,8 @@ export interface FileRoutesById {
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/you': typeof YouRoute
+  '/.well-known/agent-card.json': typeof DotwellKnownAgentCardDotjsonRoute
+  '/api/a2a': typeof ApiA2aRoute
   '/inbox/$id': typeof InboxIdRoute
   '/invite/$code': typeof InviteCodeRoute
   '/live/$id': typeof LiveIdRoute
@@ -210,6 +229,8 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/you'
+    | '/.well-known/agent-card.json'
+    | '/api/a2a'
     | '/inbox/$id'
     | '/invite/$code'
     | '/live/$id'
@@ -230,6 +251,8 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/you'
+    | '/.well-known/agent-card.json'
+    | '/api/a2a'
     | '/inbox/$id'
     | '/invite/$code'
     | '/live/$id'
@@ -252,6 +275,8 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/you'
+    | '/.well-known/agent-card.json'
+    | '/api/a2a'
     | '/inbox/$id'
     | '/invite/$code'
     | '/live/$id'
@@ -275,6 +300,8 @@ export interface RootRouteChildren {
   SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
   YouRoute: typeof YouRoute
+  DotwellKnownAgentCardDotjsonRoute: typeof DotwellKnownAgentCardDotjsonRoute
+  ApiA2aRoute: typeof ApiA2aRoute
   InviteCodeRoute: typeof InviteCodeRoute
   LiveIdRoute: typeof LiveIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -359,6 +386,20 @@ declare module '@tanstack/react-router' {
       path: '/you'
       fullPath: '/you'
       preLoaderRoute: typeof YouRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/agent-card.json': {
+      id: '/.well-known/agent-card.json'
+      path: '/.well-known/agent-card.json'
+      fullPath: '/.well-known/agent-card.json'
+      preLoaderRoute: typeof DotwellKnownAgentCardDotjsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/a2a': {
+      id: '/api/a2a'
+      path: '/api/a2a'
+      fullPath: '/api/a2a'
+      preLoaderRoute: typeof ApiA2aRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/inbox/': {
@@ -465,6 +506,8 @@ const rootRouteChildren: RootRouteChildren = {
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
   YouRoute: YouRoute,
+  DotwellKnownAgentCardDotjsonRoute: DotwellKnownAgentCardDotjsonRoute,
+  ApiA2aRoute: ApiA2aRoute,
   InviteCodeRoute: InviteCodeRoute,
   LiveIdRoute: LiveIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

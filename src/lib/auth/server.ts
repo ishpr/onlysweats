@@ -38,6 +38,7 @@ import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
 import { passwordSignInEnabled, socialProviderIds, socialProviders } from "./social.server";
+import { accountLinkingPolicy } from "./account-linking";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
 import { pgliteDialect } from "./pglite-dialect";
@@ -187,16 +188,13 @@ export const auth = betterAuth({
   // local loopback variants, or clients get "Invalid origin".
   trustedOrigins,
 
-  // Encrypt broker-issued OAuth tokens at rest, and treat the broker's upstreams
-  // as trusted first-party identities. The broker owns identity and X emails are
-  // synthetic/unverified, so WITHOUT this a login can fail with
-  // `account_not_linked` (Better Auth refuses to attach an untrusted, unverified
-  // identity to an existing user). Google and X carry DISTINCT emails, so this
-  // never merges them into one user — they stay separate identities.
+  // Encrypt broker-issued OAuth tokens at rest. Implicit linking additionally
+  // requires verified ownership of the existing local account, preventing an
+  // unverified password signup from capturing a later social sign-in.
   account: {
     encryptOAuthTokens: true,
     accountLinking: {
-      enabled: true,
+      ...accountLinkingPolicy,
       trustedProviders: [
         ...GROK_PROVIDERS.map((p) => p.providerId),
         GATE_PROVIDER_ID,
@@ -204,9 +202,6 @@ export const auth = betterAuth({
         // is the same member — link, don't reject with `account_not_linked`.
         ...socialProviderIds,
       ],
-      // X's synthetic email is never "verified", so don't gate linking on the
-      // local user's email-verified state.
-      requireLocalEmailVerified: false,
     },
   },
 
