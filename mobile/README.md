@@ -32,7 +32,7 @@ module, so the buttons hide themselves there):
 npx eas build --profile development --platform ios
 ```
 
-For a physical iPhone, install [build e01757e4](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/e01757e4-d659-442b-861a-dd611db94636), built with the `device-phone` profile. It includes native HealthKit import, local Apple intelligence and workout-plan generation, Shortcuts, widgets and export sharing, uses the live SamePace API, and preserves Expo live reload. It excludes the unprovisioned Watch app. Use `device` only when building the combined phone/Watch package with registered hardware and signing profiles. See [the release checklist](../docs/RELEASE-CHECKLIST.md).
+For a physical iPhone, install [build 279cd6e8](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/279cd6e8-01eb-4f63-a1bd-2ca453555125), built with the `device-phone` profile. It includes native HealthKit import, local Apple intelligence and workout-plan generation, Shortcuts, widgets and export sharing, uses the live SamePace API, and preserves Expo live reload. It excludes the unprovisioned Watch app. Use `device` only when building the combined phone/Watch package with registered hardware and signing profiles. See [the release checklist](../docs/RELEASE-CHECKLIST.md).
 
 Then `npx expo start` opens the dev build; `npx expo start --go` still opens Expo Go.
 
