@@ -162,7 +162,14 @@ function Routes() {
               headerLeft: () => <CloseButton />,
             }}
           />
-          <Stack.Screen name="post" options={{ title: "Post a session", presentation: "modal" }} />
+          <Stack.Screen
+            name="post"
+            options={{
+              title: "New session",
+              presentation: "modal",
+              headerLeft: () => <CloseButton />,
+            }}
+          />
           <Stack.Screen name="training-block/[id]" options={{ title: "" }} />
           <Stack.Screen
             name="training-block/new"
@@ -170,7 +177,11 @@ function Routes() {
           />
           <Stack.Screen
             name="report"
-            options={{ title: "Report or block", presentation: "modal" }}
+            options={{
+              title: "Report or block",
+              presentation: "modal",
+              headerLeft: () => <CloseButton />,
+            }}
           />
           <Stack.Screen name="blocked" options={{ title: "Blocked members" }} />
           <Stack.Screen name="activity" options={{ title: "Notifications" }} />
