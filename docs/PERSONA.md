@@ -9,8 +9,8 @@ redirects, signed events and deletion behavior have passed provider acceptance.
 
 The following templates are published shared Persona configuration; template
 publication is not isolated to Sandbox. The associated workflows are activated
-only in Sandbox. These are setup records, not evidence that a hosted verification
-or provider acceptance test has passed. Use the template IDs, not their version
+only in Sandbox. These are setup records; the bounded synthetic lifecycle
+acceptance below is separate from hosted verification. Use the template IDs, not their version
 IDs, in application configuration.
 
 | Purpose                  | Template ID                            | Published version ID                    |
@@ -84,11 +84,49 @@ Retain the inquiry's `inquiry-template` and `account` relationship IDs/nulls;
 the adapter fails closed if those relationships are missing. Included identity
 resources are unnecessary.
 
-The narrow live Sandbox API probe passed as recorded below. This branch now
-implements the accountless adapter with a durable local binding; the earlier
-metadata-only patch was insufficient and is superseded. Deployment and full
-application lifecycle acceptance remain separate. Production application
+The accountless adapter is deployed to the isolated Preview with migrations
+0024/0025 and a durable local binding. The narrow API probe and synthetic
+application lifecycle checks passed as recorded below. Production application
 credentials have not been configured, and verification enforcement remains off.
+
+## Synthetic Sandbox lifecycle acceptance
+
+On **2026-09-21 UTC**, Preview commit `918bc40` created both tiers for one
+disposable synthetic member. Each inquiry had an exact version-1 owner, tier,
+template and Sandbox binding, with Persona's Account relationship explicitly
+null. No phone number, selfie, ID document, health record or workout was used.
+
+- Member inquiry `inq_AzLHMsDn1vESMT2464YuibHMy5T37b` moved through pending,
+  needs-review, declined and approved. Actual signed Persona events updated
+  SamePace without calling its verification refresh endpoint.
+- Government-ID inquiry `inq_AzLHMsD2xeHrZbKsQ1iuT4bqHGFbEC` used Persona's
+  completion simulation. The configured Sandbox workflow approved it and the
+  signed events updated SamePace. A subsequent attempt to simulate review from
+  that approved state was rejected with HTTP 400; it did not verify revocation.
+- Both badges were present before account deletion. Deletion rejected the old
+  session, removed the sign-in record, scrubbed the profile and removed its
+  verification bindings. The worker redacted both inquiries, confirmed by
+  subsequent Persona reads. No fixture creation intent, verification, redaction
+  job, health record or fitness record remained.
+- Separately, two saved approval snapshots signed by the test harness returned
+  `unknown_inquiry` after deletion and did not restore either badge. These
+  requests are application replay tests, not Persona-originated deliveries.
+- Persona Dashboard then redelivered the genuine saved approvals for both
+  tiers. Each second delivery completed with HTTP 200 and `unknown_inquiry`:
+  member event `evt_AzLHMsDB6xrAzkx1VQRZmMx82MtYH4` at 04:58:39 UTC and
+  government-ID event `evt_AzLHMsDkavMRtpLcnRuCNgwmCxPqcj` at 04:59:39 UTC.
+  A database check after both deliveries confirmed the profile remained
+  deleted and scrubbed, both badges stayed false, and no sign-in, verification,
+  redaction or creation-intent rows returned.
+  These verify post-deletion rejection, not active-inquiry deduplication or
+  ordering of first-seen events.
+
+Persona's [Sandbox simulation actions](https://docs.withpersona.com/2023-01-05/api-reference/inquiries/perform-simulate-actions)
+exercise lifecycle behavior without performing the identity checks. These
+results establish provider connectivity, template binding, status mapping and
+inquiry cleanup. They do not establish phone ownership, liveness, ID matching,
+required-check gating, hosted returns, manual Case decisions, or erasure of all
+child resources and Cases.
 
 ## Keep sandbox and production separate
 
@@ -246,18 +284,23 @@ resuming. Do not remove pending state until the provider resources are reconcile
 
 - Confirm the member template performs phone verification and selfie liveness,
   and the government-ID template performs the approved document/selfie checks.
-- Confirm template workflow decisions map to approved, declined and needs-review
-  inquiries. Completing a hosted flow alone never grants a badge.
-- Exercise hosted return, server refresh, signed webhook delivery, duplicate
-  events and review reversals against the isolated preview environment.
-- Verify the durable member/inquiry/template binding through actual signed
-  events and app refresh for both templates. The narrow API probe above is only
-  the first part of lifecycle acceptance.
+- Confirm required-check failures and manual Case decisions map to approved,
+  declined and needs-review inquiries. The simulated status checks above do not
+  prove those decisions; completing a hosted flow alone never grants a badge.
+- Exercise hosted return, server refresh, active-inquiry duplicate delivery,
+  first-seen out-of-order events and approval revocation against the isolated
+  preview environment. Replaying an already-seen event proves deduplication,
+  not timestamp ordering.
 - Exercise a real review Case and account deletion, then confirm inquiry, child
   resource and Case retention behavior with Persona. Unexpected Accounts remain
   explicit manual review obligations; they must not be silently forgotten.
 - Verify that missing credentials and provider failures leave redaction jobs
   pending, and that later retries finish them.
 - Assign moderation and appeal ownership before requiring verification.
+- Confirm the selected post-trial plan retains the configured event filters,
+  decision workflows and Case features. The saved Sandbox configuration does
+  not establish production plan entitlement; Persona documents
+  [event filters](https://docs.withpersona.com/webhook-event-filters) as an
+  Enterprise feature.
 
 No provider acceptance result is implied by the automated tests.
