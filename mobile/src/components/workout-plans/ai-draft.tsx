@@ -7,6 +7,8 @@ import type { ApiSession } from "@/lib/api";
 import { createAssistantRun } from "@/lib/assistant/run";
 import { draftWorkoutPlan, intelligenceReason, LOCAL_PLAN_NOTICE } from "@/lib/intelligence";
 import type { AIWorkoutPlanDraft } from "../../../../shared/workout-plans";
+import { summarizeAIWorkoutPlan } from "../../../../shared/workout-plan-summary";
+import { PlanTimingSummary } from "./plan-timing-summary";
 
 export function AIDraftPlan({
   session,
@@ -100,7 +102,14 @@ export function AIDraftPlan({
           {error && <Notice tone="danger">{error}</Notice>}
           {draft && (
             <>
+              <T variant="eyebrow" color="textSecondary">
+                AI suggestion · Review required
+              </T>
               <T variant="heading">{draft.title}</T>
+              <PlanTimingSummary summary={summarizeAIWorkoutPlan(draft)} />
+              <T variant="caption" color="textSecondary">
+                Check that every phase and time you asked for is included.
+              </T>
               <T color="textSecondary">{draft.instructions}</T>
               {draft.exercises.map((exercise, index) => (
                 <View key={index} style={{ gap: Spacing.half }}>

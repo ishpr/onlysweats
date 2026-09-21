@@ -3,6 +3,8 @@ import { Card, Row, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { prescriptionLabel } from "@/lib/workout-plans/forms";
 import type { WorkoutPlanContent } from "../../../../shared/workout-plans";
+import { summarizeWorkoutPlan } from "../../../../shared/workout-plan-summary";
+import { PlanTimingSummary } from "./plan-timing-summary";
 
 export function PlanPreview({
   plan,
@@ -13,6 +15,7 @@ export function PlanPreview({
 }) {
   return (
     <View style={{ gap: Spacing.two }}>
+      <PlanTimingSummary summary={summarizeWorkoutPlan(plan)} />
       {plan.instructions ? <T color="textSecondary">{plan.instructions}</T> : null}
       {plan.exercises.map((exercise, index) => (
         <Card key={exercise.id}>
