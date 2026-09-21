@@ -79,7 +79,7 @@ export function AssistantPreferencesEditor({
     <Card>
       <T variant="heading">Preferences you choose to share</T>
       <T variant="caption" color="textSecondary">
-        Share these entered preferences with partners and their assistants in conversations you both
+        Share these entered preferences with buddies and their assistants in conversations you both
         join. Your Apple Health data and exercise log stay private.
       </T>
       <Row>
@@ -139,7 +139,7 @@ export function AssistantPreferencesEditor({
         ))}
       </View>
       <Field
-        label="What should your partner know? (optional)"
+        label="What should your buddy know? (optional)"
         placeholder="For example: an easy session and a consistent weekly routine"
         multiline
         maxLength={240}

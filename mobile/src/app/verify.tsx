@@ -95,7 +95,7 @@ function Verify({ member, session }: PrivateMemberProps) {
       <T variant="title">{copy.title}</T>
       <T color="textSecondary">
         {tier === "member" && !v.enforced
-          ? "A phone and selfie check helps a workout partner know you are a real, reachable person. Verification is optional while the service is being introduced."
+          ? "A phone and selfie check helps a workout buddy know you are a real, reachable person. Verification is optional while the service is being introduced."
           : copy.why}
       </T>
 

@@ -78,7 +78,7 @@ function Assistant({ member, session }: PrivateMemberProps) {
   const partnerName = (ids: string[], names?: Record<string, string>) =>
     names?.[ids.find((id) => id !== member.id) ?? ""] ??
     mine.data?.people.find((person) => ids.includes(person.id) && person.id !== member.id)?.name ??
-    "Your workout partner";
+    "Your workout buddy";
   const completed = mine.data?.bookings.filter((booking) => booking.status === "completed") ?? [];
   const unavailable = preferences.error instanceof ApiError && preferences.error.status === 404;
   return (
@@ -86,12 +86,12 @@ function Assistant({ member, session }: PrivateMemberProps) {
       <Stack.Screen options={{ title: "Workout assistant" }} />
       <T variant="heading">Make your next plan together</T>
       <T color="textSecondary">
-        Find a time and place with a past partner, or choose to discover someone new. Each person
+        Find a time and place with a past buddy, or choose to discover someone new. Each person
         joins the conversation, reviews the plan, and accepts booking terms.
       </T>
       {unavailable ? (
         <Notice>
-          Workout planning is not enabled on this server yet. Your existing sessions and bookings
+          Workout planning isn’t available yet. Your existing sessions and bookings
           are unchanged.
         </Notice>
       ) : (
@@ -182,7 +182,7 @@ function Assistant({ member, session }: PrivateMemberProps) {
           )}
           {!list.error && list.data?.negotiations.length === 0 && (
             <Notice>
-              Choose a past workout below, or opt in to discover a new partner. Each person decides
+              Choose a past workout below, or opt in to discover a new buddy. Each person decides
               whether to join.
             </Notice>
           )}
@@ -219,7 +219,7 @@ function Assistant({ member, session }: PrivateMemberProps) {
               onChange={refresh}
             />
           )}
-          <T variant="heading">Plan with a past partner</T>
+          <T variant="heading">Plan with a past buddy</T>
           {(mine.isPending || mine.error) && (
             <StateView
               loading={mine.isPending}
@@ -230,7 +230,7 @@ function Assistant({ member, session }: PrivateMemberProps) {
           {mine.data && completed.length === 0 && (
             <Notice>
               Complete a SamePace workout together first. That shared booking opens planning with
-              your partner.
+              your buddy.
             </Notice>
           )}
           {completed.map((booking) => {
@@ -243,7 +243,7 @@ function Assistant({ member, session }: PrivateMemberProps) {
                   {workout ? ` · ${new Date(workout.startAt).toLocaleDateString()}` : ""}
                 </T>
                 <T variant="caption" color="textSecondary">
-                  Starting a conversation records your consent to plan with this partner.
+                  Starting a conversation records your consent to plan with this buddy.
                 </T>
                 <Button
                   label="Start planning together"
@@ -413,7 +413,7 @@ function Conversation({
         {value.memberNames?.[value.memberIds.find((memberId) => memberId !== ownerId) ?? ""] ??
           people.find((person) => value.memberIds.includes(person.id) && person.id !== ownerId)
             ?.name ??
-          "your workout partner"}
+          "your workout buddy"}
       </T>
       <T variant="caption" color="textSecondary">
         {value.booked ? "Booked" : value.state} · expires{" "}
@@ -422,7 +422,7 @@ function Conversation({
       {value.state === "open" && !consented && (
         <>
           <Notice>
-            Join to let this partner and their assistant exchange workout plans with you. Your
+            Join to let this buddy and their assistant exchange workout plans with you. Your
             private fitness history is not part of the conversation.
           </Notice>
           <Button
@@ -443,7 +443,7 @@ function Conversation({
         </>
       )}
       {consented && !mutual && active && (
-        <Notice>Waiting for your partner to join before proposals can be exchanged.</Notice>
+        <Notice>Waiting for your buddy to join before proposals can be exchanged.</Notice>
       )}
       {value.plan && (
         <>
@@ -471,7 +471,7 @@ function Conversation({
             />
           )}
           {value.confirmedIds.includes(ownerId) && value.state === "open" && (
-            <Notice>You approved this revision. Your partner still needs to review it.</Notice>
+            <Notice>You approved this revision. Your buddy still needs to review it.</Notice>
           )}
         </>
       )}
@@ -549,7 +549,7 @@ function Conversation({
             name={
               value.memberNames?.[memberId] ??
               people.find((person) => person.id === memberId)?.name ??
-              "this partner"
+              "this buddy"
             }
             negotiationId={value.id}
           />
@@ -697,7 +697,7 @@ function BookingReview({
         changed preferences requires review again.
       </T>
       {value.approvedIds.includes(ownerId) ? (
-        <Notice>You accepted these terms. Waiting for your partner’s acceptance.</Notice>
+        <Notice>You accepted these terms. Waiting for your buddy’s acceptance.</Notice>
       ) : (
         <Button
           label={`Accept terms and book revision ${value.terms.revision}`}
@@ -788,12 +788,12 @@ function History({
                 </T>
                 <T variant="caption" color="textSecondary">
                   {typeof event.data.agentLabel === "string" && event.data.agentLabel !== "Member"
-                    ? `${event.data.agentLabel} (on behalf of ${event.actorId === ownerId ? "you" : "your partner"})`
+                    ? `${event.data.agentLabel} (on behalf of ${event.actorId === ownerId ? "you" : "your buddy"})`
                     : event.actorId === ownerId
                       ? "You"
                       : (memberNames?.[event.actorId] ??
                         people.find((person) => person.id === event.actorId)?.name ??
-                        "Your partner")}{" "}
+                        "Your buddy")}{" "}
                   · {new Date(event.createdAt).toLocaleString()}
                 </T>
                 {event.kind === "proposal" && event.data.plan ? (

@@ -10,10 +10,15 @@ export const tidyName = (name: string) => name.trim().split(/\s+/).map(titleCase
 /** First name for greetings and "with Maya"; `null` when we don't really have one. */
 export function firstName(name?: string | null): string | null {
   const tidy = tidyName(name ?? "");
-  if (!tidy || tidy === "Member") return null;
+  // No real name yet: greet without one rather than with an email handle.
+  if (!tidy || tidy === "Member" || /\d|[._@]/.test(tidy)) return null;
   return tidy.split(" ")[0];
 }
 
 /** True when the stored name needs the member's attention: a placeholder, or shouting. */
 export const nameNeedsFixing = (name?: string | null) =>
-  !name?.trim() || name === "Member" || (name.length > 2 && name === name.toUpperCase());
+  !name?.trim() ||
+  name === "Member" ||
+  (name.length > 2 && name === name.toUpperCase()) ||
+  // Looks like the front of an email address rather than something you'd call a person.
+  /\d|[._@]/.test(name);

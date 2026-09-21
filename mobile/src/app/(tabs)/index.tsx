@@ -11,20 +11,21 @@ import { Enter, PressScale } from "@/components/motion";
 import { PushPrompt } from "@/components/push-cards";
 import { TodayCard } from "@/components/today-card";
 import { PhotoCard, SessionCard, Tag, type MineTag } from "@/components/session-card";
-import { Button, Card, EmptyState, Row, Screen, StateView, T } from "@/components/ui";
+import { Button, Card, EmptyState, Field, Row, Screen, StateView, T } from "@/components/ui";
 import { Spacing } from "@/constants/theme";
 import { useNow } from "@/hooks/use-now";
 import { useTheme } from "@/hooks/use-theme";
 import { myLevelLabel } from "@/lib/ability";
 import { daysUntil, formatUsd, formatWhen, greeting, inCheckinWindow } from "@/lib/format";
 import { byId } from "@/lib/lookup";
-import { firstName } from "@/lib/names";
+import { firstName, nameNeedsFixing } from "@/lib/names";
 import {
   useBookingAction,
   useMe,
   useMine,
   useRefreshOnFocus,
   useSessions,
+  useUpdateMe,
   useVenues,
 } from "@/lib/queries";
 import { reputationLine } from "@/lib/reputation";
@@ -96,9 +97,13 @@ export default function Home() {
 
   const levelSet = Object.keys(me.data?.abilities ?? {}).length > 0;
   const name = firstName(me.data?.name);
-  const refresh = () => void Promise.all([mine.refetch(), open.refetch(), me.refetch(),
-    queryClient.invalidateQueries({ queryKey: ["private-health", meId] }),
-  ]);
+  const refresh = () =>
+    void Promise.all([
+      mine.refetch(),
+      open.refetch(),
+      me.refetch(),
+      queryClient.invalidateQueries({ queryKey: ["private-health", meId] }),
+    ]);
 
   return (
     <Screen
@@ -127,6 +132,9 @@ export default function Home() {
         <StateView error={mine.error} onRetry={refresh} />
       ) : (
         <>
+          {/* No real name yet (an email handle, "Member", or all capitals): ask, once, here. */}
+          {nameNeedsFixing(me.data?.name) && <NamePrompt />}
+
           {next ? (
             <NextUp plan={next} now={now} withName={otherName(next, people, meId)} />
           ) : (
@@ -351,6 +359,40 @@ export default function Home() {
         </>
       )}
     </Screen>
+  );
+}
+
+/** What other members will call you. Shown on Home until there's a real first name. */
+function NamePrompt() {
+  const update = useUpdateMe();
+  const [name, setName] = useState("");
+  return (
+    <Card>
+      <T variant="label">What should your buddy call you?</T>
+      <T variant="caption" color="textSecondary">
+        Just a first name. It’s what people see when you join or host a session.
+      </T>
+      <Field
+        label="First name"
+        value={name}
+        onChangeText={setName}
+        autoComplete="given-name"
+        maxLength={40}
+        returnKeyType="done"
+      />
+      {update.error && (
+        <T variant="caption" color="danger">
+          {update.error.message}
+        </T>
+      )}
+      <Button
+        variant="accent"
+        label="Save"
+        disabled={!name.trim()}
+        loading={update.isPending}
+        onPress={() => update.mutate({ name: name.trim() })}
+      />
+    </Card>
   );
 }
 

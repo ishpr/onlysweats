@@ -27,12 +27,12 @@ export function FitnessPilotPermissions({
     <Card>
       <T variant="label">Help evaluate exercise drafts</T>
       <T variant="caption" color="textSecondary">
-        Optional pilot measurements are {consent.enabled ? "on" : "off"}. This is separate from
+        The optional timing study is {consent.enabled ? "on" : "off"}. This is separate from
         using AI assistance.
       </T>
       <Button
         variant="ghost"
-        label={expanded ? "Hide pilot details" : "Review pilot details"}
+        label={expanded ? "Hide the details" : "What the study measures"}
         onPress={() => setExpanded((value) => !value)}
       />
       {(expanded || consent.enabled) && (
@@ -44,7 +44,7 @@ export function FitnessPilotPermissions({
           )}
           {!aiEnabled && !consent.enabled && (
             <Notice>
-              Allow AI assistance first if you want to join the pilot. Manual logging is always
+              Allow AI assistance first if you want to take part. Manual logging is always
               available.
             </Notice>
           )}
@@ -52,8 +52,8 @@ export function FitnessPilotPermissions({
             variant="soft"
             label={
               consent.enabled
-                ? "Leave pilot and delete measurements"
-                : "Allow optional pilot measurements"
+                ? "Leave the study and delete its measurements"
+                : "Take part in the timing study"
             }
             disabled={action.busy || (!consent.enabled && !aiEnabled)}
             onPress={() =>

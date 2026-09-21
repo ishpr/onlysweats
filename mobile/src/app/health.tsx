@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button, Card, Notice, Row, Screen, StateView, T } from "@/components/ui";
 import { useHealthSync } from "@/hooks/use-health-sync";
+import { useTheme } from "@/hooks/use-theme";
 import { captureApiSession, type ApiSession } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useMe } from "@/lib/queries";
@@ -48,6 +49,7 @@ function HealthSession({ ownerId }: { ownerId: string }) {
 
 function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSession }) {
   const router = useRouter();
+  const theme = useTheme();
   const health = useHealthSync({ ownerId, session });
   const exporting = usePrivateAction(session);
   const [exportCount, setExportCount] = useState(0);
@@ -118,6 +120,7 @@ function HealthSettings({ ownerId, session }: { ownerId: string; session: ApiSes
           <Row key={type}>
             <T style={{ flex: 1 }}>{label}</T>
             <Switch accessibilityLabel={`Sync ${label.toLowerCase()}`} disabled={busy || health.availability !== "available"}
+              trackColor={{ true: theme.accent, false: theme.backgroundSelected }}
               value={types.includes(type)}
               onValueChange={(on) => setSelection({ generation, types: on ? [...types, type] : types.filter((value) => value !== type) })} />
           </Row>

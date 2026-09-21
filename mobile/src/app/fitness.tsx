@@ -99,12 +99,12 @@ function Fitness({ member, session }: PrivateMemberProps) {
           <>
             <T variant="label">
               {consent.data.consent.enabled
-                ? "You have allowed TypeSafe assistance"
-                : "TypeSafe assistance is off"}
+                ? "AI assistance is on"
+                : "AI assistance is off"}
             </T>
             {!consent.data.consent.providerAvailable && (
               <Notice>
-                AI assistance is not available on this server yet. Manual logging works without it.
+                AI assistance isn’t available yet. Logging by hand works without it.
               </Notice>
             )}
             <Button
@@ -121,7 +121,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
                   label={
                     consent.data.consent.enabled
                       ? "Turn off AI and remove interpretations"
-                      : "Allow TypeSafe assistance"
+                      : "Allow AI assistance (TypeSafe)"
                   }
                   variant="soft"
                   disabled={action.busy}
@@ -153,7 +153,7 @@ function Fitness({ member, session }: PrivateMemberProps) {
       )}
       {pilot.error && (
         <Notice>
-          Optional pilot measurements are unavailable. You can keep logging exercises.
+          The optional timing study isn’t available right now. You can keep logging exercises.
         </Notice>
       )}
       <LogEditor
