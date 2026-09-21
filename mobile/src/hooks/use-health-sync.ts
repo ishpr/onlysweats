@@ -124,6 +124,8 @@ function useHealthSyncInternal({ ownerId, session }: OwnerSession, enabled: bool
   useEffect(() => {
     if (enabled && ownerId && session?.isCurrent() && state.phase === "idle") {
       void queryClient.invalidateQueries({ queryKey: ["private-health", ownerId] });
+      // Source removals can rotate chat history while this screen stays mounted.
+      void queryClient.invalidateQueries({ queryKey: ["private-assistant-chat", ownerId] });
     }
   }, [
     enabled,

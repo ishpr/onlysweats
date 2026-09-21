@@ -356,7 +356,7 @@ function Detail({ ownerId, session }: { ownerId: string; session: ApiSession }) 
         key="hrv"
         icon={Activity}
         color={theme.exercise}
-        label="HRV (SDNN)"
+        label="HRV · SDNN"
         value={String(d.hrvMs)}
         unit="ms"
         note={d.hrvBase !== null ? `Earlier average ${Math.round(d.hrvBase)} ms` : "This week"}
@@ -368,6 +368,42 @@ function Detail({ ownerId, session }: { ownerId: string; session: ApiSession }) 
           points={week(t.hrvWeek)}
           xDomain={[0, 6]}
         />
+      </Tile>,
+    );
+  }
+  // A new app can temporarily receive the older server shape. Undefined must
+  // remain unavailable, never become the string "undefined" or a zero point.
+  const rmssdWeek = t.hrvRmssdWeek ?? [];
+  const rmssdCurrent = d.hrvRmssdMs ?? null;
+  if (rmssdCurrent !== null || rmssdWeek.some((value) => value !== null)) {
+    tiles.push(
+      <Tile
+        key="hrv-rmssd"
+        icon={Activity}
+        color={theme.stand}
+        label="HRV · RMSSD"
+        value={rmssdCurrent === null ? "—" : String(rmssdCurrent)}
+        unit={rmssdCurrent === null ? undefined : "ms"}
+        note={
+          rmssdCurrent === null
+            ? "No reading today or yesterday"
+            : d.hrvRmssdBase != null
+              ? `Earlier average ${Math.round(d.hrvRmssdBase)} ms`
+              : "Recorded sample average"
+        }
+      >
+        <AreaChart
+          id="hrv-rmssd"
+          color={theme.stand}
+          height={40}
+          points={week(rmssdWeek)}
+          xDomain={[0, 6]}
+        />
+        {d.hrvRmssdSource?.name && (
+          <T variant="caption" color="textSecondary">
+            {d.hrvRmssdSource.name}
+          </T>
+        )}
       </Tile>,
     );
   }

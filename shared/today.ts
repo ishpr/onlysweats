@@ -5,7 +5,7 @@
  *
  * Pure functions and wire types only, shared by the API and the app.
  */
-import type { WorkoutRecord } from "./health.ts";
+import type { HealthSource, WorkoutRecord } from "./health.ts";
 
 export type WorkoutKind = WorkoutRecord["activity"];
 
@@ -23,6 +23,11 @@ export type DaySnapshot = {
   /** Recorded SDNN only; RMSSD remains a distinct metric. */
   hrvMs: number | null;
   hrvBase: number | null;
+  /** Recorded RMSSD, independently reduced from SDNN and never substituted for it. */
+  hrvRmssdMs: number | null;
+  hrvRmssdBase: number | null;
+  /** One source for the whole RMSSD week; selection is not a quality assessment. */
+  hrvRmssdSource: HealthSource | null;
   /** Workouts in the last 7 days, today included. */
   weekWorkouts: number;
 };
@@ -86,6 +91,11 @@ export function readToday(d: DaySnapshot, trends?: DayTrends): TodayRead {
   if (d.hrvMs != null) {
     lines.push(`Recorded HRV (SDNN): ${d.hrvMs} ms${comparison(d.hrvMs, d.hrvBase)}.`);
   }
+  if (d.hrvRmssdMs != null) {
+    lines.push(
+      `Recorded HRV (RMSSD): ${d.hrvRmssdMs} ms${comparison(d.hrvRmssdMs, d.hrvRmssdBase)}.`,
+    );
+  }
   if (!longest && d.weekWorkouts > 0) {
     lines.push(`${d.weekWorkouts} workout${d.weekWorkouts === 1 ? "" : "s"} in the last 7 days.`);
   }
@@ -103,6 +113,7 @@ export function readToday(d: DaySnapshot, trends?: DayTrends): TodayRead {
         trends.sleepWeek,
         trends.restingHrWeek,
         trends.hrvWeek,
+        trends.hrvRmssdWeek ?? [],
         trends.stepsWeek,
         trends.moveKcalWeek,
       ].some((values) => values.some((value) => value !== null)))
@@ -153,7 +164,10 @@ export type DayTrends = {
   /** Last night, in minutes per stage. `null` when the source gave no stages. */
   sleepStages: { deep: number; core: number; rem: number; awake: number } | null;
   restingHrWeek: Week;
+  /** Recorded SDNN, distinct from RMSSD below. */
   hrvWeek: Week;
+  /** Daily sample means from snapshot.hrvRmssdSource only. */
+  hrvRmssdWeek: Week;
   stepsWeek: Week;
   moveKcalWeek: Week;
   /** Half-hour heart-rate buckets since midnight. */

@@ -4,7 +4,12 @@ import { randomUUID } from "node:crypto";
 import type { Sql } from "../db.ts";
 import { makeDb } from "../pace/test-db.ts";
 import type { HealthConnection, HealthDataType, HealthRecord } from "../../../shared/health.ts";
-import { pickForToday, readToday, type DaySnapshot } from "../../../shared/today.ts";
+import {
+  pickForToday,
+  readToday,
+  type DaySnapshot,
+  type DayTrends,
+} from "../../../shared/today.ts";
 import { HealthError } from "./contracts.ts";
 import * as health from "./service.server.ts";
 import { today } from "./today.server.ts";
@@ -88,6 +93,10 @@ describe("the day summary", () => {
     );
     const empty = await today(sql, id, { dayStart }, now);
     assert.equal(empty.snapshot.sleepMin, null);
+    assert.equal(empty.snapshot.hrvRmssdMs, null);
+    assert.equal(empty.snapshot.hrvRmssdBase, null);
+    assert.equal(empty.snapshot.hrvRmssdSource, null);
+    assert.deepEqual(empty.trends.hrvRmssdWeek, [null, null, null, null, null, null, null]);
     assert.deepEqual(empty.trends.stepsWeek, [null, null, null, null, null, null, null]);
     assert.equal(readToday(empty.snapshot).status, "unknown");
   });
@@ -133,6 +142,8 @@ describe("the day summary", () => {
     const result = await today(sql, id, { dayStart }, now);
     assert.equal(result.snapshot.hrvMs, 58);
     assert.equal(result.trends.hrvWeek[6], 58);
+    assert.equal(result.snapshot.hrvRmssdMs, 24);
+    assert.equal(result.trends.hrvRmssdWeek[6], 24);
     assert.deepEqual(result.trends.glucoseToday, [
       { minute: 480, value: 104, low: 104, high: 104 },
     ]);
@@ -142,7 +153,82 @@ describe("the day summary", () => {
     ]);
     const absent = await today(sql, onlyNewTypes, { dayStart }, now);
     assert.equal(absent.snapshot.hrvMs, null);
+    assert.equal(absent.snapshot.hrvRmssdMs, 24);
+    assert.equal(readToday(absent.snapshot, absent.trends).status, "observed");
+    assert.deepEqual(readToday(absent.snapshot).lines, ["Recorded HRV (RMSSD): 24 ms."]);
     assert.deepEqual(absent.trends.glucoseToday, []);
+  });
+
+  it("reduces RMSSD from one source across the week without mixing SDNN or another member", async () => {
+    await member([rec("heart_rate_variability_rmssd", 3, 3, { value: 900, unit: "ms" })]);
+    const earlier = [-5, -4, -3, -2].map((day, index) =>
+      rec("heart_rate_variability_rmssd", day * 24 + 3, day * 24 + 3, {
+        value: 20 + index * 10,
+        unit: "ms",
+      }),
+    );
+    const id = await member([
+      ...earlier,
+      rec("heart_rate_variability_rmssd", 3, 3, { value: 40, unit: "ms" }),
+      rec("heart_rate_variability_rmssd", 4, 4, { value: 60, unit: "ms" }),
+      rec("heart_rate_variability_rmssd", 3, 3, { value: 200, unit: "ms" }, phone),
+      rec("heart_rate_variability_rmssd", 4, 4, { value: 300, unit: "ms" }, phone),
+      rec("heart_rate_variability", 3, 3, { value: 80, unit: "ms" }),
+    ]);
+    const { snapshot, trends } = await today(sql, id, { dayStart }, now);
+    assert.equal(snapshot.hrvRmssdMs, 50);
+    assert.equal(snapshot.hrvRmssdBase, 35);
+    assert.deepEqual(snapshot.hrvRmssdSource, watch);
+    assert.deepEqual(trends.hrvRmssdWeek, [null, 20, 30, 40, 50, null, 50]);
+    assert.equal(snapshot.hrvMs, 80);
+    assert.equal(snapshot.hrvBase, null);
+    assert.deepEqual(trends.hrvWeek, [null, null, null, null, null, null, 80]);
+  });
+
+  it("uses a deterministic source tie-break and never fills a selected source's gaps from another app", async () => {
+    const tie = await member([
+      rec("heart_rate_variability_rmssd", 3, 3, { value: 30, unit: "ms" }),
+      rec("heart_rate_variability_rmssd", 3, 3, { value: 70, unit: "ms" }, phone),
+    ]);
+    const picked = await today(sql, tie, { dayStart }, now);
+    assert.deepEqual(picked.snapshot.hrvRmssdSource, phone);
+    assert.equal(picked.snapshot.hrvRmssdMs, 70);
+    const gap = await member([
+      rec("heart_rate_variability_rmssd", -48, -48, { value: 30, unit: "ms" }),
+      rec("heart_rate_variability_rmssd", -47, -47, { value: 40, unit: "ms" }),
+      rec("heart_rate_variability_rmssd", 3, 3, { value: 70, unit: "ms" }, phone),
+    ]);
+    const missingRecent = await today(sql, gap, { dayStart }, now);
+    assert.equal(missingRecent.snapshot.hrvRmssdMs, null);
+    assert.deepEqual(missingRecent.snapshot.hrvRmssdSource, watch);
+    assert.deepEqual(missingRecent.trends.hrvRmssdWeek, [null, null, null, null, 35, null, null]);
+    assert.equal(readToday(missingRecent.snapshot, missingRecent.trends).status, "observed");
+  });
+
+  it("keeps unrecorded RMSSD null and removes it when its type is withdrawn", async () => {
+    const sdnn = await member([rec("heart_rate_variability", 3, 3, { value: 58, unit: "ms" })]);
+    const sdnnOnly = await today(sql, sdnn, { dayStart }, now);
+    assert.equal(sdnnOnly.snapshot.hrvRmssdMs, null);
+    assert.equal(sdnnOnly.snapshot.hrvRmssdSource, null);
+    const id = await member([
+      rec("heart_rate_variability_rmssd", -20, -20, { value: 25, unit: "ms" }),
+    ]);
+    assert.equal((await today(sql, id, { dayStart }, now)).snapshot.hrvRmssdMs, 25);
+    const connection = (await health.getConnection(sql, id))!;
+    await health.connect(
+      sql,
+      id,
+      {
+        deviceId: connection.deviceId,
+        types: ALL.filter((type) => type !== "heart_rate_variability_rmssd"),
+      },
+      now,
+    );
+    const removed = await today(sql, id, { dayStart }, now);
+    assert.equal(removed.snapshot.hrvRmssdMs, null);
+    assert.equal(removed.snapshot.hrvRmssdSource, null);
+    assert.deepEqual(removed.trends.hrvRmssdWeek, [null, null, null, null, null, null, null]);
+    assert.equal(readToday(removed.snapshot, removed.trends).status, "unknown");
   });
 
   it("acknowledges chart-only synced readings without inventing other summary values", async () => {
@@ -214,6 +300,9 @@ describe("reading the day", () => {
     restingHrBase: null,
     hrvMs: null,
     hrvBase: null,
+    hrvRmssdMs: null,
+    hrvRmssdBase: null,
+    hrvRmssdSource: null,
     weekWorkouts: 0,
   };
   it("describes short and long sleep as observations, without changing an effort or readiness score", () => {
@@ -257,6 +346,30 @@ describe("reading the day", () => {
       "Recorded resting heart rate: 55 bpm — equal to your earlier recorded average.",
     ]);
   });
+  it("labels RMSSD independently and tolerates an older server without additive fields", () => {
+    const observed = readToday({ ...blank, hrvMs: 60, hrvRmssdMs: 24, hrvRmssdBase: 30 });
+    assert.deepEqual(observed.lines, [
+      "Recorded HRV (SDNN): 60 ms.",
+      "Recorded HRV (RMSSD): 24 ms — below your earlier recorded average.",
+    ]);
+    assert.equal(observed.status, "observed");
+    const legacy: Partial<DaySnapshot> = { ...blank };
+    delete legacy.hrvRmssdMs;
+    delete legacy.hrvRmssdBase;
+    delete legacy.hrvRmssdSource;
+    const legacyTrends = {
+      sleepWeek: [],
+      sleepStages: null,
+      restingHrWeek: [],
+      hrvWeek: [],
+      stepsWeek: [],
+      moveKcalWeek: [],
+      heartToday: [],
+      glucoseToday: [],
+    } as unknown as DayTrends;
+    assert.equal(readToday(legacy as DaySnapshot, legacyTrends).status, "unknown");
+  });
+
   it("ranks sessions using entered matches and start time without taking health state", () => {
     const sessions = [
       { id: "later-match", fitsMe: true, startAt: 3 },

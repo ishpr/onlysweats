@@ -65,6 +65,10 @@ HealthKit notifications queue changes locally; automatic uploads resume in the s
 
 See [Apple Health](APPLE-HEALTH.md), [native intelligence](../mobile/modules/samepace-intelligence/README.md), [Watch recorder](../mobile/watch/README.md), and [physical acceptance](INTELLIGENCE-ACCEPTANCE.md).
 
+The `device-phone` EAS profile excludes the Watch target until a physical Watch is registered and provisioned. It still includes iOS 27 HealthKit, local intelligence, App Shortcuts and widgets. The normal `device` profile includes Watch. Both are development clients, so use the intended Metro server; a simulator's synthetic session must never be used for the physical-phone handoff. The signed Xcode 27 iPhone-first package is available as [Expo build 8594a56c](https://expo.dev/accounts/servesys-corporation/projects/samepace/builds/8594a56c-914d-47e4-8e8b-f5820e4f916a).
+
+For model assessment, the [50-case synthetic harness](evaluations/conversation-v1.md) runs offline unless explicitly invoked with `--run`. Mechanical fixture checks and human assessment of model answers are separate.
+
 ## Acceptance boundary
 
 Automated permission, cancellation, retry, deletion, provider-error and native serialization checks establish implementation behavior for their covered cases. Synthetic fixture success is not general model accuracy. Physical iPhone/Watch testing, representative draft review, model quality, latency, battery and thermal measurements remain release acceptance work. PCC requires separate Apple entitlement/eligibility and is never an automatic fallback. Continuous camera form analysis, rep recognition and proprietary readiness scores are not delivered by this implementation.

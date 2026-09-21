@@ -249,7 +249,7 @@ function CloudConversation({
         break;
     }
   };
-  const visible = history.data?.messages ?? [];
+  const visible = history.error ? [] : (history.data?.messages ?? []);
   const icons = {
     preferences: Settings2,
     discovery: Users,
