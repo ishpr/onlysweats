@@ -2,6 +2,31 @@
 
 The Stripe adapter, member billing screen, fee support queue, webhook intake, reconciliation worker, and membership gates are implemented. Payments are **off by default**. Stripe test mode is configured on an isolated Vercel Preview; production collection and membership enforcement remain off. Live credentials and real payment acceptance have not been supplied or tested. Local tests use synthetic provider state and a local HTTP server exercising the official `stripe` SDK (22.6.2 in the lockfile).
 
+## Production preparation — September 21, 2026
+
+The live Servesys Corporation account reports charges and payouts enabled, and
+the live Dashboard is accessible. These catalog resources are now created:
+
+| Resource | Live ID / configuration |
+| --- | --- |
+| Membership product | `prod_VItKIAk2cUQJDS` — SamePace Membership |
+| Recurring price | `price_1UIHYILmLwBE307yUZvtyuBO` — USD 1200 monthly, no active subscriptions |
+
+This is catalog preparation, not payment activation. The restricted production
+server-key form is staged for owner authorization; no new live key has been
+created or stored. The live portal, webhook and Vercel credential configuration
+remain pending. Do not duplicate the product or price when completing setup.
+Vercel Production now has this price ID and
+`BILLING_RETURN_URL=https://samepace.app/billing-return`; `BILLING_ENABLED`,
+`BILLING_ENFORCED` and `BILLING_CLUSTER_READY` are explicitly `false`.
+
+Stripe's Dashboard inherited the account's business-use/no-download SaaS tax
+preset (`txcd_10103001`). That is not an approved classification for SamePace's
+consumer mobile membership. Review the actual membership supply and
+[Stripe's product tax categories](https://docs.stripe.com/tax/tax-codes) before
+launching collection or enabling automatic tax; no tax registration or automatic
+tax configuration was changed in this pass.
+
 ## Configured test environment
 
 The Servesys Corporation Stripe account has the following test-mode resources:
