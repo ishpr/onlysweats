@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Switch, View } from "react-native";
+import { View } from "react-native";
 import { useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -25,30 +25,19 @@ import { ListCard, ListRow } from "@/components/list";
 import { Sheet } from "@/components/sheet";
 import { ComposerPortal } from "@/lib/composer-slot";
 import { Spacing } from "@/constants/theme";
-import { Button, Notice, Row, StateView, T } from "@/components/ui";
+import { Button, Notice, StateView, T } from "@/components/ui";
 import { usePrivateAction } from "@/hooks/use-private-action";
 import type { ApiSession } from "@/lib/api";
 import { createAssistantRun } from "@/lib/assistant/run";
 import { createChatStreamParser, isChatMessage } from "@/lib/assistant/stream";
-import {
-  chatPermissionUpdate,
-  chatHistoryUseUpdate,
-  readChatSettings,
-  type ChatPermission,
-  type ChatSettingsUpdate,
-} from "@/lib/assistant/settings";
+import { readChatSettings } from "@/lib/assistant/settings";
 import { storeGeneratedWorkoutPlanDraft } from "@/lib/workout-plans/draft-handoff";
 import { WorkoutPlanDraftCard } from "./workout-plan-draft-card";
 import {
-  CHAT_CONSENT_NOTICE,
-  CHAT_FITNESS_NOTICE,
-  CHAT_HISTORY_USE_NOTICE,
-  CHAT_MANUAL_WORKOUT_NOTICE,
   type ChatAction,
   type ChatEvent,
   type ChatHistory,
   type ChatMessage,
-  type ChatSettings,
   type ChatTurnInput,
   type ChatPreferenceDraft,
 } from "../../../../shared/conversation";
@@ -131,7 +120,6 @@ function CloudConversation({
   const [lastTurn, setLastTurn] = useState<ChatTurnInput | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clearReview, setClearReview] = useState(false);
-  const [showPermissions, setShowPermissions] = useState(false);
   const [permissionsUnconfirmed, setPermissionsUnconfirmed] = useState(false);
   useEffect(() => () => runner.cancel(), [runner]);
   const settings = history.error || permissionsUnconfirmed ? null : history.data?.settings;
@@ -148,34 +136,6 @@ function CloudConversation({
     setLastTurn(null);
     setError(null);
     setText("");
-  };
-  const updatePermissions = (update: ChatSettingsUpdate) => {
-    if (!settings || control.busy || !session.isCurrent()) return;
-    clearLocal();
-    // A failed response cannot tell us whether the server applied a revocation.
-    // Keep cached grants/history hidden until a confirmed write or fresh read.
-    setPermissionsUnconfirmed(true);
-    void control.run(
-      async (signal) => {
-        await client.cancelQueries({ queryKey, exact: true });
-        const result = await session.request<{ settings: ChatSettings }>("/assistant/settings", {
-          method: "PUT",
-          signal,
-          json: update,
-        });
-        return { settings: readChatSettings(result.settings) };
-      },
-      async (result) => {
-        await client.cancelQueries({ queryKey, exact: true });
-        if (session.isCurrent()) {
-          client.setQueryData<ChatHistory>(queryKey, { settings: result.settings, messages: [] });
-          setPermissionsUnconfirmed(false);
-        }
-      },
-    );
-  };
-  const changePermissions = (permission: ChatPermission, enabled: boolean) => {
-    if (settings) updatePermissions(chatPermissionUpdate(settings, permission, enabled));
   };
   const send = (retry?: ChatTurnInput) => {
     if (runner.busy || control.busy || !session.isCurrent()) return;
@@ -464,93 +424,13 @@ function CloudConversation({
         <ListCard>
           <ListRow
             icon={ShieldCheck}
-            label="Privacy choices"
-            value={
-              permissionsUnconfirmed
-                ? control.busy
-                  ? "Updating"
-                  : "Needs refresh"
-                : settings?.cloudEnabled
-                  ? "Coaching on"
-                  : "Coaching off"
-            }
-            expanded={showPermissions}
-            onPress={() => setShowPermissions((value) => !value)}
-          >
-            {settings && (
-              <View style={{ gap: Spacing.two }}>
-                <T variant="caption" color="textSecondary">
-                  {CHAT_CONSENT_NOTICE}
-                </T>
-                <Row style={{ justifyContent: "space-between" }}>
-                  <T variant="label" style={{ flex: 1 }}>
-                    Enable coaching
-                  </T>
-                  <Switch
-                    accessibilityLabel="Enable SamePace coaching"
-                    value={settings.cloudEnabled}
-                    disabled={control.busy}
-                    onValueChange={(enabled) => changePermissions("cloudEnabled", enabled)}
-                  />
-                </Row>
-                <T variant="caption" color="textSecondary">
-                  {settings.historyUse === "when_relevant"
-                    ? "Allow up to five recent imported workout summaries when relevant to coaching, including recorded duration, distance, energy and heart-rate summary when available. These are sent to Vercel AI Gateway and its AI providers. Raw samples, sleep and HRV history are excluded. Turning this off clears the conversation. Removing imported health data also clears conversations that used these summaries."
-                    : CHAT_FITNESS_NOTICE}
-                </T>
-                <Row style={{ justifyContent: "space-between" }}>
-                  <T variant="label" style={{ flex: 1 }}>
-                    Include Apple Health workout summaries
-                  </T>
-                  <Switch
-                    accessibilityLabel="Share recent Apple Health summaries with cloud assistant"
-                    value={settings.fitnessContextEnabled}
-                    disabled={control.busy || !settings.cloudEnabled}
-                    onValueChange={(enabled) => changePermissions("fitnessContextEnabled", enabled)}
-                  />
-                </Row>
-                <T variant="caption" color="textSecondary">
-                  {settings.historyUse === "when_relevant"
-                    ? "Allow up to three recent saved plans, three workout records and five individual exercise logs when relevant to coaching. Titles, instructions, notes, targets and actual repetitions, time, distance and load are sent to Vercel AI Gateway and its AI providers. Long records are shortened. Plans are not completed exercise; missing results stay unknown. Other members' results and Apple Health are excluded. Turning this off clears the conversation; changes to these records clear replies that used them."
-                    : CHAT_MANUAL_WORKOUT_NOTICE}
-                </T>
-                <Row style={{ justifyContent: "space-between" }}>
-                  <T variant="label" style={{ flex: 1 }}>
-                    Include saved plans and manual logs
-                  </T>
-                  <Switch
-                    accessibilityLabel="Share saved workout plans and manual logs with cloud assistant"
-                    value={settings.manualWorkoutContextEnabled}
-                    disabled={control.busy || !settings.cloudEnabled}
-                    onValueChange={(enabled) =>
-                      changePermissions("manualWorkoutContextEnabled", enabled)
-                    }
-                  />
-                </Row>
-                <T variant="caption" color="textSecondary">
-                  {CHAT_HISTORY_USE_NOTICE}
-                </T>
-                <Row style={{ justifyContent: "space-between" }}>
-                  <T variant="label" style={{ flex: 1 }}>
-                    Use allowed history when relevant
-                  </T>
-                  <Switch
-                    accessibilityLabel="Use allowed workout history when relevant to coaching"
-                    value={settings.historyUse === "when_relevant"}
-                    disabled={control.busy || !settings.cloudEnabled}
-                    onValueChange={(enabled) =>
-                      updatePermissions(
-                        chatHistoryUseUpdate(
-                          settings,
-                          enabled ? "when_relevant" : "when_requested",
-                        ),
-                      )
-                    }
-                  />
-                </Row>
-              </View>
-            )}
-          </ListRow>
+            label="What your assistant can use"
+            value={settings?.cloudEnabled ? "Cloud on" : "Cloud off"}
+            onPress={() => {
+              setShowOptions(false);
+              router.push("/settings/privacy");
+            }}
+          />
           <ListRow
             icon={Trash2}
             label="Delete conversation"

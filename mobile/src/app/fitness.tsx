@@ -4,11 +4,11 @@ import { useState } from "react";
 import { View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardCheck } from "lucide-react-native";
+import { ClipboardCheck, Sparkles } from "lucide-react-native";
 import { ActionCard } from "@/components/assistant-kit";
 import { FitnessSummary, LogCard } from "@/components/fitness-kit";
 import { FitnessPilotPermissions, FitnessPilotResult } from "@/components/fitness-pilot";
-import { SectionTitle } from "@/components/list";
+import { ListCard, ListRow, SectionTitle } from "@/components/list";
 import type {
   FitnessPilotConsent,
   FitnessLoggingSession,
@@ -27,7 +27,6 @@ import { prepareFitnessExport } from "@/lib/health/export";
 import { sharePrivateExport } from "@/lib/health/export-share";
 import {
   EXERCISE_CATALOGUE,
-  FITNESS_AI_CONSENT_NOTICE,
   type ExerciseDraft,
   type ExerciseId,
   type FitnessConsent,
@@ -56,7 +55,6 @@ function Fitness({ member, session }: PrivateMemberProps) {
   const [removeId, setRemoveId] = useState<string | null>(null);
   const toast = useToast();
   const [outcomeId, setOutcomeId] = useState<string | null>(null);
-  const [showAiPermissions, setShowAiPermissions] = useState(false);
   const now = useNow(60_000);
   const timeZone = fitnessTimeZone();
   const calendarDay = fitnessCalendarDay(now, timeZone);
@@ -222,58 +220,24 @@ function Fitness({ member, session }: PrivateMemberProps) {
         />
       </Card>
       <SectionTitle>Assistance and privacy</SectionTitle>
-      <Card>
-        <T variant="heading">Optional AI assistance</T>
-        {(consent.isPending || consent.error) && (
-          <StateView
-            loading={consent.isPending}
-            error={consent.error}
-            onRetry={() => void consent.refetch()}
-          />
-        )}
-        {consent.data && (
-          <>
-            <T variant="label">
-              {consent.data.consent.enabled ? "AI assistance is on" : "AI assistance is off"}
-            </T>
-            {!consent.data.consent.providerAvailable && (
-              <Notice>AI assistance isn’t available yet. Logging by hand works without it.</Notice>
-            )}
-            <Button
-              label={showAiPermissions ? "Hide AI permissions" : "Review AI permissions"}
-              variant="soft"
-              onPress={() => setShowAiPermissions((current) => !current)}
-            />
-            {showAiPermissions && (
-              <>
-                <T variant="caption" color="textSecondary">
-                  {FITNESS_AI_CONSENT_NOTICE}
-                </T>
-                <Button
-                  label={
-                    consent.data.consent.enabled
-                      ? "Turn off AI and remove interpretations"
-                      : "Allow AI assistance (TypeSafe)"
-                  }
-                  variant="soft"
-                  disabled={action.busy}
-                  onPress={() =>
-                    void action.run(
-                      (signal) =>
-                        session.request("/fitness/consent", {
-                          method: "PUT",
-                          json: { enabled: !consent.data!.consent.enabled },
-                          signal,
-                        }),
-                      refresh,
-                    )
-                  }
-                />
-              </>
-            )}
-          </>
-        )}
-      </Card>
+      <ListCard>
+        <ListRow
+          icon={Sparkles}
+          label="Help me log workouts"
+          detail="Turns a note into a draft you check before saving."
+          value={
+            consent.error
+              ? undefined
+              : consent.data?.consent.enabled
+                ? "On"
+                : consent.data
+                  ? "Off"
+                  : undefined
+          }
+          valueTone={consent.data?.consent.enabled ? "accent" : "muted"}
+          onPress={() => router.push("/settings/privacy")}
+        />
+      </ListCard>
       {pilot.data && (
         <FitnessPilotPermissions
           consent={pilot.data.consent}

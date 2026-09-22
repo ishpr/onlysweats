@@ -1,5 +1,5 @@
 import { Link, useRouter } from "expo-router";
-import { Bell } from "lucide-react-native";
+import { Bell, Settings } from "lucide-react-native";
 import { Pressable, StyleSheet, View } from "react-native";
 import Svg, { Circle, G, Rect } from "react-native-svg";
 
@@ -67,6 +67,15 @@ export function AppHeader() {
       >
         <Bell size={20} color={theme.text} strokeWidth={1.75} />
         {unread > 0 && <View style={[styles.bellDot, { backgroundColor: theme.move }]} />}
+      </PressScale>
+      <PressScale
+        accessibilityRole="button"
+        accessibilityLabel="Settings"
+        onPress={() => router.push("/settings")}
+        style={styles.bell}
+        hitSlop={6}
+      >
+        <Settings size={20} color={theme.text} strokeWidth={1.75} />
       </PressScale>
     </View>
   );
