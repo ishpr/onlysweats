@@ -23,13 +23,24 @@ import {
   recordPersonaAccountReview,
   type CreationClaim,
 } from "./persona-creation-intents.server.ts";
+import {
+  personaCaseCleanupConfigured,
+  queuePersonaCaseCleanup,
+} from "./persona-case-cleanup.server.ts";
 
 type Env = Record<string, string | undefined>;
 type Fetch = typeof fetch;
 export type Deps = { env?: Env; fetch?: Fetch };
 
 export type VerificationStatus =
-  "created" | "pending" | "needs_review" | "approved" | "declined" | "failed" | "expired";
+  | "created"
+  | "pending"
+  | "needs_review"
+  | "approved"
+  | "declined"
+  | "failed"
+  | "expired"
+  | "redacted";
 
 const PERSONA_API = "https://api.withpersona.com/api/v1";
 const PERSONA_VERSION = "2023-01-05";
@@ -75,7 +86,11 @@ function personaConfig(env: Env) {
 
 /** Persona when it's configured; a stand-in outside production; otherwise nothing. */
 export function providerFor(env: Env = process.env): "persona" | "dev" | null {
-  if (personaConfig(env)) return "persona";
+  const cfg = personaConfig(env);
+  if (cfg) {
+    if (!allowsSandbox(env) && !personaCaseCleanupConfigured(env, cfg.environment)) return null;
+    return "persona";
+  }
   if (env.PERSONA_API_KEY?.trim()) return null;
   return isProduction(env) ? null : "dev";
 }
@@ -222,7 +237,12 @@ async function persona<T>(
 type InquiryResource = {
   id: string;
   type?: string;
-  attributes: { status: string; "reference-id"?: string | null; "updated-at"?: string };
+  attributes: {
+    status: string;
+    "reference-id"?: string | null;
+    "updated-at"?: string;
+    "redacted-at"?: string | null;
+  };
   relationships?: {
     account?: { data?: { id?: string; type?: string } | null };
     "inquiry-template"?: { data?: { id?: string; type?: string } | null };
@@ -466,12 +486,18 @@ async function startLocked(
     const review = accountReviewFor(res, bindingFor(open, cfg), cfg);
     if (review) onAccount(review);
     const token = sessionTokenOf(res);
-    if (!matchesInquiry(res, bindingFor(open, cfg), cfg) || !token)
+    if (!matchesInquiry(res, bindingFor(open, cfg), cfg))
       throw new PaceError(409, "Verification returned an invalid response.");
-    const next = fromPersona(res.data.attributes.status);
+    const next = inquiryStatus(res.data);
     const providerAt = validProviderTime(res, now);
     if (providerAt === null) throw new PaceError(409, "Verification returned an invalid response.");
     if (next) await applyStatus(sql, open, next, now, providerAt);
+    if (next === "redacted") {
+      const template = cfg.templates[tier];
+      if (!template) throw new PaceError(409, "Verification isn’t open yet.");
+      return { create: true, cfg, template };
+    }
+    if (!token) throw new PaceError(409, "Verification returned an invalid response.");
     return {
       id: open.id,
       tier,
@@ -550,7 +576,10 @@ async function executeCreation(
       environment: claim.provider_environment,
       version: 1,
     };
-    let valid = matchesInquiry(res, binding, cfg) && validProviderTime(res, now) !== null;
+    let valid =
+      matchesInquiry(res, binding, cfg) &&
+      validProviderTime(res, now) !== null &&
+      inquiryStatus(res.data) !== "redacted";
     if (claim.provider_ref && issueUrl && valid && claim.profile_id && !claim.cancel_requested) {
       res = await persona<InquiryResponse>(
         cfg,
@@ -558,7 +587,10 @@ async function executeCreation(
         "POST",
         `/inquiries/${encodeURIComponent(providerRef)}/resume`,
       );
-      valid = matchesInquiry(res, binding, cfg) && validProviderTime(res, now) !== null;
+      valid =
+        matchesInquiry(res, binding, cfg) &&
+        validProviderTime(res, now) !== null &&
+        inquiryStatus(res.data) !== "redacted";
     }
     const token = sessionTokenOf(res);
     if (issueUrl && !token) valid = false;
@@ -589,7 +621,7 @@ async function executeCreation(
         const [row] = await tx<Row>`insert into verifications
         (id, profile_id, tier, provider, provider_ref, status, binding_version, provider_template_id, provider_environment, created_at, updated_at)
         values (${id}, ${owner}, ${tier}, 'persona', ${providerRef}, 'created', 1, ${intent.template_id}, ${intent.provider_environment}, ${at(now)}, ${at(now)}) returning *`;
-        const next = fromPersona(res.data.attributes.status);
+        const next = inquiryStatus(res.data);
         if (next) await applyStatus(tx, row, next, now, validProviderTime(res, now)!);
         return {
           id,
@@ -636,11 +668,20 @@ function fromPersona(status: string): VerificationStatus | null {
 
 const DECIDED = new Set<VerificationStatus>(["approved", "declined", "failed"]);
 
+/** Redaction does not change Persona's status field; it invalidates the evidence. */
+function inquiryStatus(
+  inquiry: InquiryResource | undefined,
+  eventName?: string,
+): VerificationStatus | null {
+  if (eventName === "inquiry.redacted" || inquiry?.attributes?.["redacted-at"] != null)
+    return "redacted";
+  return fromPersona(inquiry?.attributes?.status ?? "");
+}
+
 /**
- * Move one check to a new status, and the profile with it. Events arrive late,
- * twice and out of order, so a decided check only moves to another decision —
- * a stray "pending" after "approved" changes nothing. A later decline does undo
- * an approval: a reviewer at Persona can reverse one.
+ * Move one check and its profile together. Provider timestamps order decisions;
+ * a later decline can reverse approval. Without a provider timestamp, a decided
+ * check only moves to another decision. Redaction is terminal for this inquiry.
  */
 async function applyStatus(
   tx: Sql,
@@ -649,11 +690,17 @@ async function applyStatus(
   now: number,
   providerAt?: number,
 ) {
+  // Redaction is irreversible for this inquiry, even if a later delivery has
+  // a newer timestamp or repeats the approved status retained by Persona.
+  if (row.status === "redacted") return;
   if (providerAt !== undefined) {
     const prior = row.provider_updated_at ? +new Date(row.provider_updated_at) : -Infinity;
-    if (providerAt < prior || (providerAt === prior && next !== "declined" && next !== "failed"))
+    if (
+      next !== "redacted" &&
+      (providerAt < prior || (providerAt === prior && !["declined", "failed"].includes(next)))
+    )
       return;
-    await tx`update verifications set provider_updated_at = ${at(providerAt)} where id = ${row.id}`;
+    await tx`update verifications set provider_updated_at = ${at(Math.max(providerAt, prior))} where id = ${row.id}`;
   }
   if ((await latest(tx, row.profile_id, row.tier as VerificationTier))?.id !== row.id) return;
   const [owner] = await tx<{
@@ -743,7 +790,7 @@ export async function refreshVerification(
     if (review) await sql.transaction((tx) => recordPersonaAccountReview(tx, review, now));
     if (!matchesInquiry(res, bindingFor(row, cfg), cfg))
       throw new PaceError(409, "Verification returned an invalid response.");
-    const next = fromPersona(res.data.attributes.status);
+    const next = inquiryStatus(res.data);
     const providerAt = Date.parse(res.data.attributes["updated-at"] ?? "");
     if (!Number.isFinite(providerAt) || providerAt > now + WEBHOOK_TOLERANCE_MS)
       throw new PaceError(409, "Verification returned an invalid response.");
@@ -888,7 +935,7 @@ export async function handlePersonaWebhook(
   const eventId = event.data?.id;
   const name = event.data?.attributes?.name ?? "";
   const inquiry = event.data?.attributes?.payload?.data;
-  const next = fromPersona(inquiry?.attributes?.status ?? "");
+  const next = inquiryStatus(inquiry, name);
   const providerAt = Date.parse(event.data?.attributes?.["created-at"] ?? "");
   if (
     !eventId ||
@@ -948,6 +995,13 @@ export async function queueVerificationRedactions(sql: Sql, userId: string, now 
     select provider_ref, provider_environment, ${at(now)}, ${at(now)} from verifications
     where profile_id = ${userId} and provider = 'persona' and provider_ref is not null
     on conflict (provider_ref) do nothing`;
+  const refs = await sql<{
+    provider_ref: string;
+    provider_environment: "sandbox" | "production" | null;
+  }>`
+    select provider_ref,provider_environment from verifications where profile_id=${userId} and provider='persona' and provider_ref is not null`;
+  for (const row of refs)
+    await queuePersonaCaseCleanup(sql, row.provider_ref, row.provider_environment, now);
 }
 
 /** Recover bounded create attempts without exposing a hosted session URL. */
@@ -959,6 +1013,7 @@ export async function recoverPersonaCreations(
   const result = { bound: 0, reconciled: 0, failed: 0 };
   const cfg = personaConfig(env);
   if (!cfg) return result;
+  if (!allowsSandbox(env) && !personaCaseCleanupConfigured(env, cfg.environment)) return result;
   const ids = await listDuePersonaCreationIntents(sql, cfg.environment, now, 5);
   for (const id of ids) {
     const claim = await claimPersonaCreationIntent(sql, id, cfg.environment, now);
@@ -996,6 +1051,9 @@ export async function retryPersonaRedactions(
       returning provider_ref, attempts`;
     if (!job) break;
     try {
+      // A creation may be recovered after the account itself has been removed.
+      // Commit its independent Case obligation before dispatching inquiry erasure.
+      await queuePersonaCaseCleanup(sql, job.provider_ref, cfg.environment, now);
       await persona(cfg, doFetch, "DELETE", `/inquiries/${encodeURIComponent(job.provider_ref)}`);
       const removed =
         await sql`delete from persona_redaction_jobs where provider_ref = ${job.provider_ref}

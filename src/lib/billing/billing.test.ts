@@ -364,6 +364,62 @@ describe("hosted billing and fee support", () => {
     assert.equal(provider.refundCalls, before + 2);
   });
 
+  it("a late refund failure overrides an earlier success without issuing another refund", async () => {
+    const user = await member(),
+      id = await feeFor(user);
+    await feeCheckout(user, id);
+    const { op } = await checkoutFor(user, id);
+    provider.pay(op.session_id!);
+    await sql`update ledger_events set status = 'waived' where id = ${id}`;
+    await sweep();
+    const [refunded] = await sql<Checkout>`select * from billing_checkouts where id = ${op.id}`;
+    assert.equal(refunded.status, "refunded");
+    const calls = provider.refundCalls;
+    const refund = [...provider.refunds.values()].find((r) => r.id === refunded.refund_id)!;
+    refund.status = "failed";
+    // The durable refund's latest status wins even if an expanded charge still
+    // reports its earlier aggregate amount_refunded.
+    const failure = event("evt_late_refund_failure", "refund.failed", { id: refund.id });
+    await handleStripeWebhook(sql, failure.raw, failure.signature, options);
+    await sweep();
+    assert.equal(
+      (await sql<Checkout>`select * from billing_checkouts where id = ${op.id}`)[0].status,
+      "review_required",
+    );
+    await sweep();
+    assert.equal(
+      provider.refundCalls,
+      calls,
+      "a failed refund needs operator review, not another charge/refund",
+    );
+  });
+
+  it("a card-network dispute remains under review when an earlier refund succeeded", async () => {
+    const user = await member(),
+      id = await feeFor(user);
+    await feeCheckout(user, id);
+    const { op } = await checkoutFor(user, id);
+    provider.pay(op.session_id!);
+    await sql`update ledger_events set status = 'waived' where id = ${id}`;
+    await sweep();
+    const [refunded] = await sql<Checkout>`select * from billing_checkouts where id = ${op.id}`;
+    assert.equal(refunded.status, "refunded");
+    assert.ok(refunded.refund_id);
+    const calls = provider.refundCalls;
+    provider.payments.get(refunded.payment_intent_id!)!.disputed = true;
+    const dispute = event("evt_dispute_after_refund", "charge.dispute.created", {
+      id: refunded.payment_intent_id!,
+    });
+    await handleStripeWebhook(sql, dispute.raw, dispute.signature, options);
+    await sweep();
+    await sweep();
+    assert.equal(
+      (await sql<Checkout>`select * from billing_checkouts where id = ${op.id}`)[0].status,
+      "review_required",
+    );
+    assert.equal(provider.refundCalls, calls);
+  });
+
   it("membership credits export once and never become fee payments or cash refunds", async () => {
     const user = await member(),
       id = await feeFor(user, "show_up_credit");

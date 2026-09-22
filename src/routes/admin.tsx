@@ -385,6 +385,18 @@ function Console() {
               label="Verification requests needing review"
               value={operations.counts.persona_creation_review_required}
             />
+            <Stat
+              label="Pending Persona Case cleanup"
+              value={operations.counts.pending_persona_case_cleanup}
+            />
+            <Stat
+              label="Persona Case cleanup needing review"
+              value={operations.counts.persona_case_cleanup_review_required}
+            />
+            <Stat
+              label="Persona Case rescans overdue by a day"
+              value={operations.counts.overdue_persona_case_rescans}
+            />
             <Stat label="Open fee disputes" value={operations.counts.open_fee_disputes} />
             <Stat label="Pending fee refunds" value={operations.counts.pending_fee_refunds} />
             <Stat

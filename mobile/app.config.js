@@ -14,6 +14,9 @@ module.exports = ({ config }) => {
   return {
     ...config,
     plugins: [
+      // Expo runs chained native mods in reverse registration order; this
+      // completes the widget plist after expo-widgets generates its target.
+      "./plugins/with-widget-version",
       ...(config.plugins ?? []),
       ["expo-build-properties", { ios: { enableSceneSupport: true } }],
       "./plugins/with-healthkit",

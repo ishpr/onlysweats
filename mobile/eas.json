@@ -37,10 +37,27 @@
       }
     },
     "production": {
+      "developmentClient": false,
+      "distribution": "store",
+      "environment": "production",
       "autoIncrement": true,
+      "ios": {
+        "buildConfiguration": "Release"
+      },
       "env": {
+        "EXPO_NO_DOTENV": "1",
         "EXPO_PUBLIC_API_URL": "https://samepace.app",
+        "SAMEPACE_INCLUDE_WATCH": "true",
         "GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.281917036662-gkimr8co64pe6rqhhhjs1avdtcdp3efa"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6814677892",
+        "appleTeamId": "NZBE9W77FA",
+        "groups": ["SamePace Owner"]
       }
     }
   }

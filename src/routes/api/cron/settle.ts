@@ -42,6 +42,8 @@ async function handle({ request }: { request: Request }) {
     await import("@/lib/pace/verification.server");
   const personaCreations = await recoverPersonaCreations(sql);
   const personaRedactions = await retryPersonaRedactions(sql);
+  const { retryPersonaCaseCleanup } = await import("@/lib/pace/persona-case-cleanup.server");
+  const personaCaseCleanup = await retryPersonaCaseCleanup(sql);
   const { sweepBilling } = await import("@/lib/billing/worker.server");
   const billing = await sweepBilling(sql);
   const { pruneOperations } = await import("@/lib/operations/service.server");
@@ -58,6 +60,7 @@ async function handle({ request }: { request: Request }) {
     appleRevocations,
     personaCreations,
     personaRedactions,
+    personaCaseCleanup,
     contacts,
     coordination,
     billing,

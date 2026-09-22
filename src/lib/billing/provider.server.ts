@@ -34,11 +34,11 @@ export function billingConfig(
     webhookSecret: env.STRIPE_WEBHOOK_SECRET?.trim() ?? "",
     priceId: env.STRIPE_MEMBERSHIP_PRICE_ID?.trim() ?? "",
     portalConfigurationId: env.STRIPE_PORTAL_CONFIGURATION_ID?.trim() ?? "",
-    livemode: secretKey.startsWith("sk_live_"),
+    livemode: /^(?:sk|rk)_live_/.test(secretKey),
     configured: false,
   };
   config.configured =
-    /^sk_(test|live)_.+/.test(secretKey) &&
+    /^(?:sk|rk)_(?:test|live)_[A-Za-z0-9_]+$/.test(secretKey) &&
     config.webhookSecret.startsWith("whsec_") &&
     config.priceId.startsWith("price_") &&
     config.portalConfigurationId.startsWith("bpc_") &&

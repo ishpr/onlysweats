@@ -67,9 +67,9 @@ Sandbox**:
   Inquiry; the Account relationship has been removed.
 - It waits for a manual Case decision, then approves or declines the inquiry.
 
-Both workflows are deactivated in Production. Their published configuration
-still requires sandbox acceptance, including the failed-inquiry review path and
-both possible manual decisions.
+Both workflows are deactivated in Production. The synthetic failed-inquiry
+review path and both manual decisions passed the release acceptance below;
+required identity checks still need hosted acceptance.
 
 Sandbox key `api_AzLHMsDGu9YuHAMi6HdGHPpY7N2GoS` is created. Reloading its saved
 settings confirmed only **Access all inquiries** and **Create inquiries** are
@@ -129,6 +129,82 @@ required-check gating, hosted returns, manual Case decisions, or erasure of all
 child resources and Cases.
 
 ## Keep sandbox and production separate
+
+### Release acceptance on 2026-09-22 UTC
+
+One new disposable synthetic member was tested against the existing isolated
+Preview. Member inquiry `inq_AzLHMsDtUjqwuBJGFR4HQ8a8CdWpSL` used the published
+member template with no Account, phone, photo or document. Actual signed Persona
+events moved it through pending, needs review, declined and approved. Calling
+Persona's documented decline endpoint after approval produced a genuine signed
+revocation and removed the member badge. This is lifecycle acceptance, not an
+identity check.
+
+Two application-level replay checks then passed while the inquiry was active:
+reusing the genuine approval event ID returned `duplicate`, and sending its old
+provider snapshot with a previously unseen harness event ID left the newer
+decline intact. These requests were signed by the local acceptance harness;
+they are not additional Persona-originated webhook deliveries.
+
+Provider reads of previously redacted inquiries exposed a production-relevant
+adapter defect: Persona retains `status: approved` after setting `redacted-at`.
+Migration `0035_persona_redacted_status.sql` and the adapter now store terminal
+`redacted` state, clear that tier's badge, and refuse to restore it from later
+approval snapshots. A fresh verification creates a new inquiry. Other verified
+tiers remain intact. The signed `inquiry.redacted` event also revokes evidence
+when its optional attributes have been filtered out.
+
+The correction was checked against the actual Sandbox provider: the synthetic
+member inquiry was approved again and redacted through Persona's API. The
+current adapter, using a disposable local database bound to only that inquiry,
+read the retained approved status plus `redacted-at`, removed the badge and
+ignored a subsequent harness-signed approval snapshot. This verifies actual
+provider response handling, not deployment of the correction to the old Preview.
+The adapter, Case-cleanup and accountless probe tests passed together: **55 tests,
+zero failures**. Private evidence is retained under
+`.vercel/launch-acceptance/persona/` in the release worktree.
+Independent review then passed a broader ninety-test Persona/deletion/operations
+suite and one additional real-PostgreSQL Case-worker concurrency test, all
+without failures or skips. The latter holds one worker after its lease claim and
+proves a concurrent worker makes no provider call, with exactly one final Case
+DELETE and a completed monitoring receipt. These provider responses are fixtures;
+the PostgreSQL locking and migration checks use a disposable real database.
+
+The failed-inquiry workflow also created synthetic Case
+`case_AzLHMsDXuqqJpAgyx1YVotT2fa6mrv` (`KBCA-1`) for member inquiry
+`inq_AzLHMsDyqAQ1a9E1e83ppdiGUEW5Ex`, without personal information or uploaded
+material. A dashboard reviewer selected **Declined**; the workflow changed the
+inquiry and its actual signed event updated the Preview to declined, with no
+member badge. The synthetic account was then deleted. Missing credentials left
+its inquiry redaction obligation pending, an injected HTTP 503 left a durable
+failed job, and a later scoped retry against Persona redacted the inquiry and
+cleared that job. A provider read confirmed the redaction. The Case remained
+present with its linked inquiry fields marked Redacted. A separate dashboard
+**Redact case** action then produced the Case-level redaction banner and timeline
+entry; reloading confirmed the Redact action was gone. Inquiry redaction did not
+cascade to the Case.
+
+A second failed-inquiry fixture created Case
+`case_AzLHMsDTRRbv7ypqfunuCYhKsrdCkR` (`KBCA-2`) for
+`inq_AzLHMsDuBDv5Fm1dPmAMJjmfxE34oQ`. The reviewer selected **Approved**; the
+workflow approved that exact inquiry and its signed event enabled the member
+badge. Account deletion and inquiry erasure passed the same outage/retry checks.
+The reviewer separately redacted this Case in the Sandbox dashboard; reloading
+confirmed its explicit Case-level redaction banner at 00:37 UTC. Both known
+fixture Cases are now manually redacted. A dedicated Case cleanup key has not
+been provisioned, so automatic discovery/redaction acceptance remains pending.
+The independent obligation remains queued in the isolated Preview database:
+manual erasure of one known Case does not verify the worker's full linked-Case
+scan or future rescans.
+
+The government-ID hosted fixture reached US driver-license front capture with
+camera or another-device choices. No personal image, camera capture or document
+was submitted. After **API-simulated** completion, the hosted page displayed its
+completion screen; **Done** navigated to the configured Preview `/verified`
+return with the inquiry ID. Vercel deployment protection then required login.
+This proves hosted launch and the redirect destination with simulated completion;
+it does not prove required-check gating, biometric accuracy or final in-app return.
+That synthetic account and both inquiries have since been cleaned up.
 
 Use sandbox credentials only in local development or an isolated Vercel preview.
 Preview deployments must use their own database and webhook secret. Setting
@@ -217,10 +293,70 @@ including if it appears after initial binding. The inquiry is queued for
 redaction, but the app never blindly deletes the Account. Inquiry redaction does
 not redact a parent Account, as explained in [Persona's redaction guide](https://help.withpersona.com/articles/48Fu5XOdmd1y5v1xvbCkn8/).
 The runtime key has no Account or Case management permissions. Both configured
-review workflows link Cases only to the Inquiry, but Case retention and deletion
-still require actual provider acceptance. Do not describe an inquiry redaction
-acknowledgement as proof that all biometric data, Cases or child resources have
-been erased.
+review workflows link Cases only to the Inquiry. Case retention was observed
+directly as described above; it is handled by the separate cleanup worker below.
+Do not describe an inquiry redaction acknowledgement as proof that all biometric
+data, Cases or child resources have been erased.
+
+### Independent Case cleanup
+
+Migration `0036_persona_case_cleanup.sql` adds an outbox without a member foreign
+key or member identifier. Account deletion queues an opaque Inquiry reference
+before removing its verification rows. The inquiry worker also queues it before
+every provider DELETE, including recovered creates. Successful inquiry erasure
+never removes the Case obligation.
+
+Configure these **server-only** values independently per environment:
+
+- `PERSONA_CASE_CLEANUP_API_KEY`: a separate key with only the Case read/redact
+  permissions needed by GET `/cases`, GET `/cases/:id` and DELETE `/cases/:id`.
+  Keep the existing inquiry-only runtime key unchanged.
+- `PERSONA_CASE_TEMPLATE_IDS`: comma-separated exact allowed Case-template IDs
+  (one to eight). The verified Sandbox template is **KYC: Basic Case**, key
+  `KBCA`, ID `ctmpl_AzLHMsDB8gshfcSRVbyVbQG6H3vsQa`. Confirm Production's selected
+  template before configuring its allowlist; never use a wildcard.
+
+Production hosted creation, resume and creation recovery fail closed when these
+values are absent, use the same key as the inquiry runtime, or disagree with the
+runtime key's production environment. Existing callbacks and deletion obligations
+remain processable. Configuration passing is not a substitute for provider
+permission and template acceptance.
+
+The worker first reads the exact Inquiry using its inquiry-only key. Every Case
+API response must have the same `Persona-Organization-Id` and
+`Persona-Environment-Id` headers as that response; a shared key prefix alone
+cannot establish the same organization or custom Sandbox. It discovers Cases
+using the pinned [List Cases inquiry filter and page cursor](https://docs.withpersona.com/2023-01-05/api-reference/cases/list-all-cases),
+requests only redaction and relationship fields, and never persists the provider
+payload. The pinned schema supplies `inquiries`, `accounts`, `case-template` and
+`links.next`; absent relationships or pagination metadata require review.
+
+Before DELETE, a fresh Case read must show exactly one Inquiry matching the queued
+reference, an explicit empty Account relationship, and an allowlisted template.
+The lease must still belong to this worker. A second read after DELETE must
+positively confirm `redacted-at`; a 404 is not evidence of erasure. Unexpected
+bindings, environment headers or invalid pages remain `review_required`, and
+provider failures retain the obligation with backoff. See Persona's
+[individual Case redaction contract](https://docs.withpersona.com/2023-01-05/api-reference/cases/redact-a-case).
+
+The existing ten-minute settlement cron processes at most two Inquiry jobs and
+four Cases per invocation, in pages of at most two, within a twenty-second wall
+budget and five-second request timeouts. Pagination resumes from an opaque Case
+cursor only after that page's redactions are confirmed. A completed scan becomes
+eligible again after twenty-four hours to catch delayed workflow-created Cases.
+This is a target rescan cadence, not a guaranteed deletion deadline: outages and
+backlog extend it. At this budget, at most 288 Inquiry pages can be serviced per
+day; operators must increase scheduling capacity before the backlog exceeds it.
+
+Minimal opaque cleanup receipts have **no automatic expiry** until an accepted
+provider workflow/retention maximum permits one. They contain only provider refs,
+environment, cursors, timestamps and retry/review state, without identity material.
+The admin view exposes pending cleanup, review-required jobs and monitoring
+rescans overdue by more than a day. Unknown-environment legacy obligations are
+explicitly review-required; establish the original environment with provider
+evidence before assigning it and requeueing. Never infer it from the current key
+or delete an obligation because that key returns 404. Review unexpected ownership
+or Account links in the correct provider environment before any manual erasure.
 
 ## Run the disposable accountless probe
 
@@ -284,18 +420,14 @@ resuming. Do not remove pending state until the provider resources are reconcile
 
 - Confirm the member template performs phone verification and selfie liveness,
   and the government-ID template performs the approved document/selfie checks.
-- Confirm required-check failures and manual Case decisions map to approved,
-  declined and needs-review inquiries. The simulated status checks above do not
-  prove those decisions; completing a hosted flow alone never grants a badge.
-- Exercise hosted return, server refresh, active-inquiry duplicate delivery,
-  first-seen out-of-order events and approval revocation against the isolated
-  preview environment. Replaying an already-seen event proves deduplication,
-  not timestamp ordering.
-- Exercise a real review Case and account deletion, then confirm inquiry, child
-  resource and Case retention behavior with Persona. Unexpected Accounts remain
+- Confirm required-check failure gates and both member/government-ID hosted
+  completion paths; finish the protected Preview return in the signed-in app.
+  The actual manual Case decisions above passed using synthetic lifecycle inputs.
+- Verify the new dedicated-key Case worker against a new disposable synthetic Case,
+  including field selection and Case redaction acknowledgement, then configure
+  the accepted production permissions and exact template allowlist.
+- Confirm child-resource retention with Persona. Unexpected Accounts remain
   explicit manual review obligations; they must not be silently forgotten.
-- Verify that missing credentials and provider failures leave redaction jobs
-  pending, and that later retries finish them.
 - Assign moderation and appeal ownership before requiring verification.
 - Confirm the selected post-trial plan retains the configured event filters,
   decision workflows and Case features. The saved Sandbox configuration does
@@ -304,3 +436,39 @@ resuming. Do not remove pending state until the provider resources are reconcile
   Enterprise feature.
 
 No provider acceptance result is implied by the automated tests.
+
+## Post-trial production configuration
+
+The production Dashboard was inspected on 2026-09-22 UTC and showed an
+**Essential trial**, with no paid plan selected. Do not infer paid entitlements
+from the trial's available controls. The official feature tables currently list
+[Conditional steps](https://help.withpersona.com/articles/36BS5SiFg4jDAPSTC6arD7/),
+[Create Case](https://help.withpersona.com/articles/3ly3uUwIUTVih1pkT5dfcE/) and
+[Redact Object](https://help.withpersona.com/articles/48Fu5XOdmd1y5v1xvbCkn8/)
+as available on Essential. These are the basic workflow operations used here;
+this does not establish every selected risk signal's entitlement.
+
+The existing provider-side [webhook event
+filters](https://docs.withpersona.com/webhook-event-filters) are documented as an
+Enterprise feature. They are a delivery-minimization feature; SamePace separately
+requires its own exact inquiry, template, owner and environment binding before
+any state change. Before selecting a plan, either confirm the filter entitlement
+with Persona or validate a production webhook without those filters and with a
+minimal attribute payload. Preserve the template and explicit null Account
+relationships needed by the receiver. Do not change the accepted Sandbox
+configuration merely to assume it will remain available after trial.
+
+The runtime inquiry-only API key deliberately cannot manage Cases. Inquiry
+redaction does not independently redact a Case: Persona's redaction guide lists
+Cases among objects that redact only themselves. Production therefore also
+needs the dedicated Case cleanup key, exact template allowlist, actual worker
+acceptance and an accepted retention/rescan policy described above. Do not broaden
+the app's runtime key to administrative permissions as a substitute for this setup.
+
+Until hosted and review acceptance, retention ownership and post-trial
+entitlements are resolved, keep production workflows inactive and
+`VERIFICATION_ENFORCED=false`. Provision production credentials and the
+production signing secret together; the sandbox key must never be promoted.
+Subscribe the production webhook to `inquiry.redacted` as well as the existing
+status events so provider-side erasure proactively revokes a previously approved
+badge. Keep template and Account relationship IDs available to the receiver.

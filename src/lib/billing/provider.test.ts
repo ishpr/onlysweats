@@ -2,8 +2,32 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import Stripe from "stripe";
-import { stripeProvider, stripeUrl } from "./provider.server.ts";
+import { billingConfig, stripeProvider, stripeUrl } from "./provider.server.ts";
 import { testConfig } from "./test-provider.ts";
+
+test("restricted server keys retain their Stripe mode and reject publishable keys", () => {
+  const env = {
+    STRIPE_WEBHOOK_SECRET: "whsec_synthetic",
+    STRIPE_MEMBERSHIP_PRICE_ID: "price_membership",
+    STRIPE_PORTAL_CONFIGURATION_ID: "bpc_test",
+    BILLING_RETURN_URL: "https://samepace.example/billing-return",
+  };
+  for (const kind of ["sk", "rk"]) {
+    for (const mode of ["test", "live"]) {
+      const config = billingConfig({
+        ...env,
+        STRIPE_SECRET_KEY: ` ${kind}_${mode}_synthetic_fixture_only `,
+      });
+      assert.equal(config.configured, true);
+      assert.equal(config.livemode, mode === "live");
+      assert.equal(config.enabled, false, "credentials alone never enable sales");
+      assert.equal(config.enforced, false);
+    }
+  }
+  for (const key of ["pk_live_synthetic", "rk_live_", "rk_test_bad key", "rk_preview_synthetic"]) {
+    assert.equal(billingConfig({ ...env, STRIPE_SECRET_KEY: key }).configured, false);
+  }
+});
 
 test("membership recognizes portal cancellation timestamps without extending paid access", async () => {
   const periodEnd = 2_000_000_000;

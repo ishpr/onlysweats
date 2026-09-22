@@ -236,20 +236,26 @@ export async function refundFee(
   p: BillingProvider,
   now: number,
 ) {
-  if (op.status !== "refund_pending" || !op.payment_intent_id) return;
+  // A refund can initially succeed and later fail. Signed refund events must
+  // re-check a retained reference even after we displayed "refunded"; the
+  // charge's aggregate amount_refunded is not that refund's final status.
+  if (!op.payment_intent_id || (op.status !== "refund_pending" && !op.refund_id)) return;
+  const payment = await p.payment(op.payment_intent_id);
+  // A deleted Stripe customer may no longer be expanded on the payment. The
+  // existing, unique app payment reference was verified before this deletion.
+  if (
+    (payment.customerId !== a.customer_id && !(a.deleted_at && payment.customerId === null)) ||
+    payment.amount !== op.amount_cents ||
+    payment.currency !== "usd"
+  )
+    throw new Error("Refund ownership mismatch.");
+  if (payment.disputed) {
+    await tx`update billing_checkouts set status = 'review_required', updated_at = ${iso(now)} where id = ${op.id}`;
+    return;
+  }
   let result: { id: string | null; status: string; paymentIntentId?: string | null };
   if (op.refund_id) result = { id: op.refund_id, ...(await p.refundStatus(op.refund_id)) };
   else {
-    const payment = await p.payment(op.payment_intent_id);
-    // A deleted Stripe customer may no longer be expanded on the payment. The
-    // existing, unique app payment reference was verified before this deletion.
-    if (
-      (payment.customerId !== a.customer_id && !(a.deleted_at && payment.customerId === null)) ||
-      payment.amount !== op.amount_cents ||
-      payment.currency !== "usd"
-    )
-      throw new Error("Refund ownership mismatch.");
-    if (payment.disputed) return;
     result =
       payment.refunded >= op.amount_cents
         ? { id: null, status: "succeeded" }
