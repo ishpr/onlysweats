@@ -58,7 +58,7 @@ the member's tap. The model never calls a write.
 - **Mentors** (owner decision pending): a `role` on preferences and discovery, a rate on the
   mentor's profile, hold-at-booking / release-on-dual-check-in via Stripe Connect, payout, cut,
   earner verification gate. Tips: `POST /bookings/:id/tip`.
-- Turn the conversation on: `ASSISTANT_CHAT_ENABLED=true` + a funded AI Gateway (owner).
+- Production conversation is already funded and enabled with `zai/glm-5.3-flash`. Preserve the backend-selected model and distinguish loading, account settings, and temporary service availability; a simulator fallback does not establish production configuration.
 
 ## Words
 
