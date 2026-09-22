@@ -57,27 +57,83 @@ event remained; temporary credentials and hosted URLs were removed.
 
 The browser return reached Vercel's Preview sign-in gate. This proves the
 provider redirect was issued, not a complete physical-device return flow.
-Failed renewal, refunds, event replay/reordering and outage recovery still
-need actual-provider acceptance. A successful test payment does not authorize
-live collection or establish the cluster-density gate for launch.
+The additional provider acceptance below covers failed renewal, recovery,
+refunds and replay behavior. A successful test payment does not establish the
+cluster-density gate for launch.
+
+## Additional provider acceptance — September 21, 2026
+
+The current server adapter and billing worker passed nine bounded checks against
+real Stripe **test-mode** objects, with a disposable local database. A Stripe
+Test Clock advanced a paid monthly subscription through a declined renewal;
+Stripe returned `past_due` and SamePace removed its membership entitlement.
+After replacing the test payment method and paying the invoice, a deliberately
+injected provider outage retained the queued event and inactive entitlement.
+The next successful worker run restored the paid membership with no errors.
+
+Actual `customer.subscription.created`, `invoice.payment_failed` and
+`invoice.paid` webhooks arrived at the protected isolated Preview endpoint with
+Stripe signatures. Separately, retrieved Stripe event payloads were signed with
+a disposable local test secret and replayed into the current intake: a duplicate
+produced one event row, and replaying an old active subscription snapshot after
+the failure did not restore access. This verifies handler replay/reordering;
+it does not claim a Stripe Dashboard resend or a real production outage.
+
+Two real $10 test PaymentIntents exercised paid-fee support review, waiver and
+refund. Filing a dispute alone left the charge intact. Each approved waiver
+returned the full amount, including one after customer deletion. A deliberately
+lost response after Stripe created each refund recovered through the adapter's
+stable reference with **exactly one refund per payment**. These refund checks
+seeded a paid-fee operation in the disposable database; they did not repeat a
+hosted fee Checkout or simulate a card-network chargeback. All three synthetic
+customers and the Test Clock were deleted. No production member, health record
+or real card was involved. The focused billing suite passed 20 tests, including a regression for a refund
+that initially succeeds and later fails: the retained refund reference is
+rechecked and the fee moves to `review_required`, without issuing another refund.
+A card-network dispute keeps precedence over an earlier successful refund and
+also remains under review.
+
+A second actual-provider pass used Stripe's asynchronous refund and dispute
+test PaymentMethods. A pending refund completed using its existing reference;
+an initially successful refund later reported `failed` through the adapter;
+and a real test card-network dispute prevented an additional refund. The test
+dispute was closed and all three additional synthetic customers were deleted.
+Rechecking that real failed refund against its previously refunded operation,
+after customer deletion, moved the app state to `review_required` with one
+refund still present. This pass adds six checks; the focused service suite also
+covers dispute precedence over an earlier successful refund.
+
+The protected acceptance evidence is stored in
+`.vercel/launch-acceptance/stripe/result.json` in the release workspace. It
+contains only fixture references and outcomes, with no credentials or card data.
 
 ## Operator setup
 
 Start in Stripe **test mode**, with separate test data and credentials. Apply migration `0022_billing.sql` before running the API or worker.
 
-| Server environment variable      | Meaning                                                                                                                                                    |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BILLING_ENABLED`                | Literal `true` permits member-initiated checkout. Default false.                                                                                           |
-| `BILLING_CLUSTER_READY`          | Literal `true` is the operator's explicit cluster-readiness gate. Default false.                                                                           |
-| `BILLING_ENFORCED`               | Literal `true`, together with the preceding two flags, requires membership for new workout commitments after two completed workouts. Default false.        |
-| `STRIPE_SECRET_KEY`              | Server-only `sk_test_…` initially; eventual live setup uses `sk_live_…`. Never embed this in Expo/public environment variables.                            |
-| `STRIPE_WEBHOOK_SECRET`          | `whsec_…` signing secret for this deployment's webhook endpoint.                                                                                           |
-| `STRIPE_MEMBERSHIP_PRICE_ID`     | Active Stripe recurring Price: **USD 1200 cents, every one month**, quantity one. The server retrieves and validates it before membership checkout.        |
-| `STRIPE_PORTAL_CONFIGURATION_ID` | Active `bpc_…` configuration with subscription cancellation and payment-method updates enabled, and subscription plan changes disabled.                    |
-| `BILLING_RETURN_URL`             | Absolute HTTPS URL on the deployed SamePace site, normally `https://<deployment>/billing-return`; configure that host's app links for the physical device. |
-| `CRON_SECRET`                    | Existing server cron credential; the deployment must actually run `/api/cron/settle` every ten minutes.                                                    |
+| Server environment variable      | Meaning                                                                                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BILLING_ENABLED`                | Literal `true` permits member-initiated checkout. Default false.                                                                                                                           |
+| `BILLING_CLUSTER_READY`          | Literal `true` is the operator's explicit cluster-readiness gate. Default false.                                                                                                           |
+| `BILLING_ENFORCED`               | Literal `true`, together with the preceding two flags, requires membership for new workout commitments after two completed workouts. Default false.                                        |
+| `STRIPE_SECRET_KEY`              | Server-only test/live secret or restricted key (`sk_test_…`, `rk_test_…`, `sk_live_…`, `rk_live_…`). Prefer restricted permissions. Never embed this in Expo/public environment variables. |
+| `STRIPE_WEBHOOK_SECRET`          | `whsec_…` signing secret for this deployment's webhook endpoint.                                                                                                                           |
+| `STRIPE_MEMBERSHIP_PRICE_ID`     | Active Stripe recurring Price: **USD 1200 cents, every one month**, quantity one. The server retrieves and validates it before membership checkout.                                        |
+| `STRIPE_PORTAL_CONFIGURATION_ID` | Active `bpc_…` configuration with subscription cancellation and payment-method updates enabled, and subscription plan changes disabled.                                                    |
+| `BILLING_RETURN_URL`             | Absolute HTTPS URL on the deployed SamePace site, normally `https://<deployment>/billing-return`; configure that host's app links for the physical device.                                 |
+| `CRON_SECRET`                    | Existing server cron credential; the deployment must actually run `/api/cron/settle` every ten minutes.                                                                                    |
 
 Create the fixed membership Product/Price and portal configuration in Stripe. Set provider credentials and IDs on the server deployment. Configure the HTTPS webhook endpoint **`/api/webhooks/stripe`**, using its own signing secret. The configured secret key, Price and webhook events must use the same Stripe mode. Connect-account events and unexpected live/test mode are rejected. A member's test billing account cannot silently switch to live mode; use clean launch data or an operator-reviewed migration.
+
+For a restricted runtime key, grant Customers **write** (including customer
+invoice-balance transactions), Checkout Sessions **write**, Customer Portal
+**write**, Refunds **write**, and Prices, Subscriptions, Invoices, Payment
+Intents, Charges and Disputes **read**. If the Dashboard lists Customer Balance
+Transactions separately, it needs **write** for show-up credits. Creating the
+initial product/price, portal configuration and webhook needs corresponding
+setup write permissions; reduce these after setup. The running adapter does not
+need payout, transfer, bank-account or Connect permissions. Credentials alone
+never enable checkout or enforcement.
 
 Enable these events:
 
@@ -122,7 +178,7 @@ Checkout identities are committed before external calls. Customer, checkout, cre
 
 Inspect the cron's billing error counts and pending `billing_webhook_events`, `billing_deletion_queue`, `billing_credit_exports`, and `billing_checkouts`. A `review_required` checkout or failed refund requires an operator to inspect Stripe and the matching internal operation; this release has no generic dashboard button that safely resolves every provider ambiguity. Do not clear references or start another charge without reconciling the original. Stripe's idempotency retention is finite, so durable metadata checks are necessary: [idempotent requests](https://docs.stripe.com/api/idempotent_requests), [refunds](https://docs.stripe.com/api/refunds/create).
 
-Hosted checkout/3DS, portal cancellation and account deletion passed the bounded test-mode checks above. Before enabling a live cluster, complete failed renewal, duplicate and reordered webhook delivery, dispute/waiver/refund, deleted-customer delayed refund, worker outage/recovery, and physical-device browser return acceptance using the actual account. Verify the cron plan can meet the ten-minute schedule and the worker capacity keeps reconciliation within 24 hours. The current worker processes at most ten accounts, ten events and ten deletions per scheduled invocation (plus bounded per-account operations); scale scheduling/throughput before growth exceeds that capacity.
+Hosted checkout/3DS, portal cancellation, account deletion, failed renewal/recovery, handler replay/reordering, provider outage recovery and real refund adapter checks passed within the boundaries above. Before enabling a live cluster, complete the physical-device browser return, hosted fee dispute/waiver/refund flow and card-network dispute acceptance. Provider-delivery retries remain distinct from the locally injected worker outage. Verify the cron plan can meet the ten-minute schedule and the worker capacity keeps reconciliation within 24 hours. The current worker processes at most ten accounts, ten events and ten deletions per scheduled invocation (plus bounded per-account operations); scale scheduling/throughput before growth exceeds that capacity.
 
 Business account activation, settlement details, refund/support policy, recurring-payment disclosures, tax obligations and live deployment approval remain operator work. Automatic tax, promotions, alternate plans, and other currencies are not implemented. Do not enable live payments until those product and operational decisions are complete.
 
