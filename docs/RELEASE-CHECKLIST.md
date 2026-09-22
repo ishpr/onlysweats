@@ -10,6 +10,51 @@ Connect the installed development client to the intended release checkout's Metr
 
 The normal `device` build profile includes Watch and requires registered, provisioned paired hardware. Follow [physical iPhone and Watch acceptance](INTELLIGENCE-ACCEPTANCE.md) before claiming recording, pairing, sensor or battery acceptance.
 
+## Standalone TestFlight package
+
+The `production` EAS profile builds a store-distribution `Release` app with the
+JavaScript bundle embedded, development-client mode disabled, and
+`https://samepace.app` as its API. It disables dotenv loading and includes the
+Watch companion and widget extension. EAS keeps the incrementing build number
+remotely. A TestFlight install does not use Metro, a local server, or a developer
+token; later JavaScript changes require another store build until an explicit OTA
+release system is configured.
+
+Use the installed Xcode 27 toolchain for this release so the iOS/watchOS 27 code
+paths are compiled. Expo's [current documented cloud image](https://docs.expo.dev/build-reference/infrastructure/)
+is Xcode 26.6, which
+does not compile those new API paths. From `mobile`, create the package with
+`EXPO_NO_DOTENV=1 eas build --platform ios --profile production --local` and
+submit the resulting IPA with `eas submit --platform ios --profile production
+--path <ipa>`. Do not submit an internal development-client IPA. The phone,
+widget and Watch targets each require an App Store provisioning profile; the
+Watch does not require a registered device for store distribution.
+
+Check the exported archive's embedded JavaScript, API URL, App Store
+provisioning, HealthKit entitlements, companion identifier and matching version
+numbers before upload. Record the source commit and artifact checksum alongside
+the App Store Connect processing result. TestFlight processing and a signed
+archive do not establish physical HealthKit or Watch acceptance, and uploading
+to TestFlight does not publish an App Store release. See Expo's
+[local build](https://docs.expo.dev/build-reference/local-builds/) and
+[iOS submission](https://docs.expo.dev/submit/ios/) documentation.
+
+`with-widget-version` prevents Xcode's generated widget plist from replacing
+EAS's remote build number with the plugin's default `1`. The widget uses a
+complete source plist, which EAS updates together with the phone and Watch.
+The production submit profile points to SamePace's
+[App Store Connect record](https://appstoreconnect.apple.com/apps/6814677892/testflight/ios).
+The internal `SamePace Owner` group is limited to the authenticated account owner;
+do not use automatic all-admin enrollment for this release.
+
+Physical acceptance remains incomplete as of September 21, 2026. The connected
+iPhone is an iPhone 17 Pro Max running iOS 27. No physical Watch was detected,
+and paired-Watch availability has not been confirmed. Device Hub's remote view
+and actions were unreliable, so this pass establishes no new genuine HealthKit
+permission/source comparison or Watch recording result. A signed native archive
+does not replace those checks; use the [physical acceptance checklist](INTELLIGENCE-ACCEPTANCE.md)
+after installing the standalone beta.
+
 ## Server configuration
 
 - Production has `HEALTH_SYNC_ENABLED`, `A2A_ENABLED` and `JEV_ENABLED` enabled. Environment changes take effect on a subsequent deployment.
