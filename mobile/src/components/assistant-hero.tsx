@@ -308,11 +308,9 @@ function Spot({ ownerId, session }: { ownerId: string; session: ApiSession }) {
       accessibilityRole="button"
       accessibilityLabel={`Your workout assistant. ${headline}. ${detail}`}
       onPress={() =>
-        router.navigate(
-          status?.negotiationId
-            ? { pathname: "/agent", params: { negotiationId: status.negotiationId } }
-            : "/agent",
-        )
+        status?.negotiationId
+          ? router.push({ pathname: "/assistant/plan/[id]", params: { id: status.negotiationId } })
+          : router.navigate("/agent")
       }
       scaleTo={0.98}
     >

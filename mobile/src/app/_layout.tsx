@@ -210,7 +210,9 @@ function ProtectedRoutes({ signedIn }: { signedIn: boolean }) {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
         <Stack.Screen name="thread/[id]" options={{ title: "Session history" }} />
-        <Stack.Screen name="agent-chat/[id]" options={{ title: "Agent conversation" }} />
+        <Stack.Screen name="assistant/plan/[id]" options={{ title: "Plan" }} />
+        {/* Older links and notifications: forwards to the plan. */}
+        <Stack.Screen name="agent-chat/[id]" options={{ headerShown: false }} />
         <Stack.Screen
           name="live/[id]"
           options={{

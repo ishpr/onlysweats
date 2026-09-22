@@ -12,9 +12,11 @@ import { View } from "react-native";
 import { ConfirmSheet } from "@/components/confirm-sheet";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
 import { OverflowMenu } from "@/components/overflow-menu";
+import { PlanPeek } from "@/components/plan-peek";
 import { Sheet } from "@/components/sheet";
 import { SwipeRow } from "@/components/swipe-row";
 import { useToast } from "@/components/toast";
+import { captureApiSession } from "@/lib/api";
 import { Button, Card, Field, Row, Screen, T } from "@/components/ui";
 
 type Which = "compact" | "large" | "dirty" | "locked" | "confirm" | null;
@@ -26,6 +28,8 @@ export default function DevKit() {
   const [note, setNote] = useState("");
   const [rows, setRows] = useState(["Bench press · 3 sets", "Squat · 5 sets", "Row · 4 sets"]);
   const [muted, setMuted] = useState(false);
+  const [peekId, setPeekId] = useState<string | null>(null);
+  const [session] = useState(captureApiSession);
   const opener = useRef<View>(null);
   if (!__DEV__) return <Redirect href="/" />;
   const close = () => setWhich(null);
@@ -72,6 +76,26 @@ export default function DevKit() {
         <ListRow label="Locked — must be answered" onPress={() => setWhich("locked")} />
         <ListRow label="Confirm — one consequence" onPress={() => setWhich("confirm")} />
       </ListCard>
+
+      <SectionTitle>Plan (phase 3)</SectionTitle>
+      <ListCard>
+        <ListRow
+          label="Plan screen — unknown id (error state)"
+          onPress={() =>
+            router.push({ pathname: "/assistant/plan/[id]", params: { id: "not-a-real-plan" } })
+          }
+        />
+        <ListRow label="Plan peek — unknown id" onPress={() => setPeekId("not-a-real-plan")} />
+      </ListCard>
+      {peekId && session && (
+        <PlanPeek
+          id={peekId}
+          ownerId="dev"
+          session={session}
+          visible
+          onClose={() => setPeekId(null)}
+        />
+      )}
 
       <SectionTitle>Swipe to delete, with Undo</SectionTitle>
       {rows.map((row) => (

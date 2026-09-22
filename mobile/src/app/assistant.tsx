@@ -8,6 +8,7 @@ import { ActionCard, Segmented } from "@/components/assistant-kit";
 import { AssistantDiscovery } from "@/components/assistant-discovery";
 import { AppHeader } from "@/components/brand";
 import { ComposerDock } from "@/components/composer-dock";
+import { PlanPeek } from "@/components/plan-peek";
 import { AssistantPlacement } from "@/lib/assistant-placement";
 import { AssistantHero, assistantStatus } from "@/components/assistant-hero";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
@@ -27,7 +28,7 @@ type Mine = { bookings: Booking[]; sessions: Session[]; people: Person[] };
 export default function AssistantRoute() {
   const { negotiationId } = useLocalSearchParams<{ negotiationId?: string }>();
   if (typeof negotiationId === "string" && negotiationId)
-    return <Redirect href={{ pathname: "/agent-chat/[id]", params: { id: negotiationId } }} />;
+    return <Redirect href={{ pathname: "/assistant/plan/[id]", params: { id: negotiationId } }} />;
   return <PrivateMember component={Assistant} />;
 }
 
@@ -47,7 +48,10 @@ function Assistant({ member, session }: PrivateMemberProps) {
     undefined,
   );
   const [draftRevision, setDraftRevision] = useState(0);
-  const setSelected = (id: string) => router.push({ pathname: "/agent-chat/[id]", params: { id } });
+  const setSelected = (id: string) =>
+    router.push({ pathname: "/assistant/plan/[id]", params: { id } });
+  // "Review" on a chat card opens the plan as a peek over the thread, which stays mounted.
+  const [peek, setPeek] = useState<string | null>(null);
   const [showPreferences, setShowPreferences] = useState(params.planning === "1");
   const [showConnected, setShowConnected] = useState(false);
   const action = usePrivateAction(session);
@@ -173,13 +177,13 @@ function Assistant({ member, session }: PrivateMemberProps) {
             session={session}
             capturePhoto={params.capture === "photo"}
             onPlanning={(kind, targetId, draft) => {
+              if (kind === "negotiation" && targetId) return setPeek(targetId);
               setShowPlanning(true);
               if (kind === "preferences") {
                 setShowPreferences(true);
                 setPreferenceDraft(draft);
                 setDraftRevision((value) => value + 1);
               }
-              if (kind === "negotiation" && targetId) setSelected(targetId);
             }}
           />
         )}
@@ -303,6 +307,15 @@ function Assistant({ member, session }: PrivateMemberProps) {
         )}
       </Screen>
       <ComposerDock aboveTabBar={inTab} onHeight={setDockHeight} />
+      {peek && (
+        <PlanPeek
+          id={peek}
+          ownerId={member.id}
+          session={session}
+          visible
+          onClose={() => setPeek(null)}
+        />
+      )}
     </>
   );
 }
