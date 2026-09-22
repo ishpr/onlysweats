@@ -105,7 +105,7 @@ function Inbox({ member, session }: PrivateMemberProps) {
                     : "Planning";
           return (
             <Enter key={room.id} index={index}>
-              <Link href={{ pathname: "/agent-chat/[id]", params: { id: room.id } }} asChild>
+              <Link href={{ pathname: "/assistant/plan/[id]", params: { id: room.id } }} asChild>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Your assistant and ${name}’s assistant. ${status}`}
