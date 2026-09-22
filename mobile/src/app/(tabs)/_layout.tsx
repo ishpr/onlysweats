@@ -1,7 +1,7 @@
 import { BlurView } from "expo-blur";
 import * as SecureStore from "expo-secure-store";
 import { Tabs, useRouter } from "expo-router";
-import { Bot, House, MessageCircle, Search, UserRound } from "lucide-react-native";
+import { CalendarDays, MessageCircle, UserRound } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
@@ -29,11 +29,11 @@ import { useAssistantStatus } from "@/components/assistant-hero";
 import { captureApiSession, type ApiSession } from "@/lib/api";
 
 // The assistant sits in the middle: it is what the rest of the app is arranged around.
+// The conversation is the app (PRD v0.4): Chat · Sessions · You. Find, the older assistant
+// screen and the agent transcript stay as routes the chat opens; they just aren't tabs.
 const TABS = {
-  index: { label: "Home", icon: House },
-  sessions: { label: "Find", icon: Search },
-  agent: { label: "Assistant", icon: Bot },
-  inbox: { label: "Chats", icon: MessageCircle },
+  index: { label: "Chat", icon: MessageCircle },
+  mine: { label: "Sessions", icon: CalendarDays },
   you: { label: "You", icon: UserRound },
 } as const;
 
@@ -65,10 +65,11 @@ export default function TabsLayout() {
   return (
     <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <TabBar {...props} />}>
       <Tabs.Screen name="index" />
-      <Tabs.Screen name="sessions" />
-      <Tabs.Screen name="agent" />
-      <Tabs.Screen name="inbox" />
+      <Tabs.Screen name="mine" />
       <Tabs.Screen name="you" />
+      <Tabs.Screen name="sessions" options={{ href: null }} />
+      <Tabs.Screen name="agent" options={{ href: null }} />
+      <Tabs.Screen name="inbox" options={{ href: null }} />
     </Tabs>
   );
 }
@@ -157,9 +158,9 @@ function TabBar({ state, navigation }: TabBarProps) {
               key={route.key}
               accessibilityRole="tab"
               accessibilityLabel={
-                route.name === "index" && waiting > 0
+                route.name === "mine" && waiting > 0
                   ? `${tab.label}, ${waiting} waiting on you`
-                  : route.name === "agent" && needsMe
+                  : route.name === "index" && needsMe
                     ? `${tab.label}, may need you`
                     : tab.label
               }
@@ -180,7 +181,7 @@ function TabBar({ state, navigation }: TabBarProps) {
             >
               <View>
                 <TabIcon active={active}>
-                  {route.name === "agent" ? (
+                  {route.name === "index" ? (
                     <View
                       style={[
                         styles.centre,
@@ -196,8 +197,8 @@ function TabBar({ state, navigation }: TabBarProps) {
                     <tab.icon size={20} color={color} />
                   )}
                 </TabIcon>
-                {route.name === "agent" ? needsMe : null}
-                {route.name === "index" && waiting > 0 && (
+                {route.name === "index" ? needsMe : null}
+                {route.name === "mine" && waiting > 0 && (
                   <View style={[styles.dot, { backgroundColor: theme.move }]}>
                     <T
                       maxFontSizeMultiplier={1.2}
@@ -212,7 +213,7 @@ function TabBar({ state, navigation }: TabBarProps) {
                 // A tab label has a fixed slot; the large-content viewer covers bigger sizes.
                 maxFontSizeMultiplier={1.2}
                 numberOfLines={1}
-                style={[styles.label, { color: route.name === "agent" ? theme.accent : color }]}
+                style={[styles.label, { color: route.name === "index" ? theme.accent : color }]}
               >
                 {tab.label}
               </T>

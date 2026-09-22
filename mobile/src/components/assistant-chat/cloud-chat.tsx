@@ -52,11 +52,14 @@ export function CloudChat({
   session,
   onPlanning,
   onDevice,
+  prefill,
 }: {
   ownerId: string;
   session: ApiSession;
   onPlanning: PlanningAction;
   onDevice: () => void;
+  /** Words put in the box from outside (a chip, a card): `{ text, at }` so repeats register. */
+  prefill?: { text: string; at: number } | null;
 }) {
   const queryKey = ["private-assistant-chat", ownerId];
   const history = useQuery({
@@ -88,6 +91,7 @@ export function CloudChat({
       session={session}
       onPlanning={onPlanning}
       onDevice={onDevice}
+      prefill={prefill}
       history={history}
     />
   );
@@ -100,12 +104,14 @@ function CloudConversation({
   onPlanning,
   onDevice,
   history,
+  prefill,
 }: {
   ownerId: string;
   session: ApiSession;
   onPlanning: PlanningAction;
   history: UseQueryResult<ChatHistory, Error>;
   onDevice: () => void;
+  prefill?: { text: string; at: number } | null;
 }) {
   const router = useRouter();
   const client = useQueryClient();
@@ -113,6 +119,13 @@ function CloudConversation({
   const control = usePrivateAction(session);
   const runner = useMemo(() => createAssistantRun(session.isCurrent), [session]);
   const [text, setText] = useState("");
+  const [seenPrefill, setSeenPrefill] = useState(0);
+  if (prefill && prefill.at !== seenPrefill) {
+    setSeenPrefill(prefill.at);
+    setText(prefill.text.slice(0, 2000));
+  }
+  // What the agent says when it can't think in the cloud yet: honest, and still useful.
+  const [offline, setOffline] = useState<{ q: string; a: string }[]>([]);
   const [showOptions, setShowOptions] = useState(false);
   const [busy, setBusy] = useState(false);
   const [partial, setPartial] = useState("");
@@ -294,14 +307,14 @@ function CloudConversation({
           />
         </>
       )}
-      {settings && !settings.cloudEnabled && (
-        <Notice>Coaching is off. You can change this in Privacy choices below.</Notice>
-      )}
-      {settings && !settings.providerAvailable && (
-        <Notice>
-          Coaching is unavailable right now. You can use on-device help below or open Plans.
-        </Notice>
-      )}
+      {offline.map((turn, index) => (
+        <View key={index} style={{ gap: Spacing.two }}>
+          <ChatBubble from="me">{turn.q}</ChatBubble>
+          <ChatBubble from="assistant" source="Your agent">
+            <T>{turn.a}</T>
+          </ChatBubble>
+        </View>
+      ))}
       {visible.map((message) => (
         <ChatBubble
           key={message.id}
@@ -398,23 +411,34 @@ function CloudConversation({
           onPress={() => send(lastTurn)}
         />
       )}
-      {settings?.cloudEnabled && (
-        <ComposerPortal>
-          <ComposerRow onOptions={() => setShowOptions(true)}>
-            <Composer
-              value={text}
-              onChangeText={(value) => setText(value.slice(0, 2000))}
-              onSend={() => send()}
-              onStop={stop}
-              streaming={busy}
-              placeholder="Ask your coach"
-              disabled={
-                busy || control.busy || !settings?.cloudEnabled || !settings.providerAvailable
-              }
-            />
-          </ComposerRow>
-        </ComposerPortal>
-      )}
+      <ComposerPortal>
+        <ComposerRow onOptions={() => setShowOptions(true)}>
+          <Composer
+            value={text}
+            onChangeText={(value) => setText(value.slice(0, 2000))}
+            onSend={() => {
+              if (settings?.cloudEnabled && settings.providerAvailable) return send();
+              // No cloud yet: answer in the thread with what's true, never a grey box.
+              const q = text.trim();
+              if (!q) return;
+              setText("");
+              setOffline((turns) => [
+                ...turns,
+                {
+                  q,
+                  a: !settings?.cloudEnabled
+                    ? "I can't think in the cloud yet — that's off in Settings › What your assistant can use. Turn it on and ask me again. Until then, the cards above are what I can do."
+                    : "I can't think in the cloud yet — it hasn't been switched on for this app. The cards above still work, and I'll be here the moment it's on.",
+                },
+              ]);
+            }}
+            onStop={stop}
+            streaming={busy}
+            placeholder="Tell your agent what you want"
+            disabled={busy || control.busy}
+          />
+        </ComposerRow>
+      </ComposerPortal>
       <Sheet
         visible={showOptions}
         onClose={() => setShowOptions(false)}
