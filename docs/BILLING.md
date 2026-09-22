@@ -103,9 +103,25 @@ after customer deletion, moved the app state to `review_required` with one
 refund still present. This pass adds six checks; the focused service suite also
 covers dispute precedence over an earlier successful refund.
 
+A final hosted **$10 session-fee Checkout** completed using Stripe's 4242 test
+card and a separately identified synthetic fee ledger entry in isolated
+Preview. The real signed checkout webhook arrived and reconciliation made the
+app show the fee as paid. The member dispute API held it for support without
+refunding. A support waiver then produced exactly one full $10 refund and the
+app showed `refunded`. Account deletion removed the sign-in, scrubbed the
+profile, deleted the Stripe customer and completed its deletion job. All
+billing-only worker runs completed without errors; the Preview billing event
+queue drained to zero pending events. Temporary sign-in credentials and the
+hosted Checkout URL were removed from the protected evidence file.
+
+The browser returned to Vercel's Preview sign-in gate. A physical-device
+return-to-app acceptance therefore remains open even though payment and refund
+reconciliation completed successfully.
+
 The protected acceptance evidence is stored in
-`.vercel/launch-acceptance/stripe/result.json` in the release workspace. It
-contains only fixture references and outcomes, with no credentials or card data.
+`.vercel/launch-acceptance/stripe/{result,asynchronous-result,hosted-state}.json`
+in the release workspace. These contain fixture references and outcomes, with
+no credentials or card data.
 
 ## Operator setup
 
@@ -178,7 +194,7 @@ Checkout identities are committed before external calls. Customer, checkout, cre
 
 Inspect the cron's billing error counts and pending `billing_webhook_events`, `billing_deletion_queue`, `billing_credit_exports`, and `billing_checkouts`. A `review_required` checkout or failed refund requires an operator to inspect Stripe and the matching internal operation; this release has no generic dashboard button that safely resolves every provider ambiguity. Do not clear references or start another charge without reconciling the original. Stripe's idempotency retention is finite, so durable metadata checks are necessary: [idempotent requests](https://docs.stripe.com/api/idempotent_requests), [refunds](https://docs.stripe.com/api/refunds/create).
 
-Hosted checkout/3DS, portal cancellation, account deletion, failed renewal/recovery, handler replay/reordering, provider outage recovery and real refund adapter checks passed within the boundaries above. Before enabling a live cluster, complete the physical-device browser return, hosted fee dispute/waiver/refund flow and card-network dispute acceptance. Provider-delivery retries remain distinct from the locally injected worker outage. Verify the cron plan can meet the ten-minute schedule and the worker capacity keeps reconciliation within 24 hours. The current worker processes at most ten accounts, ten events and ten deletions per scheduled invocation (plus bounded per-account operations); scale scheduling/throughput before growth exceeds that capacity.
+Hosted checkout/3DS, portal cancellation, account deletion, failed renewal/recovery, handler replay/reordering, provider outage recovery and real refund adapter checks passed within the boundaries above. Before enabling a live cluster, complete the physical-device browser return and verify live deployment/worker configuration. Hosted fee dispute/waiver/refund and the actual-provider card-network dispute guard passed the additional checks above. Provider-delivery retries remain distinct from the locally injected worker outage. Verify the cron plan can meet the ten-minute schedule and the worker capacity keeps reconciliation within 24 hours. The current worker processes at most ten accounts, ten events and ten deletions per scheduled invocation (plus bounded per-account operations); scale scheduling/throughput before growth exceeds that capacity.
 
 Business account activation, settlement details, refund/support policy, recurring-payment disclosures, tax obligations and live deployment approval remain operator work. Automatic tax, promotions, alternate plans, and other currencies are not implemented. Do not enable live payments until those product and operational decisions are complete.
 
