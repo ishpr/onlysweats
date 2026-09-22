@@ -51,7 +51,12 @@ type FakeInquiryResponse = {
   data: {
     id: string;
     type: string;
-    attributes: { status: string; "reference-id"?: string | null; "updated-at": string };
+    attributes: {
+      status: string;
+      "reference-id"?: string | null;
+      "updated-at": string;
+      "redacted-at"?: string | null;
+    };
     relationships: {
       account?: { data: { id: string; type: string } | null };
       "inquiry-template"?: { data: { id?: string; type: string } };
@@ -361,6 +366,8 @@ describe("Persona", () => {
       {
         ...PERSONA,
         PERSONA_API_KEY: "persona_production_test",
+        PERSONA_CASE_CLEANUP_API_KEY: "persona_production_cases",
+        PERSONA_CASE_TEMPLATE_IDS: "ctmpl_samepace",
         VERCEL_ENV: "production",
         NODE_ENV: "production",
       },
@@ -559,6 +566,79 @@ describe("verification delivery reliability", () => {
     await deliver(event(inquiry, id, "approved", undefined, now + 2));
     assert.equal((await v.getVerification(sql, id, p.deps)).member, "pending");
     assert.notEqual(first.id, next.id);
+  });
+
+  it("redaction revokes retained approved status and is terminal, even when delivered late", async () => {
+    const id = await member("RedactedWebhook");
+    const p = fakePersona();
+    const started = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const inquiry = inquiryOf(started.url);
+    const now = Date.now() + 1000;
+    await deliver(event(inquiry, null, "approved", undefined, now), now);
+    assert.equal((await v.getVerification(sql, id, p.deps)).member, "approved");
+    const redacted = JSON.parse(event(inquiry, null, "approved", undefined, now - 1));
+    redacted.data.attributes.name = "inquiry.redacted";
+    assert.equal((await deliver(JSON.stringify(redacted), now)).outcome, "redacted");
+    assert.equal((await v.getVerification(sql, id, p.deps)).member, "none");
+    assert.equal((await svc.people(sql, [id]))[0].identityVerified, false);
+    // A newer unrelated event can still carry Persona's retained approved word.
+    await deliver(event(inquiry, null, "approved", undefined, now + 1), now + 1);
+    assert.equal((await v.getVerification(sql, id, p.deps)).member, "none");
+    assert.equal(
+      (await sql`select status from verifications where id = ${started.id}`)[0].status,
+      "redacted",
+    );
+    const replacement = await v.startVerification(sql, id, "member", now + 2, p.deps);
+    assert.notEqual(replacement.id, started.id);
+    assert.notEqual(inquiryOf(replacement.url), inquiry);
+    assert.equal(p.calls.filter((call) => call.path.endsWith("/resume")).length, 0);
+    assert.equal(p.calls.filter((call) => call.path === "/inquiries").length, 2);
+  });
+
+  it("refresh treats redacted-at as revoked evidence while preserving the other tier", async () => {
+    const id = await member("RedactedRefresh");
+    const p = fakePersona();
+    const memberCheck = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const idCheck = await v.startVerification(sql, id, "government_id", Date.now(), p.deps);
+    const now = Date.now() + 1000;
+    await deliver(event(inquiryOf(memberCheck.url), null, "approved", undefined, now), now);
+    await deliver(event(inquiryOf(idCheck.url), null, "approved", undefined, now), now);
+    p.statuses.set(inquiryOf(memberCheck.url), "approved");
+    p.control.edit = (body) => {
+      body.data.attributes["redacted-at"] = new Date(now + 1).toISOString();
+      body.data.attributes["updated-at"] = new Date(now + 1).toISOString();
+    };
+    const view = await v.refreshVerification(sql, id, memberCheck.id, now + 2, p.deps);
+    assert.equal(view.member, "none");
+    assert.equal(view.governmentId, "approved");
+    assert.equal((await svc.people(sql, [id]))[0].identityVerified, true);
+    assert.equal(
+      (await sql`select status from verifications where id = ${memberCheck.id}`)[0].status,
+      "redacted",
+    );
+  });
+
+  it("replaces a pending inquiry when resume discovers redaction without a session token", async () => {
+    const id = await member("RedactedResume");
+    const p = fakePersona();
+    const first = await v.startVerification(sql, id, "member", Date.now(), p.deps);
+    const firstInquiry = inquiryOf(first.url);
+    const now = Date.now() + 1000;
+    p.control.edit = (body) => {
+      if (body.data.id !== firstInquiry) return;
+      body.data.attributes["redacted-at"] = new Date(now).toISOString();
+      body.data.attributes["updated-at"] = new Date(now).toISOString();
+      delete body.meta["session-token"];
+    };
+    const next = await v.startVerification(sql, id, "member", now, p.deps);
+    assert.notEqual(next.id, first.id);
+    assert.notEqual(inquiryOf(next.url), firstInquiry);
+    assert.equal(
+      (await sql`select status from verifications where id = ${first.id}`)[0].status,
+      "redacted",
+    );
+    assert.equal(p.calls.filter((call) => call.path === "/inquiries").length, 2);
+    assert.equal((await v.getVerification(sql, id, p.deps)).member, "pending");
   });
 
   it("atomically retains redaction obligations through account deletion and retries failures", async () => {
