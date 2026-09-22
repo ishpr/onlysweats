@@ -1,6 +1,6 @@
 # Hosted billing
 
-The Stripe adapter, member billing screen, fee support queue, webhook intake, reconciliation worker, and membership gates are implemented. Payments are **off by default**. Stripe test mode is configured on an isolated Vercel Preview; production collection and membership enforcement remain off. Live credentials and real payment acceptance have not been supplied or tested. Local tests use synthetic provider state and a local HTTP server exercising the official `stripe` SDK (22.6.2 in the lockfile).
+The Stripe adapter, member billing screen, fee support queue, webhook intake, reconciliation worker, and membership gates are implemented. Payments are **off by default**. Stripe test mode is configured on an isolated Vercel Preview; production collection and membership enforcement remain off. Restricted live credentials are configured; real payment acceptance has not been performed. Local tests use synthetic provider state and a local HTTP server exercising the official `stripe` SDK (22.6.2 in the lockfile).
 
 ## Production preparation — September 21, 2026
 
@@ -11,14 +11,33 @@ the live Dashboard is accessible. These catalog resources are now created:
 | --- | --- |
 | Membership product | `prod_VItKIAk2cUQJDS` — SamePace Membership |
 | Recurring price | `price_1UIHYILmLwBE307yUZvtyuBO` — USD 1200 monthly, no active subscriptions |
+| Customer portal | `bpc_1UIIm9LmLwBE307y4iEwoCGY` — SamePace-specific configuration |
+| Webhook | `we_1UIIm9LmLwBE307ykSqANggN` — the 18 events below, API `2026-08-26.dahlia` |
 
-This is catalog preparation, not payment activation. The restricted production
-server-key form is staged for owner authorization; no new live key has been
-created or stored. The live portal, webhook and Vercel credential configuration
-remain pending. Do not duplicate the product or price when completing setup.
-Vercel Production now has this price ID and
+Following owner authorization on September 22 UTC, the restricted production
+server key was created through the Dashboard. Its secret and the webhook signing
+secret are protected local files and sensitive Vercel Production values. The
+dedicated live webhook targets `https://samepace.app/api/webhooks/stripe`; it does
+not use the Preview protection-bypass token. The existing product and price were
+reused, and exactly one SamePace portal and webhook were configured. No live
+customer, Checkout, payment or portal session was created during setup.
+
+The key permits Customers, Checkout Sessions, Customer Portal, and the
+Dashboard's combined Charges and Refunds permission at write level. Payment
+Intents, Disputes, Products, Prices, Subscriptions and Invoices are read-only.
+Temporary Webhook Endpoints/Event Destinations access was removed after setup;
+payout, transfer, Connect and other unrelated permissions remain disabled.
+
+Vercel Production has the secret key, signing secret, portal ID, price ID and
 `BILLING_RETURN_URL=https://samepace.app/billing-return`; `BILLING_ENABLED`,
 `BILLING_ENFORCED` and `BILLING_CLUSTER_READY` are explicitly `false`.
+Configuration does not activate collection or establish real payment acceptance.
+After removing setup access, the actual adapter still retrieved the active live
+USD 12/month price and the dedicated portal configuration. Retrieving that exact
+webhook with the runtime key returned HTTP 403, confirming the removed scope.
+All eight server settings were read back as Production-only; both credential
+values are sensitive secrets. Private evidence is retained under
+`.vercel/launch-acceptance-2026-09-21/stripe-production/` in the shared checkout.
 
 Stripe's Dashboard inherited the account's business-use/no-download SaaS tax
 preset (`txcd_10103001`). That is not an approved classification for SamePace's
