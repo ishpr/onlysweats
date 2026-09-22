@@ -101,7 +101,7 @@ stars. Block, report ("made it feel like a date"), suspension, deletion, admin q
 | Apple Health sync, Today's read, workouts | Built, deployed | Surface via the agent |
 | Workout plans, runs, set-by-set logging, offline | Built, deployed | Surface via the agent |
 | Agent-to-agent matching: discovery, proposals, coordination, dual approval, booking | Built (A2A), hidden behind "Workout matching" | Surface as cards in the chat |
-| Conversation (cloud) | Built, **off**: `ASSISTANT_CHAT_ENABLED` + unfunded AI Gateway | Fund + enable — **owner** |
+| Conversation (cloud) | Built, funded and enabled in Production; `zai/glm-5.3-flash` selected on the backend | Representative member and physical-device acceptance |
 | Chat tools that *act*: find, ask, post, approve, book, plan, log, tip | **Not built**; the chat only navigates | **Functional (Codex)** — the core gap |
 | Chat as Home, agent-first onboarding, cards for every action, voice | Not built | **Design** (+ native speech: functional) |
 | Mentors: rate, hold-and-release payment, payout, cut, earner verification, tips | **Not built** (v0.3 removed member-to-member money; Stripe does membership and fees only) | **Owner decision, then functional** — Stripe Connect |

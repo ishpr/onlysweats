@@ -11,13 +11,15 @@ export function PrivateAssistantChat({
   session,
   onPlanning,
   capturePhoto = false,
+  initiallyOnDevice = false,
 }: {
   ownerId: string;
   session: ApiSession;
   onPlanning: PlanningAction;
   capturePhoto?: boolean;
+  initiallyOnDevice?: boolean;
 }) {
-  const [onDevice, setOnDevice] = useState(false);
+  const [onDevice, setOnDevice] = useState(initiallyOnDevice);
   return (
     <View style={{ gap: Spacing.three }}>
       {capturePhoto && (

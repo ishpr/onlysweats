@@ -31,6 +31,12 @@ import type { ApiSession } from "@/lib/api";
 import { createAssistantRun } from "@/lib/assistant/run";
 import { createChatStreamParser, isChatMessage } from "@/lib/assistant/stream";
 import { readChatSettings } from "@/lib/assistant/settings";
+import {
+  appendLocalChatTurn,
+  chatAvailability,
+  localChatNotice,
+  type LocalChatTurn,
+} from "@/lib/assistant/chat-availability";
 import { storeGeneratedWorkoutPlanDraft } from "@/lib/workout-plans/draft-handoff";
 import { WorkoutPlanDraftCard } from "./workout-plan-draft-card";
 import {
@@ -52,12 +58,16 @@ export function CloudChat({
   session,
   onPlanning,
   onDevice,
+  prefill,
 }: {
   ownerId: string;
   session: ApiSession;
   onPlanning: PlanningAction;
   onDevice: () => void;
+  /** Words put in the box from outside (a chip, a card): `{ text, at }` so repeats register. */
+  prefill?: { text: string; at: number } | null;
 }) {
+  const [consumedPrefill, setConsumedPrefill] = useState<number | null>(null);
   const queryKey = ["private-assistant-chat", ownerId];
   const history = useQuery({
     queryKey,
@@ -81,13 +91,15 @@ export function CloudChat({
     <CloudConversation
       key={
         history.data
-          ? `${history.data.settings.consentGeneration}:${history.data.settings.historyGeneration}`
-          : "loading"
+          ? `${ownerId}:${history.data.settings.consentGeneration}:${history.data.settings.historyGeneration}`
+          : `${ownerId}:loading`
       }
       ownerId={ownerId}
       session={session}
       onPlanning={onPlanning}
       onDevice={onDevice}
+      prefill={prefill?.at === consumedPrefill ? null : prefill}
+      onPrefillConsumed={setConsumedPrefill}
       history={history}
     />
   );
@@ -100,12 +112,16 @@ function CloudConversation({
   onPlanning,
   onDevice,
   history,
+  prefill,
+  onPrefillConsumed,
 }: {
   ownerId: string;
   session: ApiSession;
   onPlanning: PlanningAction;
   history: UseQueryResult<ChatHistory, Error>;
   onDevice: () => void;
+  prefill?: { text: string; at: number } | null;
+  onPrefillConsumed: (at: number) => void;
 }) {
   const router = useRouter();
   const client = useQueryClient();
@@ -113,6 +129,8 @@ function CloudConversation({
   const control = usePrivateAction(session);
   const runner = useMemo(() => createAssistantRun(session.isCurrent), [session]);
   const [text, setText] = useState("");
+  const [seenPrefill, setSeenPrefill] = useState<number | null>(null);
+  const [offline, setOffline] = useState<LocalChatTurn[]>([]);
   const [showOptions, setShowOptions] = useState(false);
   const [busy, setBusy] = useState(false);
   const [partial, setPartial] = useState("");
@@ -123,6 +141,23 @@ function CloudConversation({
   const [permissionsUnconfirmed, setPermissionsUnconfirmed] = useState(false);
   useEffect(() => () => runner.cancel(), [runner]);
   const settings = history.error || permissionsUnconfirmed ? null : history.data?.settings;
+  const availability = chatAvailability({
+    settings,
+    pending: history.isPending,
+    failed: Boolean(history.error),
+    permissionsUnconfirmed,
+    current: session.isCurrent(),
+  });
+  const localNotice = localChatNotice(availability);
+  const canApplyPrefill = Boolean(prefill && settings && session.isCurrent());
+  if (canApplyPrefill && prefill && prefill.at !== seenPrefill) {
+    setSeenPrefill(prefill.at);
+    setText(prefill.text.slice(0, 2000));
+  }
+  // Acknowledge once outside the keyed conversation so clearing history cannot replay a chip.
+  useEffect(() => {
+    if (canApplyPrefill && prefill?.at === seenPrefill) onPrefillConsumed(seenPrefill);
+  }, [canApplyPrefill, prefill?.at, seenPrefill, onPrefillConsumed]);
   const stop = () => {
     runner.cancel();
     setBusy(false);
@@ -136,6 +171,7 @@ function CloudConversation({
     setLastTurn(null);
     setError(null);
     setText("");
+    setOffline([]);
   };
   const send = (retry?: ChatTurnInput) => {
     if (runner.busy || control.busy || !session.isCurrent()) return;
@@ -294,14 +330,15 @@ function CloudConversation({
           />
         </>
       )}
-      {settings && !settings.cloudEnabled && (
-        <Notice>Coaching is off. You can change this in Privacy choices below.</Notice>
-      )}
-      {settings && !settings.providerAvailable && (
-        <Notice>
-          Coaching is unavailable right now. You can use on-device help below or open Plans.
-        </Notice>
-      )}
+      {settings &&
+        offline.map((turn, index) => (
+          <View key={index} style={{ gap: Spacing.two }}>
+            <ChatBubble from="me">{turn.q}</ChatBubble>
+            <ChatBubble from="assistant" source="App status · on this device">
+              <T>{turn.a}</T>
+            </ChatBubble>
+          </View>
+        ))}
       {visible.map((message) => (
         <ChatBubble
           key={message.id}
@@ -398,23 +435,28 @@ function CloudConversation({
           onPress={() => send(lastTurn)}
         />
       )}
-      {settings?.cloudEnabled && (
-        <ComposerPortal>
-          <ComposerRow onOptions={() => setShowOptions(true)}>
-            <Composer
-              value={text}
-              onChangeText={(value) => setText(value.slice(0, 2000))}
-              onSend={() => send()}
-              onStop={stop}
-              streaming={busy}
-              placeholder="Ask your coach"
-              disabled={
-                busy || control.busy || !settings?.cloudEnabled || !settings.providerAvailable
-              }
-            />
-          </ComposerRow>
-        </ComposerPortal>
-      )}
+      <ComposerPortal>
+        <ComposerRow onOptions={() => setShowOptions(true)}>
+          <Composer
+            value={text}
+            onChangeText={(value) => setText(value.slice(0, 2000))}
+            onSend={() => {
+              if (runner.busy || control.busy || !session.isCurrent()) return;
+              if (availability === "ready") return send();
+              // Loading, errors and unconfirmed permissions never consume a draft.
+              if (!localNotice) return;
+              const q = text.trim();
+              if (!q) return;
+              setText("");
+              setOffline((turns) => appendLocalChatTurn(turns, { q, a: localNotice }));
+            }}
+            onStop={stop}
+            streaming={busy}
+            placeholder="Tell your agent what you want"
+            disabled={busy || control.busy || (availability !== "ready" && !localNotice)}
+          />
+        </ComposerRow>
+      </ComposerPortal>
       <Sheet
         visible={showOptions}
         onClose={() => setShowOptions(false)}
@@ -425,7 +467,7 @@ function CloudConversation({
           <ListRow
             icon={ShieldCheck}
             label="What your assistant can use"
-            value={settings?.cloudEnabled ? "Cloud on" : "Cloud off"}
+            value={settings ? (settings.cloudEnabled ? "Cloud on" : "Cloud paused") : "Unconfirmed"}
             onPress={() => {
               setShowOptions(false);
               router.push("/settings/privacy");
@@ -471,7 +513,10 @@ function CloudConversation({
             icon={Smartphone}
             label="Use on-device help"
             value="Separate chat"
-            onPress={onDevice}
+            onPress={() => {
+              setShowOptions(false);
+              onDevice();
+            }}
           />
         </ListCard>
       </Sheet>

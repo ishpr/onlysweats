@@ -3,55 +3,45 @@
  * screen pins that box to the bottom. The chat renders `<ComposerPortal>`; the screen
  * renders `<ComposerDock>`. With no dock on screen the box simply renders in place.
  */
-import { useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { useIsFocused, useRoute } from "expo-router";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
-let node: ReactNode = null;
-let docks = 0;
-const listeners = new Set<() => void>();
-const emit = () => listeners.forEach((listener) => listener());
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-};
+import { createComposerStore } from "./composer-store";
+
+const composers = createComposerStore<ReactNode>();
 
 export function ComposerPortal({ children }: { children: ReactNode }) {
+  const { key: route } = useRoute();
+  const focused = useIsFocused();
+  const [owner] = useState(() => Symbol("composer"));
   const docked = useSyncExternalStore(
-    subscribe,
-    () => docks > 0,
+    composers.subscribe,
+    () => composers.hasDock(route),
     () => false,
   );
-  // Every render hands the dock the latest box. Only the dock listens, so this never loops.
+  // Background polling must never publish a hidden screen's composer.
   useEffect(() => {
-    if (!docked) return;
-    node = children;
-    emit();
+    if (focused && docked) composers.publish(route, owner, children);
   });
+  // Only this portal's publication is cleared on blur, detach, or unmount.
   useEffect(
-    () => () => {
-      node = null;
-      emit();
-    },
-    [],
+    () => () => composers.release(route, owner),
+    [route, owner, focused, docked],
   );
-  return docked ? null : children;
+  return !focused || docked ? null : children;
 }
 
 /** The box the current chat handed over, or `null`. Registers the caller as the dock. */
 export function useDockedComposer(): ReactNode {
+  const { key: route } = useRoute();
+  const focused = useIsFocused();
   useEffect(() => {
-    docks += 1;
-    emit();
-    return () => {
-      docks -= 1;
-      node = null;
-      emit();
-    };
-  }, []);
+    if (!focused) return;
+    return composers.registerDock(route);
+  }, [route, focused]);
   return useSyncExternalStore(
-    subscribe,
-    () => node,
+    composers.subscribe,
+    () => (focused ? composers.read(route) : null),
     () => null,
   );
 }
