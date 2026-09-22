@@ -1,5 +1,6 @@
 import type { Activity } from "../src/lib/pace/types.ts";
 import type { AIWorkoutPlanDraft } from "./workout-plans.ts";
+import type { AgentChatCard } from "./agent-cards.ts";
 
 /** Private assistant contract; never an A2A message or permission to act. */
 export const CHAT_NOTICE_VERSION = "private-assistant-v1" as const;
@@ -44,7 +45,9 @@ export type ChatAction = {
     | "session"
     | "workout"
     | "fitness"
-    | "workout_plan";
+    | "workout_plan"
+    | "workout_run"
+    | "agent_card";
   label: string;
   description: string;
   targetId?: string;
@@ -52,6 +55,8 @@ export type ChatAction = {
   preferenceDraft?: ChatPreferenceDraft;
   /** An unsaved suggestion. Opening the editor never records completed exercise. */
   workoutPlanDraft?: AIWorkoutPlanDraft;
+  /** A server-persisted draft. Only the member's tap may execute it. */
+  card?: AgentChatCard;
 };
 export type ChatMessage = {
   id: string;
@@ -70,7 +75,14 @@ export type ChatTurnInput = {
   historyGeneration: string;
   /** Omitted by older clients, which cannot render structured plan cards. */
   workoutPlanDrafts?: boolean;
+  /** Older clients must not receive cards they cannot review. */
+  agentCards?: boolean;
+  /** Device context for interpreting dates; server time still owns every deadline. */
+  timeZone?: string;
+  clientNow?: string;
 };
+export type ChatActionReceipt = { actionId: string; text: string; createdAt: string };
+export type ChatActionResult = { receipt: ChatActionReceipt; history: ChatHistory };
 export type ChatEvent =
   | { type: "start"; requestId: string }
   | { type: "delta"; text: string }

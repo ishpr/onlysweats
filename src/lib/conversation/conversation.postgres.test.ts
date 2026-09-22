@@ -230,6 +230,38 @@ test(
       process.env.HEALTH_SYNC_ENABLED = "true";
 
       await t.test(
+        "terms acceptance waits before identity when a profile-first action is active",
+        async () => {
+          const { id } = await member(sql);
+          const locked = latch<number>(),
+            resume = latch();
+          const profileFirst = sql.transaction(async (tx) => {
+            await tx`select id from profiles where id=${id} for no key update`;
+            const [{ pid }] = await tx<{ pid: number }>`select pg_backend_pid() pid`;
+            locked.release(pid);
+            await resume.promise;
+            // Same profile -> identity sequence as a workout/action mutation.
+            await tx`select id from "user" where id=${id} for update`;
+          });
+          const pending: Promise<unknown>[] = [profileFirst];
+          try {
+            const pid = await within(locked.promise, "profile-first action lock");
+            const accepting = acceptAppTerms(sql, id, { version: APP_TERMS_VERSION });
+            pending.push(accepting);
+            const settled = Promise.allSettled(pending);
+            await assertBlocked(sql, pid);
+            resume.release();
+            const outcomes = await within(settled, "Terms and profile-first action completion");
+            assert.ok(outcomes.every((outcome) => outcome.status === "fulfilled"));
+            assert.equal((await getAppTerms(sql, id)).accepted, true);
+          } finally {
+            resume.release();
+            await Promise.allSettled(pending);
+          }
+        },
+      );
+
+      await t.test(
         "simultaneous terms acceptance initializes grants once after a real lock wait",
         async () => {
           const id = randomUUID();

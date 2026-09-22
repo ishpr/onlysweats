@@ -5,6 +5,7 @@
  * when available; any local availability notices remain distinct from model replies.
  */
 import { useRouter } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   CalendarPlus,
   ChevronRight,
@@ -126,6 +127,15 @@ export function AgentOpening({
   const router = useRouter();
   const mine = useMine();
   const status = useAssistantStatus(me.id, session);
+  const privateGoal = useQuery({
+    queryKey: ["private-agent-goal", me.id],
+    gcTime: 0,
+    retry: false,
+    queryFn: ({ signal }) =>
+      session.request<{
+        goal: { label: string; activity: string; date: string; revision: number } | null;
+      }>("/assistant/goal", { signal }),
+  });
   const name = firstName(me.name);
   const now = useNow(15_000);
 
@@ -133,6 +143,12 @@ export function AgentOpening({
     (b) => b.viewer === "member" && (b.status === "forming" || b.status === "active"),
   );
   const goal: TrainingBlock | undefined = goals[0];
+  const savedGoal = privateGoal.error ? null : privateGoal.data?.goal;
+  const intention = savedGoal
+    ? { label: savedGoal.label, date: savedGoal.date }
+    : goal
+      ? { label: goal.goalLabel, date: goal.goalDate.split("T")[0] }
+      : null;
   const plan = !mine.error
     ? nextAgentSession(me.id, mine.data?.sessions ?? [], mine.data?.bookings ?? [], now)
     : undefined;
@@ -159,9 +175,9 @@ export function AgentOpening({
   else if (next)
     greeting = `${awaitingApproval ? "Waiting for approval" : "Next up"}: ${next.title}, ${formatWhen(next.startAt)}.`;
   else if (looking)
-    greeting = `Your saved preferences are guiding the search${goal ? ` for ${goal.goalLabel}` : ""}. Your agents can coordinate within your shared-planning permissions.`;
-  else if (goal)
-    greeting = `You're working toward ${goal.goalLabel} by ${formatWhen(goal.goalDate).split(" · ")[0]}. Want me to find you a partner for it?`;
+    greeting = `Your saved preferences are guiding the search${intention ? ` for ${intention.label}` : ""}. Your agents can coordinate within your shared-planning permissions.`;
+  else if (intention)
+    greeting = `You're working toward ${intention.label} by ${intention.date}. Want me to find you a partner for it?`;
   else if (!hasLevel)
     greeting = `Hi${name ? ` ${name}` : ""}. I can help you plan your workouts and look for a partner at your level. What are you working toward?`;
   else
@@ -171,7 +187,7 @@ export function AgentOpening({
     ? []
     : needsMe
       ? []
-      : next && !goal
+      : next && !intention
         ? [
             { label: "Set a goal", onPress: () => onSay("I want to set a goal") },
             { label: "Find me a partner", onPress: () => onSay("Find me a partner") },
@@ -185,16 +201,16 @@ export function AgentOpening({
                 onPress: () => onSay("Post a run this week that others can join"),
               },
             ]
-          : goal
+          : intention
             ? [
                 {
                   label: "Find me a partner",
-                  onPress: () => onSay(`Find me a partner for ${goal.goalLabel}`),
+                  onPress: () => onSay(`Find me a partner for ${intention.label}`),
                 },
                 { label: "Post a session", onPress: () => onSay("Post a session this week") },
                 {
                   label: "Make me a plan",
-                  onPress: () => onSay(`Make me a training plan for ${goal.goalLabel}`),
+                  onPress: () => onSay(`Make me a training plan for ${intention.label}`),
                 },
               ]
             : [
@@ -249,6 +265,16 @@ export function AgentOpening({
           onPress={() => router.push({ pathname: "/session/[id]", params: { id: next.id } })}
         />
       )}
+      {savedGoal && !goal && (
+        <AgentCard
+          icon={Target}
+          eyebrow="Your goal"
+          title={savedGoal.label}
+          detail={`Working toward ${savedGoal.date}`}
+          action="See progress"
+          onPress={() => onSay(`How am I progressing toward ${savedGoal.label}?`)}
+        />
+      )}
       {goal && (
         <AgentCard
           icon={Target}
@@ -274,7 +300,7 @@ export function AgentOpening({
           </View>
         </Card>
       )}
-      {!goal && !next && !looking && hasLevel && (
+      {!intention && !next && !looking && hasLevel && (
         <AgentCard
           icon={Search}
           eyebrow="Or"

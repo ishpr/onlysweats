@@ -10,6 +10,7 @@ import { candidatePlans, getPreferences } from "./assistant.server.ts";
 import { advanceCoordination, enqueueCoordination } from "./coordination.server.ts";
 import { introductionBar, requireIntroduction } from "./introductions.server.ts";
 import { eligible, event, type Negotiation } from "./service.server.ts";
+import { abilityLabel } from "../pace/rules.ts";
 
 const DAY = 86_400_000;
 const SCAN_INTERVAL = 60 * 60_000;
@@ -132,6 +133,97 @@ export async function getAgentMatching(
     womenOnly: current.womenOnly,
     canChooseWomenOnly: current.woman,
   };
+}
+
+/** Bounded read only: public record plus mutually compatible entered preferences. */
+export async function agentContactCandidates(sql: Sql, userId: string, now = Date.now()) {
+  const own = await state(sql, userId, now);
+  if (own.reason) return { candidates: [], reason: own.reason };
+  const rows = await sql<{ id: string; name: string; completed_count: number }>`
+    select p.id,p.name,p.completed_count from agent_contact_authorities a
+    join profiles p on p.id=a.profile_id join agent_preferences ap on ap.profile_id=p.id
+    where p.id<>${userId} and a.enabled and a.terms_version=${APP_TERMS_VERSION}
+      and p.deleted_at is null and p.suspended_at is null
+      and ap.updated_at>${iso(now - 7 * DAY)} and ap.updated_at<=${iso(now)}
+      and ap.preferences->>'enabled'='true' and ap.preferences->>'activity'=${own.preferences.activity}
+      and not exists(select 1 from blocks b where (b.blocker_id=${userId} and b.blocked_id=p.id)
+        or (b.blocked_id=${userId} and b.blocker_id=p.id))
+      and not exists(select 1 from agent_negotiations n where n.booking_id is null
+        and ((n.host_id=${userId} and n.participant_id=p.id) or (n.participant_id=${userId} and n.host_id=p.id))
+        and (n.created_at>${iso(now - 7 * DAY)} or (n.state='open' and n.expires_at>${iso(now)})))
+    order by md5(p.id||${iso(now).slice(0, 13)}),p.id limit 30`;
+  const candidates = [];
+  for (const row of rows) {
+    const other = await state(sql, row.id, now);
+    if (other.reason || (own.womenOnly && !other.woman) || (other.womenOnly && !own.woman))
+      continue;
+    if (await introductionBar(sql, userId, now, { womenOnly: own.womenOnly || other.womenOnly }))
+      continue;
+    const plans = await candidatePlans(
+      sql,
+      own.preferences,
+      other.preferences,
+      [userId, row.id],
+      now,
+    );
+    if (!plans.candidates.length) continue;
+    candidates.push({
+      memberId: row.id,
+      firstName: row.name.trim().split(/\s+/)[0],
+      activity: other.preferences.activity,
+      level: abilityLabel(other.preferences.ability),
+      completedCount: row.completed_count,
+      sharedTimes: plans.candidates
+        .slice(0, 3)
+        .map((p) => ({ startAt: p.startAt, durationMin: p.durationMin, venueId: p.venueId })),
+      preferenceRevision: own.preferences.revision,
+      partnerPreferenceRevision: other.preferences.revision,
+      authorityRevision: own.authority!.revision,
+      partnerAuthorityRevision: other.authority!.revision,
+    });
+    if (candidates.length === 3) break;
+  }
+  return {
+    candidates,
+    reason: candidates.length ? null : "No compatible partner is available in this search.",
+  };
+}
+
+export const requestedContactInput = z.strictObject({
+  memberId: z.string().min(1).max(100),
+  preferenceRevision: z.number().int().positive(),
+  partnerPreferenceRevision: z.number().int().positive(),
+  authorityRevision: z.number().int().positive(),
+  partnerAuthorityRevision: z.number().int().positive(),
+});
+
+/** A member tap asks their agent to make this contact; it never sends a direct message. */
+export async function requestAgentContact(
+  sql: Sql,
+  userId: string,
+  body: unknown,
+  now = Date.now(),
+) {
+  const args = requestedContactInput.parse(body);
+  if (args.memberId === userId) throw new PaceError(400, "Choose a workout partner.");
+  return sql.transaction(async (tx) => {
+    await eligible(tx, [userId, args.memberId], "update");
+    const own = await state(tx, userId, now),
+      other = await state(tx, args.memberId, now);
+    if (
+      own.preferences.revision !== args.preferenceRevision ||
+      other.preferences.revision !== args.partnerPreferenceRevision ||
+      own.authority?.revision !== args.authorityRevision ||
+      other.authority?.revision !== args.partnerAuthorityRevision
+    )
+      throw new PaceError(409, "Partner preferences changed. Ask your agent to check again.");
+    const runId = await contact(tx, userId, args.memberId, now);
+    if (!runId) throw new PaceError(409, "This introduction is no longer available.");
+    const [run] = await tx<{
+      negotiation_id: string;
+    }>`select negotiation_id from agent_coordination_runs where id=${runId}`;
+    return { negotiationId: run.negotiation_id };
+  });
 }
 
 export async function setAgentMatching(sql: Sql, userId: string, body: unknown, now = Date.now()) {

@@ -162,6 +162,9 @@ describe("separately consented manual workout coaching", () => {
       assert.equal(value.savedPlans.length, 1);
       assert.equal(value.savedPlans[0].source, "saved_prescription_not_performed");
       const run = value.workoutRecords[0];
+      assert.equal(run.runId, own.run.id);
+      assert.equal(run.exercises[0].exerciseIndex, 0);
+      assert.equal(run.exercises[0].sets[0].setIndex, 0);
       assert.equal(run.recordStatus, "completed");
       assert.equal(run.plannedSets, 3);
       assert.equal(run.completedSets, 1);
@@ -172,15 +175,7 @@ describe("separately consented manual workout coaching", () => {
       assert.equal(run.exercises[0].sets[1].actual.status, "skipped");
       assert.deepEqual(run.exercises[0].sets[2].actual, { status: "unrecorded" });
       assert.equal(value.exerciseLogs[0].actualSets[0].externalLoad.weight, null);
-      for (const hidden of [
-        a.id,
-        b.id,
-        own.plan.id,
-        own.run.id,
-        own.log.id,
-        other.plan.id,
-        other.run.id,
-      ])
+      for (const hidden of [a.id, b.id, own.plan.id, own.log.id, other.plan.id, other.run.id])
         assert.ok(!JSON.stringify(value).includes(hidden));
       await onText(
         "One entered interval is shorter than its target; one was skipped and one has no result.",

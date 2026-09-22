@@ -34,6 +34,9 @@ import { getFitnessActivitySummary } from "../fitness/summary.server";
 import * as outcomes from "../fitness/outcomes.server";
 import * as billing from "../billing/service.server";
 import * as conversation from "../conversation/service.server";
+import { executeChatAction } from "../conversation/actions.server";
+import { getPrivateGoal } from "../conversation/private-goals.server";
+import { syncAgentPlanUpdates } from "../conversation/plan-updates.server";
 import * as workoutPlans from "../workout-plans/service.server";
 import { FitnessError, fitnessPageInput } from "../fitness/contracts";
 
@@ -276,48 +279,142 @@ const OPEN_WHEN_SUSPENDED = new Set([
 const routes: [method: string, pattern: string, handler: Handler][] = [
   ["GET", "/me/terms", ({ sql, userId }) => conversation.getAppTerms(sql, userId)],
   ["PUT", "/me/terms", ({ sql, userId, body }) => conversation.acceptAppTerms(sql, userId, body)],
-  ["GET", "/fitness/summary", async ({ sql, userId, query }) =>
-    ({ summary: await getFitnessActivitySummary(sql, userId, Object.fromEntries(query)) })],
-  ["GET", "/assistant/chat", async ({ sql, userId, query }) => {
-    const history = await conversation.getHistory(sql, userId);
-    return { ...history, messages: history.messages.map(message =>
-      conversation.compatibleMessage(message, query.get("workoutPlanDrafts") === "true")) };
-  }],
-  ["PUT", "/assistant/settings", ({ sql, userId, body }) => conversation.setSettings(sql, userId, body)],
+  [
+    "GET",
+    "/fitness/summary",
+    async ({ sql, userId, query }) => ({
+      summary: await getFitnessActivitySummary(sql, userId, Object.fromEntries(query)),
+    }),
+  ],
+  [
+    "GET",
+    "/assistant/goal",
+    async ({ sql, userId }) => ({ goal: await getPrivateGoal(sql, userId) }),
+  ],
+  [
+    "GET",
+    "/assistant/chat",
+    async ({ sql, userId, query }) => {
+      if (query.get("agentCards") === "true") {
+        const timeZone = conversation.turnInput.shape.timeZone.parse(
+          query.get("timeZone") ?? "UTC",
+        );
+        await syncAgentPlanUpdates(sql, userId, Date.now(), timeZone);
+      }
+      const history = await conversation.getHistory(sql, userId);
+      return {
+        ...history,
+        messages: history.messages.map((message) =>
+          conversation.compatibleMessage(
+            message,
+            query.get("workoutPlanDrafts") === "true",
+            query.get("agentCards") === "true",
+          ),
+        ),
+      };
+    },
+  ],
+  [
+    "PUT",
+    "/assistant/settings",
+    ({ sql, userId, body }) => conversation.setSettings(sql, userId, body),
+  ],
   ["DELETE", "/assistant/chat", ({ sql, userId }) => conversation.clearHistory(sql, userId)],
-  ["POST", "/assistant/chat", ({ sql, userId, body, request }) => conversation.chatResponse(sql, userId, body, request.signal)],
-  ["GET", "/fitness/plans", ({ sql, userId, query }) =>
-    workoutPlans.listPlans(sql, userId, Object.fromEntries(query))],
-  ["POST", "/fitness/plans", async ({ sql, userId, body }) =>
-    ({ plan: await workoutPlans.createPlan(sql, userId, body) })],
-  ["GET", "/fitness/plans/:id", async ({ sql, userId, params }) =>
-    ({ plan: await workoutPlans.getPlan(sql, userId, params.id) })],
-  ["PUT", "/fitness/plans/:id", async ({ sql, userId, params, body }) =>
-    ({ plan: await workoutPlans.updatePlan(sql, userId, params.id, body) })],
-  ["DELETE", "/fitness/plans/:id", async ({ sql, userId, params }) => {
-    await workoutPlans.deletePlan(sql, userId, params.id);
-    return { ok: true };
-  }],
-  ["GET", "/fitness/runs", ({ sql, userId, query }) =>
-    workoutPlans.listRuns(sql, userId, Object.fromEntries(query))],
-  ["POST", "/fitness/runs", async ({ sql, userId, body }) =>
-    ({ run: await workoutPlans.startRun(sql, userId, body) })],
-  ["GET", "/fitness/runs/:id", async ({ sql, userId, params }) =>
-    ({ run: await workoutPlans.getRun(sql, userId, params.id) })],
-  ["PUT", "/fitness/runs/:id", async ({ sql, userId, params, body }) =>
-    ({ run: await workoutPlans.updateRun(sql, userId, params.id, body) })],
-  ["DELETE", "/fitness/runs/:id", async ({ sql, userId, params }) => {
-    await workoutPlans.deleteRun(sql, userId, params.id);
-    return { ok: true };
-  }],
-  ["GET", "/sessions/:id/workout-plan", ({ sql, userId, params }) =>
-    workoutPlans.getSessionPlan(sql, userId, params.id)],
-  ["PUT", "/sessions/:id/workout-plan", ({ sql, userId, params, body }) =>
-    workoutPlans.attachSessionPlan(sql, userId, params.id, body)],
-  ["DELETE", "/sessions/:id/workout-plan", ({ sql, userId, params, body }) =>
-    workoutPlans.removeSessionPlan(sql, userId, params.id, body)],
-  ["POST", "/sessions/:id/workout-plan/copy", async ({ sql, userId, params, body }) =>
-    ({ plan: await workoutPlans.copySessionPlan(sql, userId, params.id, body) })],
+  [
+    "POST",
+    "/assistant/chat",
+    ({ sql, userId, body, request }) =>
+      conversation.chatResponse(sql, userId, body, request.signal),
+  ],
+  [
+    "POST",
+    "/assistant/actions/:id/execute",
+    ({ sql, userId, params, body }) => executeChatAction(sql, userId, params.id, body),
+  ],
+  [
+    "GET",
+    "/fitness/plans",
+    ({ sql, userId, query }) => workoutPlans.listPlans(sql, userId, Object.fromEntries(query)),
+  ],
+  [
+    "POST",
+    "/fitness/plans",
+    async ({ sql, userId, body }) => ({ plan: await workoutPlans.createPlan(sql, userId, body) }),
+  ],
+  [
+    "GET",
+    "/fitness/plans/:id",
+    async ({ sql, userId, params }) => ({
+      plan: await workoutPlans.getPlan(sql, userId, params.id),
+    }),
+  ],
+  [
+    "PUT",
+    "/fitness/plans/:id",
+    async ({ sql, userId, params, body }) => ({
+      plan: await workoutPlans.updatePlan(sql, userId, params.id, body),
+    }),
+  ],
+  [
+    "DELETE",
+    "/fitness/plans/:id",
+    async ({ sql, userId, params }) => {
+      await workoutPlans.deletePlan(sql, userId, params.id);
+      return { ok: true };
+    },
+  ],
+  [
+    "GET",
+    "/fitness/runs",
+    ({ sql, userId, query }) => workoutPlans.listRuns(sql, userId, Object.fromEntries(query)),
+  ],
+  [
+    "POST",
+    "/fitness/runs",
+    async ({ sql, userId, body }) => ({ run: await workoutPlans.startRun(sql, userId, body) }),
+  ],
+  [
+    "GET",
+    "/fitness/runs/:id",
+    async ({ sql, userId, params }) => ({ run: await workoutPlans.getRun(sql, userId, params.id) }),
+  ],
+  [
+    "PUT",
+    "/fitness/runs/:id",
+    async ({ sql, userId, params, body }) => ({
+      run: await workoutPlans.updateRun(sql, userId, params.id, body),
+    }),
+  ],
+  [
+    "DELETE",
+    "/fitness/runs/:id",
+    async ({ sql, userId, params }) => {
+      await workoutPlans.deleteRun(sql, userId, params.id);
+      return { ok: true };
+    },
+  ],
+  [
+    "GET",
+    "/sessions/:id/workout-plan",
+    ({ sql, userId, params }) => workoutPlans.getSessionPlan(sql, userId, params.id),
+  ],
+  [
+    "PUT",
+    "/sessions/:id/workout-plan",
+    ({ sql, userId, params, body }) => workoutPlans.attachSessionPlan(sql, userId, params.id, body),
+  ],
+  [
+    "DELETE",
+    "/sessions/:id/workout-plan",
+    ({ sql, userId, params, body }) => workoutPlans.removeSessionPlan(sql, userId, params.id, body),
+  ],
+  [
+    "POST",
+    "/sessions/:id/workout-plan/copy",
+    async ({ sql, userId, params, body }) => ({
+      plan: await workoutPlans.copySessionPlan(sql, userId, params.id, body),
+    }),
+  ],
   [
     "POST",
     "/billing/refresh",
@@ -1235,8 +1332,10 @@ export async function handleApi(request: Request): Promise<Response> {
   const fitnessRequest = path === "/fitness" || path.startsWith("/fitness/");
   const sessionWorkoutRequest = /^\/sessions\/[^/]+\/workout-plan(?:\/copy)?$/.test(path);
   const agentRequest = path === "/agents" || path.startsWith("/agents/");
-  const conversationRequest = path === "/assistant" || path.startsWith("/assistant/") || path === "/me/terms";
-  const privateFitnessRequest = healthRequest || fitnessRequest || conversationRequest || sessionWorkoutRequest;
+  const conversationRequest =
+    path === "/assistant" || path.startsWith("/assistant/") || path === "/me/terms";
+  const privateFitnessRequest =
+    healthRequest || fitnessRequest || conversationRequest || sessionWorkoutRequest;
   const sensitiveRequest =
     privateFitnessRequest ||
     agentRequest ||
@@ -1334,7 +1433,10 @@ export async function handleApi(request: Request): Promise<Response> {
     if (!privateFitnessRequest && request.method !== "GET") {
       await notify.deliverDue(sql).catch((err) => console.error("[push]", err));
     }
-    if (data instanceof Response) { responseStatus = data.status; return data; }
+    if (data instanceof Response) {
+      responseStatus = data.status;
+      return data;
+    }
     return respond(data);
   } catch (err) {
     if (err instanceof conversation.ChatError) return respond({ error: err.message }, err.status);

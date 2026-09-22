@@ -1,13 +1,25 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
+import { isAgentChatCard } from "../../../shared/agent-cards.ts";
 import type { Sql } from "../db.ts";
-import { listPublicSessions } from "../pace/service.server.ts";
+import { listPublicSessions, listVenues } from "../pace/service.server.ts";
 import { getPreferences } from "../agents/assistant.server.ts";
 import { getAgentMatching } from "../agents/contact.server.ts";
+import { listNegotiations, view as negotiationView } from "../agents/service.server.ts";
 import { listWorkouts } from "../health/service.server.ts";
 import { workoutPlanDraftInput } from "./plan-draft.ts";
 import { conversationContext } from "./context.ts";
+import { readPendingWorkoutRecall } from "./pending-workout-context.server.ts";
 import { readManualWorkoutContext } from "./manual-workout-context.server.ts";
+import { prepareAgentTool } from "./agent-tools.server.ts";
+import { getPrivateGoal } from "./private-goals.server.ts";
+import {
+  actionReceipts,
+  withActionReceipts,
+  storeChatActions,
+  CHAT_ACTION_TTL_MS,
+  type PendingChatAction,
+} from "./actions.server.ts";
 import { APP_TERMS_VERSION, type AppTermsStatus } from "../../../shared/app-terms.ts";
 import { FITNESS_AI_NOTICE_VERSION } from "../../../shared/fitness.ts";
 import {
@@ -25,6 +37,7 @@ import {
   chatModel,
   gatewayChatProvider,
   type ChatProvider,
+  type ChatTools,
 } from "./provider.server.ts";
 
 export class ChatError extends Error {
@@ -79,6 +92,21 @@ export const turnInput = z
     consentGeneration: z.uuid(),
     historyGeneration: z.uuid(),
     workoutPlanDrafts: z.boolean().optional(),
+    agentCards: z.boolean().optional(),
+    timeZone: z
+      .string()
+      .min(1)
+      .max(100)
+      .refine((value) => {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: value }).format();
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Use a valid timezone.")
+      .optional(),
+    clientNow: z.iso.datetime({ offset: true }).optional(),
   })
   .strict();
 export const preferenceDraftInput = z
@@ -125,13 +153,18 @@ const messageView = (r: MessageRow): ChatMessage => ({
   status: r.status,
   createdAt: new Date(r.created_at).toISOString(),
 });
-export const compatibleMessage = (message: ChatMessage, workoutPlanDrafts: boolean): ChatMessage =>
-  workoutPlanDrafts
-    ? message
-    : {
-        ...message,
-        actions: message.actions.filter((action) => action.kind !== "workout_plan"),
-      };
+export const compatibleMessage = (
+  message: ChatMessage,
+  workoutPlanDrafts: boolean,
+  agentCards = false,
+): ChatMessage => ({
+  ...message,
+  actions: message.actions.filter(
+    (action) =>
+      (workoutPlanDrafts || action.kind !== "workout_plan") &&
+      (agentCards || !["agent_card", "workout_run"].includes(action.kind)),
+  ),
+});
 const settingsView = (r: SettingsRow): ChatSettings => ({
   consentReviewed: r.consent_reviewed,
   cloudEnabled: r.cloud_enabled,
@@ -188,6 +221,8 @@ async function settings(sql: Sql, userId: string): Promise<SettingsRow> {
   return row;
 }
 async function prune(sql: Sql, userId: string, now: number) {
+  await sql`delete from assistant_chat_actions where user_id = ${userId} and not executing
+    and (created_at < ${iso(now - RETENTION_DAYS * DAY)} or (receipt is null and expires_at <= ${iso(now)}))`;
   await sql`delete from assistant_chat_messages where user_id = ${userId} and created_at < ${iso(now - RETENTION_DAYS * DAY)}`;
   await sql`delete from assistant_chat_messages where user_id = ${userId} and id in
     (select id from assistant_chat_messages where user_id = ${userId} order by created_at desc, id desc offset 80)`;
@@ -202,7 +237,22 @@ export async function getHistory(sql: Sql, userId: string, now = Date.now()): Pr
     await prune(tx, userId, now);
     const rows =
       await tx<MessageRow>`select * from assistant_chat_messages where user_id = ${userId} order by created_at desc, id desc limit 40`;
-    return { settings: settingsView(row), messages: rows.reverse().map(messageView) };
+    const receipts = await actionReceipts(
+      tx,
+      userId,
+      rows.flatMap((row) =>
+        messageView(row)
+          .actions.filter((a) => a.kind === "agent_card")
+          .map((a) => a.id),
+      ),
+    );
+    return {
+      settings: settingsView(row),
+      messages: rows.reverse().map((row) => {
+        const message = messageView(row);
+        return { ...message, actions: withActionReceipts(message.actions, receipts) };
+      }),
+    };
   });
 }
 export async function setSettings(sql: Sql, userId: string, body: unknown, now = Date.now()) {
@@ -228,6 +278,8 @@ export async function setSettings(sql: Sql, userId: string, body: unknown, now =
       ? (input.historyUse ?? settingsView(current).historyUse)
       : "when_requested";
     // Every consent update invalidates in-flight requests and deletes prior context.
+    await tx`delete from assistant_chat_actions where user_id = ${userId}`;
+    await tx`delete from assistant_plan_updates where user_id = ${userId}`;
     await tx`delete from assistant_chat_messages where user_id = ${userId}`;
     const [row] = await tx<SettingsRow>`update assistant_chat_settings set consent_reviewed = true,
       cloud_enabled = ${input.cloudEnabled},
@@ -266,6 +318,9 @@ export async function acceptAppTerms(
 ): Promise<AppTermsStatus> {
   appTermsInput.parse(body);
   return sql.transaction(async (tx) => {
+    // Profile exists before the member API dispatches this call. Match action,
+    // workout and deletion ordering before the initializer revisits this row.
+    await tx`select id from profiles where id = ${userId} for no key update`;
     await lockOwner(tx, userId);
     const profile = await owner(tx, userId);
     const currentTerms = await getAppTerms(tx, userId);
@@ -313,6 +368,8 @@ export async function clearHistory(sql: Sql, userId: string, now = Date.now()) {
     await lockOwner(tx, userId);
     await tx`select user_id from assistant_chat_settings where user_id = ${userId} for update`;
     await tx`delete from assistant_chat_messages where user_id = ${userId}`;
+    await tx`delete from assistant_chat_actions where user_id = ${userId}`;
+    await tx`delete from assistant_plan_updates where user_id = ${userId}`;
     const [row] =
       await tx<SettingsRow>`update assistant_chat_settings set history_generation = ${randomUUID()}, fitness_context_used = false, manual_workout_context_used = false, updated_at = ${iso(now)}, active_request_id = null, active_attempt_id = null, lease_until = null where user_id = ${userId} returning *`;
     return { settings: settingsView(row), messages: [] };
@@ -320,7 +377,10 @@ export async function clearHistory(sql: Sql, userId: string, now = Date.now()) {
 }
 
 export async function pruneConversations(sql: Sql, now = Date.now()) {
+  await sql`delete from assistant_chat_actions where not executing
+    and (created_at < ${iso(now - RETENTION_DAYS * DAY)} or (receipt is null and expires_at <= ${iso(now)}))`;
   await sql`delete from assistant_chat_messages where created_at < ${iso(now - RETENTION_DAYS * DAY)}`;
+  await sql`delete from assistant_plan_updates where observed_at < ${iso(now - RETENTION_DAYS * DAY)}`;
   await sql`update assistant_chat_settings set active_request_id = null, active_attempt_id = null, lease_until = null where lease_until < ${iso(now)}`;
 }
 
@@ -417,6 +477,7 @@ export async function chatResponse(
   let closed = false;
   let text = "";
   const actions: ChatAction[] = [];
+  const pendingActions: PendingChatAction[] = [];
   let toolCalls = 0;
   let fitnessSnapshot: string | null = null;
   let manualSnapshot: string | null = null;
@@ -482,14 +543,231 @@ export async function chatResponse(
           const compatible = compatibleMessage(
             reserved.completed,
             input.workoutPlanDrafts === true,
+            input.agentCards === true,
           );
           for (const action of compatible.actions) emit({ type: "action", action });
           emit({ type: "done", message: compatible });
           return;
         }
         const history = await getHistory(sql, userId, startedAt);
-        const messages = conversationContext(history.messages, input);
+        const pendingWorkout = input.agentCards
+          ? await readPendingWorkoutRecall(sql, userId, history.messages, input, now())
+          : null;
+        const messages = conversationContext(history.messages, input, pendingWorkout);
         await assertCurrent();
+        const tools: ChatTools = {
+          ...(input.workoutPlanDrafts
+            ? {
+                draftWorkoutPlan: async (draft: unknown) => {
+                  await toolGuard();
+                  if (actions.some((action) => action.kind === "workout_plan"))
+                    return { reviewOffered: true, saved: false, reason: "One plan per reply." };
+                  const workoutPlanDraft = workoutPlanDraftInput.parse(draft);
+                  await addAction({
+                    kind: "workout_plan",
+                    label: "Review workout plan",
+                    description:
+                      "Check the exercises, sets and instructions before saving your private plan.",
+                    workoutPlanDraft,
+                  });
+                  return { reviewOffered: true, saved: false, shared: false, completed: false };
+                },
+              }
+            : {}),
+          draftPreferences: async (draft) => {
+            await toolGuard();
+            if (process.env.A2A_ENABLED !== "true") return { available: false };
+            const preferenceDraft = preferenceDraftInput.parse(draft);
+            await addAction({
+              kind: "preferences",
+              label: "Review suggested preferences",
+              description: "Edit these suggestions, then choose whether to save them.",
+              preferenceDraft,
+            });
+            return { reviewOffered: true, saved: false, sharingChanged: false };
+          },
+          planning: async () => {
+            await toolGuard();
+            if (process.env.A2A_ENABLED !== "true") return { available: false };
+            const p = await getPreferences(sql, userId);
+            const matching = await getAgentMatching(sql, userId);
+            const agentContext = input.agentCards
+              ? {
+                  goal: await getPrivateGoal(sql, userId),
+                  venues: (await listVenues(sql))
+                    .slice(0, 100)
+                    .map(({ id, name }) => ({ id, name })),
+                  plans: (await listNegotiations(sql, userId, true)).slice(0, 10).map((room) => {
+                    const current = negotiationView(room, now());
+                    return {
+                      negotiationId: current.id,
+                      state: current.state,
+                      title: current.plan?.title ?? null,
+                      startAt: current.plan?.startAt ?? null,
+                      revision: current.revision,
+                      booked: current.booked,
+                      sessionId: current.sessionId,
+                      bookingId: current.resultBookingId,
+                      yourPlanApproval: current.confirmedIds.includes(userId),
+                    };
+                  }),
+                }
+              : {};
+            await assertCurrent();
+            if (!input.agentCards)
+              await addAction({
+                kind: "preferences",
+                label: "Review planning preferences",
+                description: "Choose your times, activity and public meeting places.",
+              });
+            return {
+              ...agentContext,
+              preferences: {
+                enabled: p.enabled,
+                activity: p.activity,
+                ability: p.ability,
+                durationMin: p.durationMin,
+                ...(input.agentCards ? { venueIds: p.venueIds } : {}),
+                availability: p.availability,
+                approvedIntent: p.approvedIntent,
+              },
+              matching: {
+                enabled: matching.enabled,
+                ready: matching.ready,
+                reason: matching.reason,
+                needs: matching.needs,
+                lastCheckedAt: matching.lastCheckedAt,
+              },
+            };
+          },
+          sessions: async () => {
+            await toolGuard();
+            const { sessions } = await listPublicSessions(sql, userId);
+            const upcoming = sessions.filter((s) => +new Date(s.startAt) > now()).slice(0, 8);
+            for (const s of upcoming)
+              await addAction({
+                kind: "session",
+                targetId: s.id,
+                label: s.title.slice(0, 120),
+                description: "Review this session and its current availability.",
+              });
+            return {
+              sessions: upcoming.map((s) => ({
+                title: s.title,
+                activity: s.activity,
+                startAt: s.startAt,
+                durationMin: s.durationMin,
+                ability: s.ability,
+              })),
+            };
+          },
+          workouts: async () => {
+            await toolGuard();
+            const context = await sql.transaction(async (tx) => {
+              await lockOwner(tx, userId);
+              const changed =
+                await tx`update assistant_chat_settings set fitness_context_used = true
+                  where user_id = ${userId} and fitness_context_enabled and cloud_enabled and active_attempt_id = ${attemptId}
+                    and consent_generation = ${input.consentGeneration} and history_generation = ${input.historyGeneration} returning user_id`;
+              return changed.length ? workoutContext(tx) : null;
+            });
+            if (context === null)
+              return {
+                available: false,
+                reason:
+                  "Separate fitness context permission is off. Ask the member to enable it if they want to share summaries.",
+              };
+            const { summaries } = context;
+            fitnessSnapshot = digest(context);
+            await assertCurrent();
+            for (const w of input.agentCards ? [] : summaries)
+              await addAction({
+                kind: "workout",
+                targetId: w.id,
+                label: "Review recorded workout",
+                description: `${w.activity} · ${new Date(w.startAt).toISOString().slice(0, 10)}`,
+              });
+            return {
+              summaries,
+              limitation:
+                "Recorded observations, not a medical assessment. Missing measurements stay unknown.",
+            };
+          },
+          manualWorkouts: async () => {
+            await toolGuard();
+            const snapshot = await sql.transaction(async (tx) => {
+              await lockOwner(tx, userId);
+              const changed =
+                await tx`update assistant_chat_settings set manual_workout_context_used = true
+                    where user_id = ${userId} and manual_workout_context_enabled
+                      and manual_workout_notice_version = ${CHAT_MANUAL_WORKOUT_NOTICE_VERSION}
+                      and cloud_enabled and active_attempt_id = ${attemptId}
+                      and consent_generation = ${input.consentGeneration}
+                      and history_generation = ${input.historyGeneration} returning user_id`;
+              return changed.length ? readManualWorkoutContext(tx, userId, startedAt) : null;
+            });
+            if (snapshot === null)
+              return {
+                available: false,
+                reason:
+                  "Separate manual workout context permission is off. Ask the member to review that permission before sharing saved plans or entered results.",
+              };
+            manualSnapshot = digest(snapshot);
+            await assertCurrent();
+            return snapshot.context;
+          },
+          review: async (kind) => {
+            await toolGuard();
+            if (kind !== "fitness" && process.env.A2A_ENABLED !== "true")
+              return { available: false };
+            const labels = {
+              preferences: [
+                "Review planning preferences",
+                "Choose your activity, times and venues.",
+              ],
+              discovery: [
+                "Find workout partners",
+                "Review automatic matching status and your saved planning preferences.",
+              ],
+              fitness: [
+                "Review an exercise log",
+                "Enter or correct the exercise and sets before saving.",
+              ],
+            };
+            await addAction({ kind, label: labels[kind][0], description: labels[kind][1] });
+            return { reviewOffered: true, saved: false, booked: false };
+          },
+        };
+        if (input.agentCards)
+          tools.agent = async (name, args) => {
+            await toolGuard();
+            const result = await prepareAgentTool(sql, userId, name, args, {
+              now: now(),
+              timeZone: input.timeZone ?? "UTC",
+              readManualWorkouts: () => tools.manualWorkouts!(),
+              readWorkoutSummaries: () => tools.workouts(),
+            });
+            await assertCurrent();
+            for (const draft of result.drafts) {
+              if (!isAgentChatCard(draft.card))
+                throw new ChatError(400, "The review card could not be prepared.");
+              if (actions.length >= 12)
+                throw new ChatError(400, "Please ask for fewer cards at once.");
+              const id = randomUUID();
+              const card = { ...draft.card, expiresAt: iso(now() + CHAT_ACTION_TTL_MS) };
+              const action: ChatAction = {
+                id,
+                kind: "agent_card",
+                label: draft.label,
+                description: draft.description,
+                card,
+              };
+              actions.push(action);
+              pendingActions.push({ ...draft, id, card });
+              emit({ type: "action", action });
+            }
+            return result.data;
+          };
         await withAbort(
           provider({
             messages,
@@ -502,164 +780,10 @@ export async function chatResponse(
               text += delta;
               emit({ type: "delta", text: delta });
             },
-            tools: {
-              ...(input.workoutPlanDrafts
-                ? {
-                    draftWorkoutPlan: async (draft: unknown) => {
-                      await toolGuard();
-                      if (actions.some((action) => action.kind === "workout_plan"))
-                        return { reviewOffered: true, saved: false, reason: "One plan per reply." };
-                      const workoutPlanDraft = workoutPlanDraftInput.parse(draft);
-                      await addAction({
-                        kind: "workout_plan",
-                        label: "Review workout plan",
-                        description:
-                          "Check the exercises, sets and instructions before saving your private plan.",
-                        workoutPlanDraft,
-                      });
-                      return { reviewOffered: true, saved: false, shared: false, completed: false };
-                    },
-                  }
-                : {}),
-              draftPreferences: async (draft) => {
-                await toolGuard();
-                if (process.env.A2A_ENABLED !== "true") return { available: false };
-                const preferenceDraft = preferenceDraftInput.parse(draft);
-                await addAction({
-                  kind: "preferences",
-                  label: "Review suggested preferences",
-                  description: "Edit these suggestions, then choose whether to save them.",
-                  preferenceDraft,
-                });
-                return { reviewOffered: true, saved: false, sharingChanged: false };
-              },
-              planning: async () => {
-                await toolGuard();
-                if (process.env.A2A_ENABLED !== "true") return { available: false };
-                const p = await getPreferences(sql, userId);
-                const matching = await getAgentMatching(sql, userId);
-                await assertCurrent();
-                await addAction({
-                  kind: "preferences",
-                  label: "Review planning preferences",
-                  description: "Choose your times, activity and public meeting places.",
-                });
-                return {
-                  preferences: {
-                    enabled: p.enabled,
-                    activity: p.activity,
-                    ability: p.ability,
-                    durationMin: p.durationMin,
-                    availability: p.availability,
-                    approvedIntent: p.approvedIntent,
-                  },
-                  matching: {
-                    enabled: matching.enabled,
-                    ready: matching.ready,
-                    reason: matching.reason,
-                    needs: matching.needs,
-                    lastCheckedAt: matching.lastCheckedAt,
-                  },
-                };
-              },
-              sessions: async () => {
-                await toolGuard();
-                const { sessions } = await listPublicSessions(sql, userId);
-                const upcoming = sessions.filter((s) => +new Date(s.startAt) > now()).slice(0, 8);
-                for (const s of upcoming)
-                  await addAction({
-                    kind: "session",
-                    targetId: s.id,
-                    label: s.title.slice(0, 120),
-                    description: "Review this session and its current availability.",
-                  });
-                return {
-                  sessions: upcoming.map((s) => ({
-                    title: s.title,
-                    activity: s.activity,
-                    startAt: s.startAt,
-                    durationMin: s.durationMin,
-                    ability: s.ability,
-                  })),
-                };
-              },
-              workouts: async () => {
-                await toolGuard();
-                const context = await sql.transaction(async (tx) => {
-                  await lockOwner(tx, userId);
-                  const changed =
-                    await tx`update assistant_chat_settings set fitness_context_used = true
-                  where user_id = ${userId} and fitness_context_enabled and cloud_enabled and active_attempt_id = ${attemptId}
-                    and consent_generation = ${input.consentGeneration} and history_generation = ${input.historyGeneration} returning user_id`;
-                  return changed.length ? workoutContext(tx) : null;
-                });
-                if (context === null)
-                  return {
-                    available: false,
-                    reason:
-                      "Separate fitness context permission is off. Ask the member to enable it if they want to share summaries.",
-                  };
-                const { summaries } = context;
-                fitnessSnapshot = digest(context);
-                await assertCurrent();
-                for (const w of summaries)
-                  await addAction({
-                    kind: "workout",
-                    targetId: w.id,
-                    label: "Review recorded workout",
-                    description: `${w.activity} · ${new Date(w.startAt).toISOString().slice(0, 10)}`,
-                  });
-                return {
-                  summaries,
-                  limitation:
-                    "Recorded observations, not a medical assessment. Missing measurements stay unknown.",
-                };
-              },
-              manualWorkouts: async () => {
-                await toolGuard();
-                const snapshot = await sql.transaction(async (tx) => {
-                  await lockOwner(tx, userId);
-                  const changed =
-                    await tx`update assistant_chat_settings set manual_workout_context_used = true
-                    where user_id = ${userId} and manual_workout_context_enabled
-                      and manual_workout_notice_version = ${CHAT_MANUAL_WORKOUT_NOTICE_VERSION}
-                      and cloud_enabled and active_attempt_id = ${attemptId}
-                      and consent_generation = ${input.consentGeneration}
-                      and history_generation = ${input.historyGeneration} returning user_id`;
-                  return changed.length ? readManualWorkoutContext(tx, userId, startedAt) : null;
-                });
-                if (snapshot === null)
-                  return {
-                    available: false,
-                    reason:
-                      "Separate manual workout context permission is off. Ask the member to review that permission before sharing saved plans or entered results.",
-                  };
-                manualSnapshot = digest(snapshot);
-                await assertCurrent();
-                return snapshot.context;
-              },
-              review: async (kind) => {
-                await toolGuard();
-                if (kind !== "fitness" && process.env.A2A_ENABLED !== "true")
-                  return { available: false };
-                const labels = {
-                  preferences: [
-                    "Review planning preferences",
-                    "Choose your activity, times and venues.",
-                  ],
-                  discovery: [
-                    "Find workout partners",
-                    "Review automatic matching status and your saved planning preferences.",
-                  ],
-                  fitness: [
-                    "Review an exercise log",
-                    "Enter or correct the exercise and sets before saving.",
-                  ],
-                };
-                await addAction({ kind, label: labels[kind][0], description: labels[kind][1] });
-                return { reviewOffered: true, saved: false, booked: false };
-              },
-            },
+            tools,
+            clock: input.timeZone
+              ? { timeZone: input.timeZone, clientNow: input.clientNow, serverNow: iso(startedAt) }
+              : undefined,
           }),
           abort.signal,
         );
@@ -696,6 +820,7 @@ export async function chatResponse(
           const [m] =
             await tx<MessageRow>`insert into assistant_chat_messages (user_id,id,request_id,role,text,actions,status,created_at)
             values (${userId},${randomUUID()},${input.requestId},'assistant',${text},${JSON.stringify(actions)}::jsonb,'complete',${iso(Math.max(now(), startedAt + 1))}) returning *`;
+          await storeChatActions(tx, userId, m.id, input, pendingActions, now());
           await tx`update assistant_chat_messages set status = 'complete' where user_id = ${userId} and request_id = ${input.requestId} and role = 'user'`;
           return messageView(m);
         });
