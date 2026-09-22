@@ -46,6 +46,8 @@ The production submit profile points to SamePace's
 [App Store Connect record](https://appstoreconnect.apple.com/apps/6814677892/testflight/ios).
 The internal `SamePace Owner` group is limited to the authenticated account owner;
 do not use automatic all-admin enrollment for this release.
+The [standalone package evidence](evaluations/testflight-package-2026-09-21.md)
+records build `3`, its checksum, store setup and the Apple upload-service blocker.
 
 Physical acceptance remains incomplete as of September 21, 2026. The connected
 iPhone is an iPhone 17 Pro Max running iOS 27. No physical Watch was detected,
@@ -53,7 +55,9 @@ and paired-Watch availability has not been confirmed. Device Hub's remote view
 and actions were unreliable, so this pass establishes no new genuine HealthKit
 permission/source comparison or Watch recording result. A signed native archive
 does not replace those checks; use the [physical acceptance checklist](INTELLIGENCE-ACCEPTANCE.md)
-after installing the standalone beta.
+after installing the standalone beta. Read-only device inventory still reports
+the installed `app.samepace` as version `1.0.0`, build `1`; the standalone
+TestFlight build `3` has not been installed or exercised on that phone.
 
 ## Server configuration
 
