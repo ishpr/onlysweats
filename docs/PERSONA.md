@@ -191,11 +191,42 @@ workflow approved that exact inquiry and its signed event enabled the member
 badge. Account deletion and inquiry erasure passed the same outage/retry checks.
 The reviewer separately redacted this Case in the Sandbox dashboard; reloading
 confirmed its explicit Case-level redaction banner at 00:37 UTC. Both known
-fixture Cases are now manually redacted. A dedicated Case cleanup key has not
-been provisioned, so automatic discovery/redaction acceptance remains pending.
-The independent obligation remains queued in the isolated Preview database:
-manual erasure of one known Case does not verify the worker's full linked-Case
-scan or future rescans.
+fixture Cases are now manually redacted. The independent obligation initially
+remained queued because manual erasure of one known Case does not verify the
+worker's full linked-Case scan or future rescans. Dedicated-key acceptance below
+subsequently reconciled this obligation.
+
+### Case-only key and actual erasure acceptance — September 22 UTC
+
+After explicit owner approval and Dashboard password confirmation, sandbox key
+`api_AzLHMsDg6h2TXvht1axSjpjv2VaXsV` was created. A second confirmation saved
+only **Access all cases** and **Create or update cases**. Reloaded settings
+confirmed every other permission was disabled, including inquiries, accounts,
+Case templates, workflows and API-key administration. The existing inquiry-only
+key was unchanged. The key's default API version is `2025-12-08`; the worker
+explicitly requests the already-tested `2023-01-05` version and kebab-case fields.
+The secret is stored in a protected local file and restricted to the existing
+isolated Preview branch, alongside the exact Case-template allowlist.
+
+Actual provider reads verified sparse Case fields, exact Inquiry filtering and
+matching organization/environment headers. The Case-only key received HTTP 403
+on the exact synthetic Inquiry; the inquiry-only key received HTTP 403 on the
+exact Case. The current worker reconciled already-redacted KBCA-2 to monitoring
+without another DELETE.
+
+A fresh, accountless synthetic Inquiry `inq_AzLHMsDE7sBM8LdsfyHNyvjvNiKnSb`
+produced Case `case_AzLHMsDtiqHYjdwxqHv2LaToaPTkjM`. The current worker sent
+exactly one Case DELETE, then a fresh GET confirmed `redacted-at`. The Inquiry
+was also redacted, and the completed scan retained its monitoring receipt.
+No phone number, photo, document, real member account or health data was used.
+These checks ran current main (`fd482fc`) locally against the isolated Preview
+database and actual Sandbox API; they do not establish deployed-cron execution,
+future delayed-Case behavior, hosted identity checks or Production acceptance.
+
+Private, ignored evidence is under
+`.vercel/launch-acceptance-2026-09-21/persona/` in the shared main checkout.
+Production Persona credentials, entitlement/configuration, required hosted
+checks and final signed-in return remain separate launch gates.
 
 The government-ID hosted fixture reached US driver-license front capture with
 camera or another-device choices. No personal image, camera capture or document
