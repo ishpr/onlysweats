@@ -1,12 +1,13 @@
 import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, MapPin, Repeat, Target } from "lucide-react-native";
+import { CalendarDays, LogOut, MapPin, Repeat, Target } from "lucide-react-native";
 import { useState } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, LiveBanner } from "@/components/brand";
-import { LeaveStandingSlot } from "@/components/leave-standing-slot";
+import { ConfirmSheet } from "@/components/confirm-sheet";
+import { OverflowMenu } from "@/components/overflow-menu";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
 import { Enter, PressScale } from "@/components/motion";
 import { PushPrompt } from "@/components/push-cards";
@@ -23,6 +24,7 @@ import { byId } from "@/lib/lookup";
 import { firstName, nameNeedsFixing } from "@/lib/names";
 import {
   useBookingAction,
+  useLeaveSeries,
   useMe,
   useMine,
   useRefreshOnFocus,
@@ -55,7 +57,8 @@ export default function Home() {
   const venues = byId(useVenues().data);
   const people = byId(mine.data?.people);
   const act = useBookingAction();
-  const [openRow, setOpenRow] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState<string | null>(null);
+  const leaveSeries = useLeaveSeries();
 
   const meId = me.data?.id;
   const bookings = mine.data?.bookings ?? [];
@@ -344,6 +347,7 @@ export default function Home() {
                     }
                   />
                 ))}
+                {/* The row opens next week's session; the rest is a menu, not a drawer of buttons. */}
                 {weekly.map((w) => (
                   <ListRow
                     key={w.id}
@@ -354,36 +358,37 @@ export default function Home() {
                         ? `Next ${formatWhen(w.nextStartAt)}${w.streak > 0 ? ` · ${w.streak} in a row` : ""}`
                         : "Every week"
                     }
-                    expanded={openRow === w.id}
-                    onPress={() => setOpenRow(openRow === w.id ? null : w.id)}
-                  >
-                    <View style={styles.manage}>
-                      {w.nextSessionId && (
-                        <Button
-                          variant="soft"
-                          label="See next week’s session"
-                          onPress={() =>
-                            router.push({
-                              pathname: "/session/[id]",
-                              params: { id: w.nextSessionId! },
-                            })
-                          }
-                        />
-                      )}
-                      <Button
-                        variant="soft"
-                        label="Train for a goal together"
-                        accessibilityHint="Gives this weekly session a goal and an end date"
-                        onPress={() =>
-                          router.push({
-                            pathname: "/training-block/new",
-                            params: { seriesId: w.id },
+                    onPress={() =>
+                      w.nextSessionId
+                        ? router.push({
+                            pathname: "/session/[id]",
+                            params: { id: w.nextSessionId },
                           })
-                        }
+                        : undefined
+                    }
+                    trailing={
+                      <OverflowMenu
+                        accessibilityLabel={`Options for ${w.title}`}
+                        items={[
+                          {
+                            icon: Target,
+                            label: "Train for a goal together",
+                            onPress: () =>
+                              router.push({
+                                pathname: "/training-block/new",
+                                params: { seriesId: w.id },
+                              }),
+                          },
+                          {
+                            icon: LogOut,
+                            label: "Leave this weekly session",
+                            danger: true,
+                            onPress: () => setLeaving(w.id),
+                          },
+                        ]}
                       />
-                      <LeaveStandingSlot seriesId={w.id} />
-                    </View>
-                  </ListRow>
+                    }
+                  />
                 ))}
               </ListCard>
             </View>
@@ -422,6 +427,21 @@ export default function Home() {
           </View>
         </>
       )}
+      <ConfirmSheet
+        visible={leaving !== null}
+        onClose={() => setLeaving(null)}
+        title="Leave this weekly session?"
+        body="You’ll stop being added each week, and your upcoming sessions in it are cancelled at no cost. It ends if fewer than two people are left."
+        confirm={{
+          label: "Leave",
+          danger: true,
+          onPress: () =>
+            leaving && leaveSeries.mutate(leaving, { onSuccess: () => setLeaving(null) }),
+        }}
+        cancelLabel="Keep my place"
+        busy={leaveSeries.isPending}
+        error={leaving ? leaveSeries.error?.message : null}
+      />
     </Screen>
   );
 }
@@ -580,7 +600,6 @@ const styles = StyleSheet.create({
   section: { gap: Spacing.two },
   between: { justifyContent: "space-between", alignItems: "center" },
   flex: { flex: 1 },
-  manage: { gap: Spacing.one, paddingTop: Spacing.one },
   more: { minHeight: 44, justifyContent: "center", paddingHorizontal: Spacing.one },
   heroActions: { marginTop: Spacing.three },
   where: { gap: 6, marginTop: Spacing.half },

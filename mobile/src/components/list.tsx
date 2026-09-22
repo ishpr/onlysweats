@@ -40,6 +40,7 @@ export function ListRow({
   danger,
   onPress,
   accessibilityRole = "button",
+  trailing,
   children,
 }: {
   icon?: IconType;
@@ -53,6 +54,8 @@ export function ListRow({
   danger?: boolean;
   onPress: () => void;
   accessibilityRole?: "button" | "link";
+  /** Beside the row, outside its press area — an overflow menu. Replaces the chevron. */
+  trailing?: ReactNode;
   /** Shown under the row while `expanded`. */
   children?: ReactNode;
 }) {
@@ -60,35 +63,42 @@ export function ListRow({
   const Chevron = expanded ? ChevronDown : ChevronRight;
   return (
     <View>
-      <PressScale
-        accessibilityRole={accessibilityRole}
-        accessibilityLabel={[label, detail, value].filter(Boolean).join(", ")}
-        accessibilityState={expanded === undefined ? undefined : { expanded }}
-        onPress={onPress}
-        feedback="select"
-        scaleTo={0.99}
-        style={styles.row}
-      >
-        {Icon && (
-          <Icon size={18} color={danger ? theme.danger : theme.textSecondary} strokeWidth={1.75} />
-        )}
-        <View style={styles.label}>
-          <T color={danger ? "danger" : "text"} numberOfLines={1}>
-            {label}
-          </T>
-          {detail ? (
-            <T variant="caption" color="textSecondary" numberOfLines={1}>
-              {detail}
+      <View style={trailing ? styles.withTrailing : undefined}>
+        <PressScale
+          accessibilityRole={accessibilityRole}
+          accessibilityLabel={[label, detail, value].filter(Boolean).join(", ")}
+          accessibilityState={expanded === undefined ? undefined : { expanded }}
+          onPress={onPress}
+          feedback="select"
+          scaleTo={0.99}
+          style={[styles.row, trailing ? styles.rowBesideTrailing : null]}
+        >
+          {Icon && (
+            <Icon
+              size={18}
+              color={danger ? theme.danger : theme.textSecondary}
+              strokeWidth={1.75}
+            />
+          )}
+          <View style={styles.label}>
+            <T color={danger ? "danger" : "text"} numberOfLines={1}>
+              {label}
+            </T>
+            {detail ? (
+              <T variant="caption" color="textSecondary" numberOfLines={1}>
+                {detail}
+              </T>
+            ) : null}
+          </View>
+          {value ? (
+            <T variant="caption" color={valueTone === "accent" ? "accent" : "textSecondary"}>
+              {value}
             </T>
           ) : null}
-        </View>
-        {value ? (
-          <T variant="caption" color={valueTone === "accent" ? "accent" : "textSecondary"}>
-            {value}
-          </T>
-        ) : null}
-        <Chevron size={16} color={theme.textFaint} />
-      </PressScale>
+          {trailing ? null : <Chevron size={16} color={theme.textFaint} />}
+        </PressScale>
+        {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
+      </View>
       {expanded && children ? <View style={styles.body}>{children}</View> : null}
     </View>
   );
@@ -103,6 +113,9 @@ export function SectionTitle({ children }: { children: string }) {
 }
 
 const styles = StyleSheet.create({
+  withTrailing: { flexDirection: "row", alignItems: "center" },
+  rowBesideTrailing: { flex: 1, paddingRight: Spacing.one },
+  trailing: { paddingRight: Spacing.two },
   card: { borderRadius: Radius.xl, borderWidth: StyleSheet.hairlineWidth },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: Spacing.three },
   row: {
