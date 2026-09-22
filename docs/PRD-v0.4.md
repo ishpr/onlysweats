@@ -19,6 +19,9 @@ Every member has an agent. It works for one person only.
    first name, level, activity, times, places. Never health data, never chat history.
 3. **Your agent talks to you.** It brings you one person at a time — "Maya, 9:30 pace, wants a
    10K in November, free Tuesday and Thursday mornings" — and asks. You say yes or no.
+   Or you say **"post a run Tuesday 6 AM at Katy Trail, two spots"** and your agent posts it —
+   a session anyone at your level can join, exactly as v0.3 sessions work today. Their agents
+   see it and bring it to them.
 4. **The two agents agree the details; the two people approve.** Time, meeting point, weekly
    until the goal date. Nothing is booked until both owners tap Approve.
 5. **You show up.** Both check in at the meeting point. Missing it costs money and a strike, and
@@ -31,6 +34,10 @@ Every member has an agent. It works for one person only.
 **The app is the conversation.** Opening it opens your agent's chat. There is no dashboard.
 
 - The agent speaks first. New member: "What are you working toward?" with three chips.
+- **You describe, it creates.** "Post a run Tuesday 6 AM at Katy Trail, two spots" becomes a
+  session card; "set me a 10K for November" becomes a goal card; "find me someone" starts the
+  search. The agent fills in what you said, asks for what's missing, and shows the card. The
+  card's button is yours.
 - Everything the app can do is a **card in the thread with one button**: a person to meet, a
   plan to approve, a session to check in to, progress, "again next week?". You never navigate
   to a form to act.
@@ -46,6 +53,7 @@ Every member has an agent. It works for one person only.
 | --- | --- |
 | Look for people, talk to their agents, work out times that fit both | Ask a specific person |
 | Draft the plan, the weekly schedule, the meeting point | Approve a plan, accept booking terms |
+| Draft a session you describe ("a run Tuesday 6 AM, two spots") and show it as a card | Post it |
 | Remind you, nudge you, keep score | Join, leave, cancel, pay |
 | Answer questions about your sessions and record | Change what it shares about you |
 
