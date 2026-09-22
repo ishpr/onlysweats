@@ -2,8 +2,11 @@
 
 Identity checks use Persona's hosted inquiry flow. SamePace stores the inquiry
 reference and result, while Persona receives the submitted identity material.
-Keep `VERIFICATION_ENFORCED` off until the selected templates, workflows,
-redirects, signed events and deletion behavior have passed provider acceptance.
+Production's member-facing verification flow stays unavailable unless
+`PERSONA_VERIFICATION_ENABLED=1`. This launch switch is separate from
+`VERIFICATION_ENFORCED`, which controls eligibility requirements. Keep both off
+until the selected templates, workflows, redirects, signed events and deletion
+behavior have passed provider acceptance.
 
 ## Current sandbox setup
 
@@ -228,6 +231,16 @@ Private, ignored evidence is under
 Production Persona credentials, entitlement/configuration, required hosted
 checks and final signed-in return remain separate launch gates.
 
+The subsequent isolated Preview deployment of `dc095f2` was verified Ready with
+the exact `codex/persona-provider-setup` branch and its scoped provider, database,
+auth and Case-cleanup configuration. Against that new deployment, an unsigned
+webhook returned `401 bad_signature`; a harness-signed redaction snapshot for the
+already-cleaned KBCA-2 Inquiry returned `200 unknown_inquiry`. Neither request
+changed member state. This verifies the deployed handler and signing-secret
+configuration, not a full scheduled-worker run. Vercel automatically invokes
+[cron jobs only on Production](https://vercel.com/docs/cron-jobs); Preview worker
+acceptance above was explicitly invoked and must not be described as a schedule.
+
 The government-ID hosted fixture reached US driver-license front capture with
 camera or another-device choices. No personal image, camera capture or document
 was submitted. After **API-simulated** completion, the hosted page displayed its
@@ -265,6 +278,22 @@ approvals or certify that a webhook secret belongs to the same environment as
 that key. Rotate the full provider configuration together, and never promote
 sandbox rows into production. Persona's documented event body has no
 authoritative environment field for the receiver to validate.
+
+### Stage credentials without opening verification
+
+`PERSONA_VERIFICATION_ENABLED` defaults off in Production, including non-Vercel
+servers with `NODE_ENV=production`; only the literal `1` enables new or resumed
+hosted checks. Local and explicit Preview environments retain their existing
+default-on behavior, with the literal `0` disabling it. The launch switch never
+exposes the development approval endpoint in Production.
+
+With the switch off, the member-facing availability response is false and new
+or resumed checks fail before contacting Persona. Never-dispatched creation
+intents pause. Previously dispatched attempts still reconcile through the same
+idempotency key, so staging or pausing does not strand an unknown provider
+result. Signed webhooks, existing inquiry refreshes and Inquiry/Case cleanup
+continue to process already-authorized work. This is application behavior;
+deploy the change before relying on the switch while adding live credentials.
 
 ## Accountless binding and provider evidence
 
@@ -454,9 +483,10 @@ resuming. Do not remove pending state until the provider resources are reconcile
 - Confirm required-check failure gates and both member/government-ID hosted
   completion paths; finish the protected Preview return in the signed-in app.
   The actual manual Case decisions above passed using synthetic lifecycle inputs.
-- Verify the new dedicated-key Case worker against a new disposable synthetic Case,
-  including field selection and Case redaction acknowledgement, then configure
-  the accepted production permissions and exact template allowlist.
+- Configure the separately scoped Production inquiry and Case keys, exact Case
+  template allowlist and webhook, then verify their permissions and environment.
+  The dedicated-key worker's actual Sandbox field selection, scoped DELETE and
+  positive redaction readback passed above; Production remains unconfigured.
 - Confirm child-resource retention with Persona. Unexpected Accounts remain
   explicit manual review obligations; they must not be silently forgotten.
 - Assign moderation and appeal ownership before requiring verification.
@@ -471,8 +501,10 @@ No provider acceptance result is implied by the automated tests.
 ## Post-trial production configuration
 
 The production Dashboard was inspected on 2026-09-22 UTC and showed an
-**Essential trial**, with no paid plan selected. Do not infer paid entitlements
-from the trial's available controls. The official feature tables currently list
+**Essential trial**, with an Essential option displayed at **$250/month** and no
+paid plan selected. This is an observed offer, not a purchase or an entitlement
+confirmation. Do not infer paid entitlements from the trial's available controls.
+The official feature tables currently list
 [Conditional steps](https://help.withpersona.com/articles/36BS5SiFg4jDAPSTC6arD7/),
 [Create Case](https://help.withpersona.com/articles/3ly3uUwIUTVih1pkT5dfcE/) and
 [Redact Object](https://help.withpersona.com/articles/48Fu5XOdmd1y5v1xvbCkn8/)
@@ -498,7 +530,8 @@ the app's runtime key to administrative permissions as a substitute for this set
 
 Until hosted and review acceptance, retention ownership and post-trial
 entitlements are resolved, keep production workflows inactive and
-`VERIFICATION_ENFORCED=false`. Provision production credentials and the
+`PERSONA_VERIFICATION_ENABLED=0` with `VERIFICATION_ENFORCED=false`.
+Provision production credentials and the
 production signing secret together; the sandbox key must never be promoted.
 Subscribe the production webhook to `inquiry.redacted` as well as the existing
 status events so provider-side erasure proactively revokes a previously approved

@@ -59,6 +59,12 @@ function allowsSandbox(env: Env) {
   return env.NODE_ENV !== "production";
 }
 
+/** Launch control for new/resumed checks, separate from credentials and cleanup. */
+function verificationFlowEnabled(env: Env) {
+  const flag = env.PERSONA_VERIFICATION_ENABLED?.trim();
+  return allowsSandbox(env) ? flag !== "0" : flag === "1";
+}
+
 function personaConfig(env: Env) {
   const apiKey = env.PERSONA_API_KEY?.trim();
   if (!apiKey) return null;
@@ -84,8 +90,9 @@ function personaConfig(env: Env) {
   };
 }
 
-/** Persona when it's configured; a stand-in outside production; otherwise nothing. */
+/** Member-facing availability only; recovery and provider callbacks do not use this gate. */
 export function providerFor(env: Env = process.env): "persona" | "dev" | null {
+  if (!verificationFlowEnabled(env)) return null;
   const cfg = personaConfig(env);
   if (cfg) {
     if (!allowsSandbox(env) && !personaCaseCleanupConfigured(env, cfg.environment)) return null;
@@ -1014,7 +1021,11 @@ export async function recoverPersonaCreations(
   const cfg = personaConfig(env);
   if (!cfg) return result;
   if (!allowsSandbox(env) && !personaCaseCleanupConfigured(env, cfg.environment)) return result;
-  const ids = await listDuePersonaCreationIntents(sql, cfg.environment, now, 5);
+  // Disabling new checks must not strand an ambiguous provider dispatch. Only
+  // never-dispatched intents pause; already-sent attempts still reconcile.
+  const ids = await listDuePersonaCreationIntents(
+    sql, cfg.environment, now, 5, verificationFlowEnabled(env),
+  );
   for (const id of ids) {
     const claim = await claimPersonaCreationIntent(sql, id, cfg.environment, now);
     if (!claim) continue;
