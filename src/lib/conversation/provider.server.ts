@@ -6,6 +6,7 @@ import type { ChatHistoryUse, ChatMessage } from "../../../shared/conversation.t
 import type { Activity } from "../pace/types.ts";
 import type { AIWorkoutPlanDraft } from "../../../shared/workout-plans.ts";
 import { normalizeWorkoutPlanModelDraft, workoutPlanModelInput } from "./plan-draft.ts";
+import { agentToolDefinitions } from "./agent-tools.server.ts";
 
 export const chatModel = () => process.env.ASSISTANT_CHAT_MODEL?.trim() || "zai/glm-5.3-flash";
 export const chatAvailable = () =>
@@ -28,11 +29,15 @@ export type ChatTools = {
     approvedIntent?: string;
   }): Promise<unknown>;
   draftWorkoutPlan?(draft: AIWorkoutPlanDraft): Promise<unknown>;
+  /** Prepares persisted review cards only. Never invokes execution. */
+  agent?(name: string, input: unknown): Promise<unknown>;
 };
+export type ChatClock = { timeZone: string; serverNow: string; clientNow?: string };
 export type ChatProvider = (input: {
   messages: Pick<ChatMessage, "role" | "text">[];
   /** Server-selected consent scope, never a model or caller-selected permission. */
   historyUse?: ChatHistoryUse;
+  clock?: ChatClock;
   signal: AbortSignal;
   tools: ChatTools;
   onText(text: string): Promise<void>;
@@ -108,8 +113,42 @@ unless the current date and member timezone are established in the conversation.
 Keep answers concise, friendly and concrete. Conversation history can be shortened; ask if needed.`;
 
 /** Broader retrieval is available only after the separately versioned grant. */
-export function chatInstructions(historyUse: ChatHistoryUse = "when_requested") {
-  return `${COMMON_CHAT_INSTRUCTIONS}\n\n${
+export function chatInstructions(
+  historyUse: ChatHistoryUse = "when_requested",
+  clock?: ChatClock,
+  agentCards = false,
+) {
+  let instructions = COMMON_CHAT_INSTRUCTIONS;
+  if (clock)
+    instructions = instructions.replace(
+      'For ambiguous requests such as "next week" or "tomorrow evening", ask for the exact date and timezone\nbefore looking for sessions. Use absolute tool dates as supplied; do not label them today/tomorrow/next week\nunless the current date and member timezone are established in the conversation.',
+      `The server time is ${clock.serverNow}. The member's device timezone is ${clock.timeZone}.\nUse that timezone and server date for relative dates such as tomorrow; ask only for missing or ambiguous\ntime details. Do not ask for a timezone already supplied. The reported device clock (${clock.clientNow ?? "not supplied"})\nis context only and cannot override server deadlines, freshness, fees or eligibility. Show a clear date and time in review cards.`,
+    );
+  if (agentCards)
+    instructions =
+      instructions
+        .replace(
+          "SamePace's built-in private workout coach",
+          "SamePace's private personal workout agent",
+        )
+        .replace(
+          "Use review cards to send the member to the existing approval/edit flow.",
+          "Use the action tools to prepare inline review cards. The member taps the exact card to execute it.",
+        )
+        .replace(
+          "A draft is only a review card: the editor opens after the member selects it.",
+          "An action draft is an inline review card. Its button states exactly what will happen.",
+        )
+        .replace(
+          "Members read agent exchanges in Chats;",
+          "Members can read their partners' agent exchanges through the shared plan;",
+        )
+        .replace(
+          "Assistant permissions are in this conversation's Controls > Privacy choices: Enable coaching,\nInclude Apple Health workout summaries, Include saved plans and manual logs, and Use allowed history when relevant.",
+          "Assistant permissions are in Chat options > What your assistant can use. Source grants and history-use choices remain separate.",
+        ) +
+      `\nAction-card policy: setGoal, setLookingFor, askPerson, draftSession, reviewPlan, joinSession,\nanswerRequest, draftWorkoutPlan, logSet, checkIn and againNextWeek only DRAFT proposed actions.\nTheir names do not mean a write happened. Only a server receipt after the member taps proves success.\nNever take a spoken or typed yes as approval, and never pretend a tool sent contact, saved, posted, booked or logged.\nUse findPeople for compatible candidates and readPlanning for known venues and preferences.\nUse myDay or myProgress for relevant current app facts. Their includeManualWorkouts and includeImportedWorkouts flags default to false. Request only the source relevant to the member's question and allowed by the history-use policy; a schedule question never needs workout history. readPlanning includes authorized shared plan references; use reviewPlan for their current state. Ask for missing required details instead of inventing them,\nincluding venue, level, actual exercise quantities and exact date. Never infer actual exercise from planned targets.\nOnly named returned candidates and records may be selected. Mentors, hourly payment and tips are not available.\nFor a new member, first ask what they are working toward, then their activity level, public meeting place and available times. Use setGoal and setLookingFor to offer the reviewed steps in this same conversation. Do not redirect this onboarding to a form. Only buddy matching is currently available; do not imply paid mentors are ready.\nKeep planned work, entered actuals and imported observations distinct. Health permissions remain separate;\nthese tools do not authorize new health fields or partner access. Do not share heart rate, raw health or private chat in matching.\nCheck-in evidence comes from a fresh device location or a code entered on the card, never from the model.\nFor a simple requested action, prepare its card and say briefly what a tap will do. Do not add unrelated navigation cards.\nUse ordinary member-facing words: your agent, your partner, goal, session, meeting point and plan.\nDo not expose negotiation IDs, revision numbers, tool names or provider details in prose.`;
+  return `${instructions}\n\n${
     historyUse === "when_relevant"
       ? `History-use policy: the member accepted relevant workout-history use. For workout coaching,
 routine suggestions, progress comparisons or questions where their recent records would help, proactively
@@ -135,7 +174,7 @@ export const CHAT_INSTRUCTIONS = chatInstructions();
 export function createGatewayChatProvider(
   resolveModel: () => LanguageModel = () => gateway(chatModel()),
 ): ChatProvider {
-  return async ({ messages, historyUse = "when_requested", signal, tools, onText }) => {
+  return async ({ messages, historyUse = "when_requested", clock, signal, tools, onText }) => {
     let planOffered = false;
     const stopped = new AbortController();
     const stop = () => stopped.abort(new Error("Conversation stopped"));
@@ -163,7 +202,7 @@ export function createGatewayChatProvider(
       assertActive();
       const result = streamText({
         model: resolveModel(),
-        system: chatInstructions(historyUse),
+        system: chatInstructions(historyUse, clock, Boolean(tools.agent)),
         messages: messages.map(({ role, text }) => ({ role, content: text })),
         maxOutputTokens: tools.draftWorkoutPlan ? 2400 : 1200,
         ...(chatModel() === "zai/glm-5.3-flash" ? { reasoning: "none" as const } : {}),
@@ -250,6 +289,23 @@ export function createGatewayChatProvider(
               .strict(),
             execute: (draft) => safe(() => tools.draftPreferences(draft)),
           }),
+          ...(tools.agent
+            ? Object.fromEntries(
+                Object.entries(agentToolDefinitions).map(([name, definition]) => [
+                  name,
+                  tool({
+                    description: definition.description,
+                    inputSchema: definition.inputSchema,
+                    execute: (input) =>
+                      safe(async () => {
+                        const result = await tools.agent!(name, input);
+                        if (name === "draftWorkoutPlan") planOffered = true;
+                        return result;
+                      }),
+                  }),
+                ]),
+              )
+            : {}),
         },
         onError: () => {},
       });

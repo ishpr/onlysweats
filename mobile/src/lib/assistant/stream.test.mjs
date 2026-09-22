@@ -242,3 +242,55 @@ test("wire values must keep their declared types and a final must be complete", 
     /interrupted/,
   );
 });
+
+test("agent cards preserve typed review facts and reject executable payloads on the wire", () => {
+  const action = {
+    id: "review-1",
+    kind: "agent_card",
+    label: "Review session",
+    description: "A session to review before joining.",
+    card: {
+      kind: "session",
+      facts: ["Monday at 7 AM", "30-minute walk"],
+      primaryLabel: "Request to join",
+      expiresAt: "2026-09-22T18:00:00.000Z",
+    },
+  };
+  assert.equal(isChatAction(action), true);
+  const events = [];
+  const parser = createChatStreamParser(id, (event) => events.push(event));
+  parser.push(
+    wire(
+      { type: "start", requestId: id },
+      { type: "action", action },
+      { type: "done", message: { ...message, actions: [action] } },
+    ),
+  );
+  parser.finish();
+  assert.equal(events.at(-1).message.actions[0].card.kind, "session");
+  for (const malformed of [
+    { ...action, card: undefined },
+    { ...action, command: { kind: "book" } },
+    { ...action, targetId: "other" },
+    { ...action, card: { ...action.card, command: "book" } },
+    { ...action, card: { ...action.card, facts: [12] } },
+    { ...action, card: { ...action.card, expiresAt: "unknown" } },
+    { ...action, card: { ...action.card, input: "checkin" } },
+    { ...action, card: { ...action.card, kind: "arbitrary_command" } },
+    { ...action, kind: "session", targetId: "session-1" },
+  ])
+    assert.equal(isChatAction(malformed), false);
+});
+
+test("workout execution receipts open only an internal saved run", () => {
+  const action = {
+    id: "receipt-1",
+    kind: "workout_run",
+    targetId: "run-1",
+    label: "Open workout",
+    description: "Use the timer",
+  };
+  assert.equal(isChatAction(action), true);
+  assert.equal(isChatAction({ ...action, targetId: undefined }), false);
+  assert.equal(isChatAction({ ...action, targetId: "https://attacker.test" }), false);
+});

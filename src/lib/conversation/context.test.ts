@@ -7,7 +7,7 @@ import type { AIWorkoutPlanDraft } from "../../../shared/workout-plans.ts";
 import type { Sql } from "../db.ts";
 import { makeDb } from "../pace/test-db.ts";
 import { ensureProfile } from "../pace/service.server.ts";
-import { conversationContext } from "./context.ts";
+import { conversationContext, type PendingWorkoutRecall } from "./context.ts";
 import { chatResponse, setSettings } from "./service.server.ts";
 const draft = (title = "Prior model circuit"): AIWorkoutPlanDraft => ({
   title,
@@ -61,6 +61,84 @@ const suggestions = (messages: { text: string }[]) =>
   messages.filter((item) => item.text.startsWith("UNSAVED MODEL SUGGESTION"));
 
 describe("bounded prior draft context for iterative authoring", () => {
+  const agentMessage = () =>
+    message(undefined, {
+      actions: [
+        {
+          id: randomUUID(),
+          kind: "agent_card",
+          label: "Review workout",
+          description: "Unsaved",
+          card: {
+            kind: "workout_plan_draft",
+            title: "Unsaved workout",
+            facts: ["DISPLAY_ONLY_SENTINEL"],
+            primaryLabel: "Save and start",
+            expiresAt: "2026-09-23T12:00:00Z",
+          },
+        },
+      ],
+    });
+  const recall = (prior: ChatMessage, plan = draft()): PendingWorkoutRecall => ({
+    messageId: prior.id,
+    actionId: prior.actions[0].id,
+    draft: plan,
+  });
+  it("recalls a validated pending agent draft, never its display facts or execution identifiers", () => {
+    const prior = agentMessage();
+    const result = conversationContext([prior], { ...request(), agentCards: true }, recall(prior));
+    assert.equal(suggestions(result).length, 1);
+    assert.ok(suggestions(result)[0].text.endsWith(JSON.stringify(draft())));
+    assert.match(suggestions(result)[0].text, /planned targets, never actual results/);
+    assert.doesNotMatch(JSON.stringify(result), /DISPLAY_ONLY_SENTINEL/);
+    assert.ok(!JSON.stringify(result).includes(prior.actions[0].id));
+  });
+  it("never revives an older draft when the latest agent card is unavailable, completed or malformed", () => {
+    const prior = message(draft("OLDER_SENTINEL")),
+      latest = agentMessage();
+    const input = { ...request(), agentCards: true };
+    assert.equal(suggestions(conversationContext([prior, latest], input)).length, 0);
+    const pending = recall(latest);
+    for (const invalid of [
+      { ...pending, actionId: randomUUID() },
+      { ...pending, messageId: randomUUID() },
+      { ...pending, draft: { ...draft(), actualResults: "PRIVATE" } as AIWorkoutPlanDraft },
+    ])
+      assert.equal(suggestions(conversationContext([prior, latest], input, invalid)).length, 0);
+    latest.actions[0].card!.primaryLabel = null;
+    latest.actions[0].card!.receipt = { text: "Saved", createdAt: "2026-09-22T12:00:00Z" };
+    assert.equal(suggestions(conversationContext([prior, latest], input, pending)).length, 0);
+    assert.equal(suggestions(conversationContext([latest], request(), pending)).length, 0);
+  });
+  it("uses the latest draft across old and new clients and counts agent recall toward the same budget", () => {
+    const agent = agentMessage(),
+      legacy = message(draft("Latest legacy"));
+    const input = { ...request(), agentCards: true, text: "x".repeat(2000) };
+    assert.match(
+      suggestions(conversationContext([agent, legacy], input, recall(agent)))[0].text,
+      /Latest legacy/,
+    );
+    const large = {
+      ...draft(),
+      instructions: "i".repeat(1000),
+      exercises: Array.from({ length: 12 }, () => ({
+        name: "n".repeat(100),
+        instructions: "i".repeat(500),
+        sets: 10,
+        reps: 20,
+        durationSeconds: null,
+        restSeconds: 60,
+      })),
+    };
+    const result = conversationContext(
+      [agent, ...Array.from({ length: 38 }, () => message(undefined, { text: "t".repeat(1000) }))],
+      input,
+      recall(agent, large),
+    );
+    assert.equal(suggestions(result).length, 1);
+    assert.ok(result.length <= 20);
+    assert.ok(result.reduce((count, item) => count + item.text.length, 0) <= 16000);
+  });
   it("recalls exactly the latest validated model draft with its unsaved provenance", () => {
     const latest = draft("Most recent suggestion");
     const result = conversationContext(

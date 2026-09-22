@@ -60,6 +60,8 @@ function runSummary(row: RunRow) {
   const plannedSets = row.snapshot.exercises.reduce((n, exercise) => n + exercise.sets.length, 0);
   return {
     source: "member_entered_actual_results" as const,
+    // An owner-only command reference, never an authorization grant.
+    runId: row.id,
     title: row.snapshot.title,
     activity: row.snapshot.activity,
     startedAt: iso(row.started_at),
@@ -71,12 +73,14 @@ function runSummary(row: RunRow) {
     completedSets: row.results.filter((result) => result.status === "completed").length,
     skippedSets: row.results.filter((result) => result.status === "skipped").length,
     unrecordedSets: plannedSets - row.results.length,
-    exercises: row.snapshot.exercises.slice(0, EXERCISES).map((exercise) => ({
+    exercises: row.snapshot.exercises.slice(0, EXERCISES).map((exercise, exerciseIndex) => ({
+      exerciseIndex,
       name: exercise.name,
       plannedSetCount: exercise.sets.length,
       sets: exercise.sets.slice(0, SETS).map((set, index) => {
         const result = results.get(set.id);
         return {
+          setIndex: index,
           setNumber: index + 1,
           target: target(set),
           actual: result

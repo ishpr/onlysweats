@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
-import { useRouter } from "expo-router";
+import { useIsFocused, useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import {
@@ -39,6 +39,8 @@ import {
 } from "@/lib/assistant/chat-availability";
 import { storeGeneratedWorkoutPlanDraft } from "@/lib/workout-plans/draft-handoff";
 import { WorkoutPlanDraftCard } from "./workout-plan-draft-card";
+import { AgentActionCard } from "./agent-action-card";
+import { getChatClock } from "@/lib/assistant/agent-action";
 import {
   type ChatAction,
   type ChatEvent,
@@ -67,16 +69,22 @@ export function CloudChat({
   /** Words put in the box from outside (a chip, a card): `{ text, at }` so repeats register. */
   prefill?: { text: string; at: number } | null;
 }) {
+  const focused = useIsFocused();
   const [consumedPrefill, setConsumedPrefill] = useState<number | null>(null);
   const queryKey = ["private-assistant-chat", ownerId];
   const history = useQuery({
     queryKey,
     gcTime: 0,
     retry: false,
+    refetchInterval: focused ? 15_000 : false,
+    refetchIntervalInBackground: false,
     queryFn: async ({ signal }) => {
-      const result = await session.request<ChatHistory>("/assistant/chat?workoutPlanDrafts=true", {
-        signal,
-      });
+      const result = await session.request<ChatHistory>(
+        `/assistant/chat?workoutPlanDrafts=true&agentCards=true&timeZone=${encodeURIComponent(getChatClock().timeZone)}`,
+        {
+          signal,
+        },
+      );
       if (
         !result?.settings ||
         !Array.isArray(result.messages) ||
@@ -133,6 +141,7 @@ function CloudConversation({
   const [offline, setOffline] = useState<LocalChatTurn[]>([]);
   const [showOptions, setShowOptions] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cardBusy, setCardBusy] = useState(false);
   const [partial, setPartial] = useState("");
   const [pendingUser, setPendingUser] = useState<ChatMessage | null>(null);
   const [lastTurn, setLastTurn] = useState<ChatTurnInput | null>(null);
@@ -174,7 +183,7 @@ function CloudConversation({
     setOffline([]);
   };
   const send = (retry?: ChatTurnInput) => {
-    if (runner.busy || control.busy || !session.isCurrent()) return;
+    if (runner.busy || control.busy || cardBusy || !session.isCurrent()) return;
     if (!settings?.cloudEnabled || !settings.providerAvailable) return;
     if (
       retry &&
@@ -191,6 +200,8 @@ function CloudConversation({
       consentGeneration: settings.consentGeneration,
       historyGeneration: settings.historyGeneration,
       workoutPlanDrafts: true,
+      agentCards: true,
+      ...getChatClock(),
     };
     if (!input.text || input.text.length > 2000) return;
     setBusy(true);
@@ -277,6 +288,10 @@ function CloudConversation({
         if (action.targetId)
           router.push({ pathname: "/workout/[id]", params: { id: action.targetId } });
         break;
+      case "workout_run":
+        if (action.targetId)
+          router.push({ pathname: "/workout-run/[id]", params: { id: action.targetId } });
+        break;
       case "fitness":
         router.push("/fitness");
         break;
@@ -299,6 +314,8 @@ function CloudConversation({
     workout: Activity,
     fitness: ClipboardList,
     workout_plan: ClipboardList,
+    workout_run: Activity,
+    agent_card: ClipboardList,
   };
   return (
     <View style={{ gap: Spacing.three }}>
@@ -353,7 +370,7 @@ function CloudConversation({
                       key={action.id}
                       draft={action.workoutPlanDraft}
                       onReview={() => openAction(action)}
-                      busy={busy || control.busy}
+                      busy={busy || control.busy || cardBusy}
                     />
                   ) : null,
                 )
@@ -369,7 +386,25 @@ function CloudConversation({
               {message.role === "assistant" &&
                 message.status === "complete" &&
                 message.actions.map((action) =>
-                  action.kind === "workout_plan" && action.workoutPlanDraft ? null : (
+                  action.kind === "agent_card" ? (
+                    settings ? (
+                      <AgentActionCard
+                        key={action.id}
+                        action={action}
+                        messageId={message.id}
+                        ownerId={ownerId}
+                        session={session}
+                        settings={settings}
+                        busy={busy || control.busy || cardBusy}
+                        onBusyChange={setCardBusy}
+                        onExecuted={async (result) => {
+                          await client.cancelQueries({ queryKey, exact: true });
+                          if (!session.isCurrent()) return;
+                          client.setQueryData<ChatHistory>(queryKey, result.history);
+                        }}
+                      />
+                    ) : null
+                  ) : action.kind === "workout_plan" && action.workoutPlanDraft ? null : (
                     <ActionCard
                       key={action.id}
                       icon={icons[action.kind]}
@@ -387,8 +422,11 @@ function CloudConversation({
                           : undefined
                       }
                       note={action.description}
-                      primary={{ label: "Review", onPress: () => openAction(action) }}
-                      busy={busy || control.busy}
+                      primary={{
+                        label: action.kind === "workout_run" ? "Open workout" : "Review",
+                        onPress: () => openAction(action),
+                      }}
+                      busy={busy || control.busy || cardBusy}
                     />
                   ),
                 )}
@@ -431,7 +469,9 @@ function CloudConversation({
         <Button
           label="Retry reply"
           variant="soft"
-          disabled={control.busy || !settings?.cloudEnabled || !settings.providerAvailable}
+          disabled={
+            control.busy || cardBusy || !settings?.cloudEnabled || !settings.providerAvailable
+          }
           onPress={() => send(lastTurn)}
         />
       )}
@@ -441,7 +481,7 @@ function CloudConversation({
             value={text}
             onChangeText={(value) => setText(value.slice(0, 2000))}
             onSend={() => {
-              if (runner.busy || control.busy || !session.isCurrent()) return;
+              if (runner.busy || control.busy || cardBusy || !session.isCurrent()) return;
               if (availability === "ready") return send();
               // Loading, errors and unconfirmed permissions never consume a draft.
               if (!localNotice) return;
@@ -453,7 +493,9 @@ function CloudConversation({
             onStop={stop}
             streaming={busy}
             placeholder="Tell your agent what you want"
-            disabled={busy || control.busy || (availability !== "ready" && !localNotice)}
+            disabled={
+              busy || control.busy || cardBusy || (availability !== "ready" && !localNotice)
+            }
           />
         </ComposerRow>
       </ComposerPortal>
@@ -478,7 +520,7 @@ function CloudConversation({
             label="Delete conversation"
             expanded={clearReview}
             onPress={() => {
-              if (control.busy) return;
+              if (control.busy || cardBusy) return;
               if (runner.busy) stop();
               setClearReview((value) => !value);
             }}

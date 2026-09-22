@@ -1,5 +1,6 @@
 import type { ChatAction, ChatMessage, ChatEvent } from "../../../../shared/conversation.ts";
 import { isAIWorkoutPlanDraft } from "../../../../shared/workout-plan-draft.ts";
+import { isAgentChatCard } from "../../../../shared/agent-cards.ts";
 
 const actionKinds = new Set([
   "preferences",
@@ -9,6 +10,8 @@ const actionKinds = new Set([
   "workout",
   "fitness",
   "workout_plan",
+  "workout_run",
+  "agent_card",
 ]);
 const idPattern = /^[A-Za-z0-9_-]{1,100}$/;
 function record(value: unknown): value is Record<string, unknown> {
@@ -45,6 +48,12 @@ export function isChatAction(value: unknown): value is ChatAction {
     actionKinds.has(value.kind) &&
     boundedText(value.label, 200) &&
     boundedText(value.description, 1000) &&
+    (value.card === undefined || (value.kind === "agent_card" && isAgentChatCard(value.card))) &&
+    (value.kind !== "agent_card" ||
+      (isAgentChatCard(value.card) &&
+        Object.keys(value).every((key) =>
+          ["id", "kind", "label", "description", "card"].includes(key),
+        ))) &&
     (value.preferenceDraft === undefined ||
       (value.kind === "preferences" && isPreferenceDraft(value.preferenceDraft))) &&
     (value.workoutPlanDraft === undefined ||
@@ -52,7 +61,7 @@ export function isChatAction(value: unknown): value is ChatAction {
     (value.kind !== "workout_plan" || isAIWorkoutPlanDraft(value.workoutPlanDraft)) &&
     (value.targetId === undefined ||
       (typeof value.targetId === "string" && idPattern.test(value.targetId))) &&
-    (!["negotiation", "session", "workout"].includes(value.kind) ||
+    (!["negotiation", "session", "workout", "workout_run"].includes(value.kind) ||
       typeof value.targetId === "string")
   );
 }

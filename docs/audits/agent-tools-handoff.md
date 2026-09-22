@@ -1,6 +1,8 @@
 # Functional handoff: the agent's tools (PRD v0.4)
 
-For the functional owner. PRD v0.4 (`docs/PRD-v0.4.md`) makes the conversation the app: every
+Implementation update (2026-09-21): the fourteen tool groups below now have server-backed review cards, atomic execution receipts, timezone context and foreground plan-state updates. See [the implemented contract](../AGENT-CHAT-ACTIONS.md) for exact effects, validation and remaining launch checks. The original endpoint suggestions below are historical: goals use a new private goal record; contacts use the existing agent-contact service; chat taps execute only stored commands through `/assistant/actions/:id/execute`.
+
+Original handoff for the functional owner. PRD v0.4 (`docs/PRD-v0.4.md`) makes the conversation the app: every
 action is a card in the thread with one button. Today the chat can only *talk* and hand off to
 cards that navigate (`ChatAction.kind` → a route). This asks for tools that *act* — each one
 returning a **draft card** the member approves with a tap, and the write happening only on
