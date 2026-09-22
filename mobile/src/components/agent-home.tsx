@@ -2,8 +2,7 @@
  * The app is the conversation (PRD v0.4). This is what opens: your agent speaks first, from
  * what it actually knows about you — your goal, your partner, your next session — and every
  * thing it offers is a card with one button. The real conversation (cloud) sits underneath
- * when it's switched on; when it isn't, the agent still answers with what it can do, and the
- * message box is never greyed out.
+ * when available; any local availability notices remain distinct from model replies.
  */
 import { useRouter } from "expo-router";
 import {
@@ -29,8 +28,9 @@ import { useTheme } from "@/hooks/use-theme";
 import type { ApiSession } from "@/lib/api";
 import { formatWhen, inCheckinWindow } from "@/lib/format";
 import { firstName } from "@/lib/names";
+import { nextAgentSession } from "@/lib/assistant/home-session";
 import { useMine } from "@/lib/queries";
-import type { Me, Session, TrainingBlock } from "@/lib/types";
+import type { Me, TrainingBlock } from "@/lib/types";
 
 /** A thing the agent offers: one line, one button. */
 export function AgentCard({
@@ -133,19 +133,20 @@ export function AgentOpening({
     (b) => b.viewer === "member" && (b.status === "forming" || b.status === "active"),
   );
   const goal: TrainingBlock | undefined = goals[0];
-  const upcoming: Session[] = (mine.data?.sessions ?? [])
-    .filter((s) => s.status === "open" && +new Date(s.startAt) + s.durationMin * 60_000 > now)
-    .sort((a, b) => +new Date(a.startAt) - +new Date(b.startAt));
-  const next = upcoming[0];
-  const myBooking = next
-    ? (mine.data?.bookings ?? []).find(
-        (b) => b.sessionId === next.id && b.participantId === me.id && b.status === "confirmed",
-      )
+  const plan = !mine.error
+    ? nextAgentSession(me.id, mine.data?.sessions ?? [], mine.data?.bookings ?? [], now)
     : undefined;
-  const live = next && inCheckinWindow(next.startAt, now);
-  const other = next
-    ? (mine.data?.people ?? []).find((p) => p.id !== me.id && p.id === next.hostId)
-    : undefined;
+  const next = plan?.session;
+  const myBooking = plan?.booking;
+  const awaitingApproval = myBooking?.status === "pending";
+  const live = next && myBooking?.status === "confirmed" && inCheckinWindow(next.startAt, now);
+  const otherId =
+    myBooking?.status === "confirmed"
+      ? plan?.hosting
+        ? myBooking.participantId
+        : next?.hostId
+      : undefined;
+  const other = otherId ? (mine.data?.people ?? []).find((p) => p.id === otherId) : undefined;
   const looking = status.data?.state === "looking";
   const needsMe = status.data?.state === "needs_you";
   const hasLevel = Object.keys(me.abilities).length > 0;
@@ -153,18 +154,18 @@ export function AgentOpening({
   // The one sentence, chosen by what's true.
   let greeting: string;
   if (live && next)
-    greeting = `It's time. ${other ? `${firstName(other.name)} is` : "Your partner’s"} heading to ${"the meeting point"} — check in when you're there.`;
+    greeting = `Check-in is open for ${next.title}. Check in when you reach the meeting point.`;
   else if (needsMe) greeting = status.data!.headline + ".";
   else if (next)
-    greeting = `Next up: ${next.title}, ${formatWhen(next.startAt)}. I'll remind you the evening before.`;
+    greeting = `${awaitingApproval ? "Waiting for approval" : "Next up"}: ${next.title}, ${formatWhen(next.startAt)}.`;
   else if (looking)
-    greeting = `I'm looking for your partner${goal ? ` for the ${goal.goalLabel}` : ""}. I'll bring you one person at a time — nothing is shared until you say yes.`;
+    greeting = `Your saved preferences are guiding the search${goal ? ` for ${goal.goalLabel}` : ""}. Your agents can coordinate within your shared-planning permissions.`;
   else if (goal)
     greeting = `You're working toward ${goal.goalLabel} by ${formatWhen(goal.goalDate).split(" · ")[0]}. Want me to find you a partner for it?`;
   else if (!hasLevel)
-    greeting = `Hi${name ? ` ${name}` : ""}. I'm your agent — I find you a partner at your level who'll keep you showing up. What are you working toward?`;
+    greeting = `Hi${name ? ` ${name}` : ""}. I can help you plan your workouts and look for a partner at your level. What are you working toward?`;
   else
-    greeting = `Hi${name ? ` ${name}` : ""}. What are you working toward? Tell me, and I'll find someone at your level who wants the same thing.`;
+    greeting = `Hi${name ? ` ${name}` : ""}. What are you working toward? I can help you plan and look for someone with a similar goal.`;
 
   const chips = live
     ? []
@@ -241,7 +242,7 @@ export function AgentOpening({
       {!live && next && (
         <AgentCard
           icon={CalendarPlus}
-          eyebrow="Next session"
+          eyebrow={awaitingApproval ? "Waiting for approval" : "Next session"}
           title={next.title}
           detail={`${formatWhen(next.startAt)}${other ? ` · with ${firstName(other.name)}` : ""}`}
           action="Open session"

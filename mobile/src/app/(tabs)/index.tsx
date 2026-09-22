@@ -1,10 +1,12 @@
 /**
  * Home is the conversation (PRD v0.4). Your agent opens, from what it knows; what it offers
- * are cards with one button; the real conversation runs underneath; the message box is
- * always live. What used to be Home — your sessions, weekly sessions, picks — lives on the
+ * are cards with one button; the real conversation runs underneath. What used to be
+ * Home — your sessions, weekly sessions, picks — lives on the
  * Sessions tab.
  */
 import { useState } from "react";
+import * as Crypto from "expo-crypto";
+import { storePreferenceDraft } from "@/lib/assistant/preference-handoff";
 
 import { AgentOpening } from "@/components/agent-home";
 import { CloudChat } from "@/components/assistant-chat/cloud-chat";
@@ -28,9 +30,14 @@ function Home({ member, session }: PrivateMemberProps) {
   const now = useNow(15_000);
   const mine = useMine();
   const live = (mine.data?.bookings ?? []).find((b) => {
-    if (b.participantId !== member.id || b.status !== "confirmed") return false;
+    if (
+      mine.error ||
+      (b.participantId !== member.id && b.hostId !== member.id) ||
+      b.status !== "confirmed"
+    )
+      return false;
     const s = mine.data?.sessions.find((x) => x.id === b.sessionId);
-    return Boolean(s && inCheckinWindow(s.startAt, now));
+    return Boolean(s?.status === "open" && inCheckinWindow(s.startAt, now));
   });
   const [dockHeight, setDockHeight] = useState(0);
   const [prefill, setPrefill] = useState<{ text: string; at: number } | null>(null);
@@ -54,10 +61,18 @@ function Home({ member, session }: PrivateMemberProps) {
           ownerId={member.id}
           session={session}
           prefill={prefill}
-          onDevice={() => router.push("/assistant")}
-          onPlanning={(kind, targetId) => {
+          onDevice={() => router.push({ pathname: "/assistant", params: { mode: "device" } })}
+          onPlanning={(kind, targetId, draft) => {
+            if (!session.isCurrent()) return;
             if (kind === "negotiation" && targetId) return setPeek(targetId);
-            router.push({ pathname: "/assistant", params: { planning: "1" } });
+            const preferenceDraftId =
+              kind === "preferences" && draft ? Crypto.randomUUID() : undefined;
+            if (preferenceDraftId && draft)
+              storePreferenceDraft(preferenceDraftId, member.id, draft, session.isCurrent);
+            router.push({
+              pathname: "/assistant",
+              params: { planning: "1", ...(preferenceDraftId ? { preferenceDraftId } : {}) },
+            });
           }}
         />
       </Screen>

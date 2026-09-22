@@ -4,6 +4,7 @@ import { Redirect, Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PrivateAssistantChat } from "@/components/assistant-chat";
 import type { ChatPreferenceDraft } from "../../../shared/conversation";
+import { takePreferenceDraft } from "@/lib/assistant/preference-handoff";
 import { ActionCard, Segmented } from "@/components/assistant-kit";
 import { AssistantDiscovery } from "@/components/assistant-discovery";
 import { AppHeader } from "@/components/brand";
@@ -25,10 +26,19 @@ import type { AssistantNegotiation, AssistantPreferences } from "../../../shared
 type Mine = { bookings: Booking[]; sessions: Session[]; people: Person[] };
 
 export default function AssistantRoute() {
-  const { negotiationId } = useLocalSearchParams<{ negotiationId?: string }>();
+  const { negotiationId, preferenceDraftId, mode } = useLocalSearchParams<{
+    negotiationId?: string;
+    preferenceDraftId?: string;
+    mode?: string;
+  }>();
   if (typeof negotiationId === "string" && negotiationId)
     return <Redirect href={{ pathname: "/assistant/plan/[id]", params: { id: negotiationId } }} />;
-  return <PrivateMember component={Assistant} />;
+  return (
+    <PrivateMember
+      key={`${preferenceDraftId ?? "assistant"}:${mode ?? "cloud"}`}
+      component={Assistant}
+    />
+  );
 }
 
 function Assistant({ member, session }: PrivateMemberProps) {
@@ -38,13 +48,17 @@ function Assistant({ member, session }: PrivateMemberProps) {
     negotiationId?: string;
     capture?: string;
     planning?: string;
+    preferenceDraftId?: string;
+    mode?: string;
   }>();
   const routeId = params.planning === "1" ? "planning" : null;
   const [pane, setPane] = useState({ routeId, planning: !!routeId });
   const showPlanning = pane.routeId === routeId ? pane.planning : !!routeId;
   const setShowPlanning = (planning: boolean) => setPane({ routeId, planning });
-  const [preferenceDraft, setPreferenceDraft] = useState<ChatPreferenceDraft | undefined>(
-    undefined,
+  const [preferenceDraft, setPreferenceDraft] = useState<ChatPreferenceDraft | undefined>(() =>
+    typeof params.preferenceDraftId === "string" && session.isCurrent()
+      ? takePreferenceDraft(params.preferenceDraftId, member.id)
+      : undefined,
   );
   const [draftRevision, setDraftRevision] = useState(0);
   const setSelected = (id: string) =>
@@ -174,6 +188,7 @@ function Assistant({ member, session }: PrivateMemberProps) {
             ownerId={member.id}
             session={session}
             capturePhoto={params.capture === "photo"}
+            initiallyOnDevice={params.mode === "device"}
             onPlanning={(kind, targetId, draft) => {
               if (kind === "negotiation" && targetId) return setPeek(targetId);
               setShowPlanning(true);
