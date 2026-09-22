@@ -19,8 +19,10 @@ been verified.
 - IPA size: 31,037,204 bytes. SHA-256:
   `76f68ea8ed7202216081c7d83247c34823116c07a347b2d2d4e6cc0c794452a9`.
 - Source started at `8a11bcf`; packaging/config changes are in `4c6f697`.
-  Recorded checksums match all current mobile/shared runtime sources. Only
-  submission metadata in `eas.json` was added after the archive snapshot.
+  Recorded checksums match all mobile/shared runtime sources at archive time.
+  Submission metadata in `eas.json` was added afterward. Claude's subsequent
+  presentation changes in PR #50 (`81e9ea2`) are not in this preserved IPA;
+  merging them into main does not update its embedded JavaScript.
 
 The first archive was withheld: its widget had build `1` while the phone and
 Watch had build `2`. `with-widget-version` now uses a complete source plist
