@@ -8,7 +8,7 @@ Production's member-facing verification flow stays unavailable unless
 until the selected templates, workflows, redirects, signed events and deletion
 behavior have passed provider acceptance.
 
-## Current sandbox setup
+## Shared templates and current sandbox setup
 
 The following templates are published shared Persona configuration; template
 publication is not isolated to Sandbox. The associated workflows are activated
@@ -18,14 +18,24 @@ IDs, in application configuration.
 
 | Purpose                  | Template ID                            | Published version ID                    |
 | ------------------------ | -------------------------------------- | --------------------------------------- |
-| Member: phone and selfie | `itmpl_AzLHMsDodgCwTKmzM3guMefByKBPSs` | `itmplv_AzLHMsDFsjNw4w89G5Fd9pmZ3Uo4Vt` |
-| Government ID and selfie | `itmpl_AzLHMsDYwLmYXyoRRBF2Cee5mJuR4K` | `itmplv_AzLHMsDJgpxTBEVzsAJpyaGVg8QDB6` |
+| Member: phone and selfie | `itmpl_AzLHMsDodgCwTKmzM3guMefByKBPSs` | `itmplv_AzLHMsD17EGQiGBdFVYEMjvpw9JTWf` |
+| Government ID and selfie | `itmpl_AzLHMsDYwLmYXyoRRBF2Cee5mJuR4K` | `itmplv_AzLHMsDkYWd4zVasBEcBptUgabXpJ9` |
 
 Both templates select **No Account**, have no reachable Account-copy action, and
-block client-side inquiry creation. Their allowed domain is exactly
-`samepace-git-codex-backlog-completion-servesys-labs.vercel.app`. Their return URL
-is `https://samepace-git-codex-backlog-completion-servesys-labs.vercel.app/verified`,
-without reference or status fields in the URL.
+block client-side inquiry creation. The September 22 UTC publications added only
+the exact `samepace.app` allowed domain, preserving the existing exact
+`samepace-git-codex-backlog-completion-servesys-labs.vercel.app` host and all
+verification settings. Their default return remains
+`https://samepace-git-codex-backlog-completion-servesys-labs.vercel.app/verified`,
+without reference or status fields in that configured URL.
+
+For each created or resumed inquiry, SamePace supplies the server-selected
+`redirect-uri` from `BETTER_AUTH_URL` plus `/verified`. Persona documents this
+[hosted-flow parameter](https://docs.withpersona.com/hosted-flow-parameters) and
+requires its domain to match the [allowed domains](https://docs.withpersona.com/hosted-flow-security).
+Using the Production return while preserving the template's Preview default is
+the intended behavior; hosted acceptance of that override is still required.
+No Production workflow was activated by publishing these shared templates.
 
 The member route runs phone OTP followed by selfie verification. It bypasses the
 government-ID route, does not require comparison to an ID portrait, and requires
@@ -89,8 +99,9 @@ resources are unnecessary.
 
 The accountless adapter is deployed to the isolated Preview with migrations
 0024/0025 and a durable local binding. The narrow API probe and synthetic
-application lifecycle checks passed as recorded below. Production application
-credentials have not been configured, and verification enforcement remains off.
+application lifecycle checks passed as recorded below. Separate Production
+configuration is staged as described below; member-facing verification and
+enforcement remain off.
 
 ## Synthetic Sandbox lifecycle acceptance
 
@@ -228,8 +239,8 @@ future delayed-Case behavior, hosted identity checks or Production acceptance.
 
 Private, ignored evidence is under
 `.vercel/launch-acceptance-2026-09-21/persona/` in the shared main checkout.
-Production Persona credentials, entitlement/configuration, required hosted
-checks and final signed-in return remain separate launch gates.
+Production configuration acceptance, entitlement, required hosted checks and
+final signed-in return remain separate launch gates.
 
 The subsequent isolated Preview deployment of `dc095f2` was verified Ready with
 the exact `codex/persona-provider-setup` branch and its scoped provider, database,
@@ -483,10 +494,10 @@ resuming. Do not remove pending state until the provider resources are reconcile
 - Confirm required-check failure gates and both member/government-ID hosted
   completion paths; finish the protected Preview return in the signed-in app.
   The actual manual Case decisions above passed using synthetic lifecycle inputs.
-- Configure the separately scoped Production inquiry and Case keys, exact Case
-  template allowlist and webhook, then verify their permissions and environment.
+- Finish the Production webhook's saved filter confirmation, then validate its
+  delivery and the full configuration with an authorized hosted acceptance run.
   The dedicated-key worker's actual Sandbox field selection, scoped DELETE and
-  positive redaction readback passed above; Production remains unconfigured.
+  positive redaction readback passed above; Production acceptance remains open.
 - Confirm child-resource retention with Persona. Unexpected Accounts remain
   explicit manual review obligations; they must not be silently forgotten.
 - Assign moderation and appeal ownership before requiring verification.
@@ -497,6 +508,43 @@ resuming. Do not remove pending state until the provider resources are reconcile
   Enterprise feature.
 
 No provider acceptance result is implied by the automated tests.
+
+## Staged Production setup — September 22 UTC
+
+A separate inquiry-only Production key was configured after owner authorization;
+an API request for template access returned HTTP 403. Its secret and the dedicated
+Production webhook signing secret are stored as sensitive Vercel Production
+values and included in the deployed server configuration. Storing these values
+does not activate member-facing verification: `PERSONA_VERIFICATION_ENABLED=0`
+and verification enforcement remains off. No Production Inquiry, identity
+submission or Case was created for this setup.
+
+Production webhook `wbh_AzLHMsDK2J6crjgFP7PAjZx1gAVZBQ` is **disabled** and
+targets `https://samepace.app/api/webhooks/persona`, without the Preview bypass
+token. It uses API version `2023-01-05`, kebab-case payloads and nine inquiry
+events, including `inquiry.redacted`. The payload allowlist retains only status,
+created/updated/redacted timestamps and reference, plus the relationship IDs/nulls
+needed for binding; included identity resources are excluded. Its exact
+two-template filter still requires saved-settings confirmation.
+
+The dedicated Production Case key's saved settings were reloaded and confirmed
+to allow only **Access all cases** and **Create or update cases**. It is distinct
+from the inquiry runtime key and saved as a sensitive Vercel Production value.
+A read-only request for an exact previously used Sandbox Inquiry returned HTTP
+403 with organization/environment headers matching the Production inquiry key.
+This checks scope denial and environment consistency, not successful access to
+a Production Case or erasure. No production object was created by the probe.
+
+The two shared Inquiry-template IDs and exact Case-template allowlist are also
+saved in Production, alongside the provider secrets and both disabled launch
+flags. Deployment of `aeffbd6` captured all 30 configured Production names after
+these updates. A locally signed synthetic redaction event for a random nonexistent
+Inquiry returned `200 unknown_inquiry`; unsigned requests returned `401`. This
+checks the deployed callback and signing configuration while verification is off,
+not Persona-originated delivery or an actual identity decision.
+Both shared workflows remain inactive in Production. These setup records do not
+establish hosted verification, live workflow decisions, deletion acceptance or
+post-trial entitlement.
 
 ## Post-trial production configuration
 
