@@ -121,6 +121,7 @@ describe("Persona Case cleanup", () => {
     const production = {
       ...ENV,
       VERCEL_ENV: "production",
+      PERSONA_VERIFICATION_ENABLED: "1",
       PERSONA_API_KEY: "persona_production_runtime",
       PERSONA_CASE_CLEANUP_API_KEY: "persona_production_cleanup",
     };
@@ -141,6 +142,7 @@ describe("Persona Case cleanup", () => {
       verification.startVerification(sql, id, "member", Date.now(), {
         env: {
           VERCEL_ENV: "production",
+          PERSONA_VERIFICATION_ENABLED: "1",
           PERSONA_API_KEY: "persona_production_runtime",
           PERSONA_TEMPLATE_MEMBER: "itmpl_member",
         },

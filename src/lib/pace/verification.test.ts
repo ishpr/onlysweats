@@ -9,6 +9,7 @@ import * as svc from "./service.server.ts";
 import { makeDb } from "./test-db.ts";
 import * as blocks from "./training-blocks.server.ts";
 import * as v from "./verification.server.ts";
+import { preparePersonaCreationIntent } from "./persona-creation-intents.server.ts";
 
 const HOUR = 60 * 60_000;
 const DAY = 24 * HOUR;
@@ -269,6 +270,70 @@ describe("the stand-in, outside production", () => {
 });
 
 describe("Persona", () => {
+  it("keeps fully configured production flows closed until explicitly launched", async () => {
+    const env = {
+      ...PERSONA,
+      PERSONA_API_KEY: "persona_production_test",
+      PERSONA_CASE_CLEANUP_API_KEY: "persona_production_cases",
+      PERSONA_CASE_TEMPLATE_IDS: "ctmpl_samepace",
+      VERCEL_ENV: "production",
+      NODE_ENV: "production",
+    };
+    const id = await member("ProductionNotLaunched");
+    const p = fakePersona();
+    for (const flag of [undefined, "", "0", "true", "false", "01"]) {
+      const deps = { ...p.deps, env: { ...env, PERSONA_VERIFICATION_ENABLED: flag } };
+      assert.equal((await v.getVerification(sql, id, deps)).available, false);
+      await rejects(v.startVerification(sql, id, "member", Date.now(), deps), 409, /isn’t open/);
+    }
+    assert.equal(p.calls.length, 0, "staging production keys must not contact Persona");
+    assert.equal(
+      (await sql`select id from persona_creation_intents where profile_id = ${id}`).length, 0,
+    );
+    assert.equal(v.providerFor({ ...env, PERSONA_VERIFICATION_ENABLED: "1" }), "persona");
+    assert.equal(v.providerFor({ ...env, VERCEL_ENV: undefined }), null,
+      "a non-Vercel production server also requires launch approval");
+    assert.equal(v.providerFor({ ...PERSONA, VERCEL_ENV: "preview", NODE_ENV: "production" }), "persona");
+    assert.equal(v.providerFor({ ...PERSONA, VERCEL_ENV: "preview", NODE_ENV: "production", PERSONA_VERIFICATION_ENABLED: "0" }), null);
+    assert.equal(v.providerFor({ PERSONA_VERIFICATION_ENABLED: "0" }), null,
+      "the off switch does not expose the dev stand-in");
+  });
+
+  it("pauses new and resumed flows while existing refreshes and signed decisions still reconcile", async () => {
+    for (const env of [
+      { ...PERSONA, VERCEL_ENV: "preview", NODE_ENV: "production" },
+      {
+        ...PERSONA,
+        PERSONA_API_KEY: "persona_production_test",
+        PERSONA_CASE_CLEANUP_API_KEY: "persona_production_cases",
+        PERSONA_CASE_TEMPLATE_IDS: "ctmpl_samepace",
+        PERSONA_VERIFICATION_ENABLED: "1",
+        VERCEL_ENV: "production",
+        NODE_ENV: "production",
+      },
+    ]) {
+      const id = await member("PausedVerification");
+      const p = fakePersona();
+      const started = await v.startVerification(sql, id, "member", Date.now(), { ...p.deps, env });
+      const inquiry = inquiryOf(started.url);
+      const paused = { ...p.deps, env: { ...env, PERSONA_VERIFICATION_ENABLED: "0" } };
+      const before = p.calls.length;
+      await rejects(v.startVerification(sql, id, "member", Date.now(), paused), 409, /isn’t open/);
+      await rejects(v.startVerification(sql, id, "government_id", Date.now(), paused), 409, /isn’t open/);
+      assert.equal(p.calls.length, before, "no new inquiry or hosted session while paused");
+      assert.equal((await v.getVerification(sql, id, paused)).provider, null);
+      p.statuses.set(inquiry, "approved");
+      const refreshed = await v.refreshVerification(sql, id, started.id, Date.now(), paused);
+      assert.equal(refreshed.member, "approved");
+      assert.equal(refreshed.available, false);
+      const now = Date.now() + 1000;
+      const body = event(inquiry, null, "declined", undefined, now);
+      assert.equal((await v.handlePersonaWebhook(sql, body, sign(body, now), now, paused)).outcome, "declined");
+      assert.equal((await v.getVerification(sql, id, paused)).member, "declined");
+      assert.equal((await svc.people(sql, [id]))[0].identityVerified, false);
+    }
+  });
+
   it("allows sandbox keys only locally or in an explicit Vercel preview", () => {
     const cases: [Record<string, string>, "persona" | null][] = [
       [{}, "persona"],
@@ -368,6 +433,7 @@ describe("Persona", () => {
         PERSONA_API_KEY: "persona_production_test",
         PERSONA_CASE_CLEANUP_API_KEY: "persona_production_cases",
         PERSONA_CASE_TEMPLATE_IDS: "ctmpl_samepace",
+        PERSONA_VERIFICATION_ENABLED: "1",
         VERCEL_ENV: "production",
         NODE_ENV: "production",
       },
@@ -945,18 +1011,36 @@ describe("accountless inquiry binding", () => {
     assert.equal(intent.cancel_requested, true);
     assert.equal(JSON.stringify(intent).includes(id), false);
     const before = made;
-    assert.equal((await v.recoverPersonaCreations(sql, now + 10_000, deps)).reconciled, 1);
+    const paused = { ...deps, env: { ...PERSONA, PERSONA_VERIFICATION_ENABLED: "0" } };
+    assert.equal((await v.recoverPersonaCreations(sql, now + 10_000, paused)).reconciled, 1);
     assert.equal(made, before, "idempotent replay did not create a second inquiry");
     const creates = p.calls.filter((call) => call.path === "/inquiries");
     assert.equal(creates.length, 2);
     assert.deepEqual(creates[0].body, creates[1].body);
     assert.equal(creates[0].idempotency, creates[1].idempotency);
     const inquiry = `inq_${before}`;
-    assert.equal((await v.retryPersonaRedactions(sql, now + 10_000, deps, [inquiry])).redacted, 1);
+    assert.equal((await v.retryPersonaRedactions(sql, now + 10_000, paused, [inquiry])).redacted, 1);
     assert.equal(
       (await sql`select id from persona_creation_intents where id = ${intent.id}`).length,
       0,
     );
+  });
+
+  it("leaves never-dispatched intents paused until verification reopens", async () => {
+    const id = await member("PausedBeforeDispatch");
+    const p = fakePersona();
+    const now = Date.now();
+    const intent = await preparePersonaCreationIntent(sql, {
+      profileId: id, tier: "member", templateId: "itmpl_member", environment: "sandbox", bindingVersion: 1,
+    }, now);
+    const paused = { ...p.deps, env: { ...PERSONA, PERSONA_VERIFICATION_ENABLED: "0" } };
+    assert.deepEqual(await v.recoverPersonaCreations(sql, now, paused), { bound: 0, reconciled: 0, failed: 0 });
+    assert.equal(p.calls.length, 0);
+    const [row] = await sql`select first_dispatched_at from persona_creation_intents where id = ${intent.id}`;
+    assert.equal(row.first_dispatched_at, null);
+    assert.equal((await v.recoverPersonaCreations(sql, now + 1, p.deps)).bound, 1);
+    assert.equal(p.calls.filter((call) => call.path === "/inquiries").length, 1);
+    assert.equal((await sql`select id from persona_creation_intents where id = ${intent.id}`).length, 0);
   });
 });
 

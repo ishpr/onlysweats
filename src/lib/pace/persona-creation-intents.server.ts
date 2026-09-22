@@ -286,10 +286,12 @@ export async function listDuePersonaCreationIntents(
   environment: PersonaEnvironment,
   now = Date.now(),
   limit = 5,
+  includeUndispatched = true,
 ): Promise<string[]> {
   const bounded = Math.max(1, Math.min(20, Math.floor(limit) || 5));
   const rows = await sql<{ id: string }>`select id from persona_creation_intents
     where provider_environment = ${environment} and state = 'pending'
+      and (${includeUndispatched} or first_dispatched_at is not null or provider_ref is not null)
       and next_attempt_at <= ${date(now)} and (lease_until is null or lease_until <= ${date(now)})
     order by next_attempt_at, id limit ${bounded}`;
   return rows.map((row) => row.id);
