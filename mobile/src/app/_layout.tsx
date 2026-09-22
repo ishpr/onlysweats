@@ -236,6 +236,13 @@ function ProtectedRoutes({ signedIn }: { signedIn: boolean }) {
         <Stack.Screen name="training-block/[id]" options={{ title: "Goal" }} />
         <Stack.Screen name="training-block/new" options={routeSheetOptions} />
         <Stack.Screen name="report" options={routeSheetOptions} />
+        <Stack.Screen name="settings/index" options={{ title: "Settings" }} />
+        <Stack.Screen name="settings/assistant" options={{ title: "Assistant" }} />
+        <Stack.Screen name="settings/privacy" options={{ title: "What your assistant can use" }} />
+        <Stack.Screen name="settings/notifications" options={{ title: "Notifications" }} />
+        <Stack.Screen name="settings/verification" options={{ title: "Verification" }} />
+        <Stack.Screen name="settings/women-only" options={{ title: "Women-only sessions" }} />
+        <Stack.Screen name="settings/agreed" options={{ title: "What you agreed to" }} />
         <Stack.Screen name="blocked" options={{ title: "Blocked members" }} />
         <Stack.Screen name="activity" options={{ title: "Notifications" }} />
         <Stack.Screen name="today" options={{ title: "Today" }} />

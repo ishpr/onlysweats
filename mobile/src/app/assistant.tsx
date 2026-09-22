@@ -1,5 +1,5 @@
 import { use, useState } from "react";
-import { ClipboardList, Link2, PauseCircle } from "lucide-react-native";
+import { ClipboardList, SlidersHorizontal } from "lucide-react-native";
 import { Redirect, Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PrivateAssistantChat } from "@/components/assistant-chat";
@@ -12,7 +12,6 @@ import { PlanPeek } from "@/components/plan-peek";
 import { AssistantPlacement } from "@/lib/assistant-placement";
 import { AssistantHero, assistantStatus } from "@/components/assistant-hero";
 import { ListCard, ListRow, SectionTitle } from "@/components/list";
-import { AssistantCredentials } from "@/components/assistant-credentials";
 import { AssistantPreferencesEditor } from "@/components/assistant-preferences";
 import { PrivateMember, type PrivateMemberProps } from "@/components/private-member";
 import { Button, Card, Notice, Screen, StateView, T } from "@/components/ui";
@@ -53,7 +52,6 @@ function Assistant({ member, session }: PrivateMemberProps) {
   // "Review" on a chat card opens the plan as a peek over the thread, which stays mounted.
   const [peek, setPeek] = useState<string | null>(null);
   const [showPreferences, setShowPreferences] = useState(params.planning === "1");
-  const [showConnected, setShowConnected] = useState(false);
   const action = usePrivateAction(session);
   const client = useQueryClient();
   const key = ["private-assistant", member.id];
@@ -261,47 +259,14 @@ function Assistant({ member, session }: PrivateMemberProps) {
               </>
             )}
             {preferences.data && (
-              <>
-                <SectionTitle>Controls</SectionTitle>
-                <ListCard>
-                  {current?.enabled ? (
-                    <ListRow
-                      icon={PauseCircle}
-                      label="Pause my assistant"
-                      onPress={() =>
-                        void action.run(
-                          (signal) =>
-                            session.request("/agents/preferences", {
-                              method: "PUT",
-                              signal,
-                              json: {
-                                enabled: false,
-                                activity: current.activity,
-                                ability: current.ability,
-                                durationMin: current.durationMin,
-                                venueIds: current.venueIds,
-                                availability: current.availability,
-                                approvedIntent: current.approvedIntent,
-                              },
-                            }),
-                          refresh,
-                        )
-                      }
-                    />
-                  ) : null}
-                  <ListRow
-                    icon={Link2}
-                    label="Connect an outside assistant"
-                    expanded={showConnected}
-                    onPress={() => setShowConnected((value) => !value)}
-                  >
-                    <AssistantCredentials session={session} ownerId={member.id} />
-                  </ListRow>
-                </ListCard>
-                <T variant="caption" color="textFaint">
-                  Pausing stops it sharing what you’re after. Plans already agreed stay as they are.
-                </T>
-              </>
+              <ListCard>
+                <ListRow
+                  icon={SlidersHorizontal}
+                  label="Assistant settings"
+                  detail="Pause, clear the conversation, outside assistants"
+                  onPress={() => router.push("/settings/assistant")}
+                />
+              </ListCard>
             )}
           </>
         )}
